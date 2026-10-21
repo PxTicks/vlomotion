@@ -1,0 +1,84 @@
+import { useEffect, useState } from "react";
+import { Alert, Box, Button, Chip, Container, Divider, Paper, Stack, Step, StepButton, Stepper, ToggleButton, ToggleButtonGroup, Typography } from "@mui/material";
+import { aspectRatioSchema, generationSize, healthSchema } from "@h3-motion/shared";
+import { apiRequest } from "../../api";
+import { SelectPanel, SelectionCanvas, useSelectionStore } from "../select";
+
+let sessionPromise: Promise<unknown> | undefined;
+
+export function App() {
+  const [ready, setReady] = useState(false);
+  const [startupError, setStartupError] = useState<string | null>(null);
+  const [comfyAvailable, setComfyAvailable] = useState<boolean | null>(null);
+  const ratio = useSelectionStore(s => s.aspectRatio);
+  const changeRatio = useSelectionStore(s => s.changeAspectRatio);
+  const busy = useSelectionStore(s => s.busy);
+  const phase = useSelectionStore(s => s.phase);
+  const mask = useSelectionStore(s => s.mask);
+  const editSelection = useSelectionStore(s => s.editSelection);
+  const error = useSelectionStore(s => s.error);
+  const notice = useSelectionStore(s => s.notice);
+  const clearError = useSelectionStore(s => s.clearError);
+  const size = generationSize(ratio);
+
+  useEffect(() => {
+    let disposed = false;
+    sessionPromise ??= apiRequest("/sessions", { method: "POST" }).catch(error => { sessionPromise = undefined; throw error; });
+    void sessionPromise.then(() => { if (!disposed) setReady(true); }).catch(error => { if (!disposed) setStartupError(error instanceof Error ? error.message : "Could not start a session."); });
+    const health = async () => {
+      try {
+        const data = healthSchema.parse(await apiRequest("/health"));
+        if (!disposed) setComfyAvailable(data.comfy === "ok");
+      } catch { if (!disposed) setComfyAvailable(false); }
+    };
+    void health();
+    const timer = globalThis.setInterval(() => void health(), 15_000);
+    return () => { disposed = true; globalThis.clearInterval(timer); };
+  }, []);
+
+  return <Container maxWidth="xl" sx={{ py: { xs: 3, md: 5 }, px: { xs: 2, md: 6 } }}>
+    <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: { xs: 4, md: 6 } }}>
+      <Typography sx={{ letterSpacing: ".14em", fontSize: 14, fontWeight: 600 }}>H3 <Box component="span" sx={{ color: "primary.main" }}>MOTION</Box></Typography>
+      <Chip size="small" variant="outlined" label={comfyAvailable === null ? "Checking connection…" : comfyAvailable ? "● ComfyUI connected" : "○ ComfyUI offline"} sx={{ color: comfyAvailable ? "primary.main" : "text.secondary" }} />
+    </Stack>
+    <Stack spacing={1.5} sx={{ mb: 4 }}><Typography variant="h1">Move a subject</Typography>
+      <Typography color="text.secondary" sx={{ fontSize: { xs: 15, md: 18 } }}>Lift anything out of a photo and drag it into motion.</Typography></Stack>
+    {startupError && <Alert severity="error" sx={{ mb: 3 }} action={<Button onClick={() => globalThis.location.reload()}>Retry</Button>}>{startupError}</Alert>}
+    {error && <Alert severity="error" onClose={clearError} sx={{ mb: 3 }}>{error}</Alert>}
+    {notice && <Typography role="status" color="text.secondary" sx={{ mb: 2, fontSize: 14 }}>{notice}</Typography>}
+    {!ready && !startupError && <Typography role="status" sx={{ mb: 2 }}>Starting your session…</Typography>}
+    <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "minmax(0, 1fr) 360px" }, gap: 3, alignItems: "start",
+      pointerEvents: ready ? "auto" : "none", opacity: ready ? 1 : .45 }} inert={!ready}>
+      <Paper sx={{ p: { xs: 1.5, md: 2.5 }, overflow: "hidden" }}>
+        <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 2 }}>
+          <Typography variant="overline" color="text.secondary">SOURCE PHOTO</Typography>
+          <ToggleButtonGroup exclusive size="small" value={ratio} disabled={busy} aria-label="Working aspect ratio"
+            onChange={(_, value: unknown) => { const parsed = aspectRatioSchema.safeParse(value); if (parsed.success) void changeRatio(parsed.data); }}>
+            {["16:9", "9:16", "1:1"].map(value => <ToggleButton key={value} value={value} sx={{ px: 1.5, py: .5, borderRadius: 99 }}>{value}</ToggleButton>)}
+          </ToggleButtonGroup>
+        </Stack>
+        <SelectionCanvas />
+        <Divider sx={{ my: 2 }} />
+        <Stack direction="row" justifyContent="space-between" gap={2}>
+          <Typography variant="caption" color="text.secondary">Centre crop · 480p · {size.width} × {size.height}</Typography>
+          <Typography variant="caption" color="text.secondary">24 fps · 5 s / 7 s / 10 s</Typography>
+        </Stack>
+      </Paper>
+      <Paper sx={{ p: 3 }}>
+        <Stepper activeStep={phase} alternativeLabel sx={{ mb: 4, mx: -2, ".MuiStepLabel-label": { fontSize: 12 } }}>
+          {["Select", "Isolate", "Move", "Generate"].map((label, index) => <Step key={label}>
+            <StepButton disabled={busy || index > phase} onClick={index === 0 ? editSelection : undefined}>{label}</StepButton>
+          </Step>)}
+        </Stepper>
+        {phase === 0 ? <SelectPanel /> : <Stack spacing={2}>
+          <Chip label="Selection confirmed" color="primary" sx={{ alignSelf: "start" }} />
+          <Typography variant="h2">Ready to isolate</Typography>
+          <Typography variant="body2" color="text.secondary">Your subject mask is saved. Background removal, motion editing and generation are the next implementation milestones.</Typography>
+          {mask && <Button component="a" href={mask.url} download="h3-motion-subject-mask.png" variant="outlined">Download subject mask</Button>}
+          <Button onClick={editSelection}>Edit selection</Button>
+        </Stack>}
+      </Paper>
+    </Box>
+    <Typography variant="caption" color="text.secondary" component="p" sx={{ mt: 3 }}>Early development · Photo selection is implemented. Isolate, Move and Generate are coming next.</Typography>
+  </Container>;
+}

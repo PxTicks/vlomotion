@@ -1,0 +1,9 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "NodeNext", "moduleResolution": "NodeNext",
+    "composite": true, "rootDir": "src", "outDir": "dist", "types": ["node"]
+  },
+  "include": ["src"],
+  "references": [{ "path": "../../packages/shared" }]
+}

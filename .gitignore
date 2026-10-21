@@ -1,0 +1,10 @@
+PLAN.md
+node_modules/
+dist/
+*.tsbuildinfo
+.env
+.env.local
+.data/
+.proxy-state/
+coverage/
+run.sh

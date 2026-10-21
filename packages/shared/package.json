@@ -1,0 +1,9 @@
+{
+  "name": "@h3-motion/shared",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
+  "scripts": { "build": "tsc -b", "watch": "tsc -b --watch --preserveWatchOutput" },
+  "dependencies": { "zod": "^4.0.0" }
+}
