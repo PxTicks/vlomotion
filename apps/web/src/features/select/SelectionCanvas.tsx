@@ -7,6 +7,27 @@ import { useSelectionStore } from "./useSelectionStore";
 const Surface = styled("canvas")({ display: "block", width: "100%", height: "100%", objectFit: "contain", touchAction: "none" });
 interface MaskPixels { candidate: MaskCandidate; pixels: Uint8ClampedArray }
 
+interface RefinementPointProps {
+  point: Point;
+  color: string;
+  label: string;
+  disabled: boolean;
+  onRemove: () => void;
+}
+
+function RefinementPoint({ point, color, label, disabled, onRemove }: RefinementPointProps) {
+  return <circle cx={point.x} cy={point.y} r={8} fill={color} stroke="#211927" strokeWidth={3}
+    role="button" aria-label={label} aria-disabled={disabled} tabIndex={disabled ? -1 : 0}
+    style={{ pointerEvents: disabled ? "none" : "all", cursor: "pointer" }}
+    onClick={event => { event.stopPropagation(); if (!disabled) onRemove(); }}
+    onContextMenu={event => { event.preventDefault(); event.stopPropagation(); if (!disabled) onRemove(); }}
+    onKeyDown={event => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault(); event.stopPropagation(); if (!disabled) onRemove();
+      }
+    }}><title>{label}</title></circle>;
+}
+
 function loadImage(url: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const image = new Image();
@@ -27,6 +48,7 @@ export function SelectionCanvas() {
   const upload = useSelectionStore(s => s.upload);
   const toggle = useSelectionStore(s => s.toggleCandidate);
   const addPoint = useSelectionStore(s => s.addPoint);
+  const removePoint = useSelectionStore(s => s.removePoint);
   const phase = useSelectionStore(s => s.phase);
   const aspectRatio = useSelectionStore(s => s.aspectRatio);
   const canvas = useRef<HTMLCanvasElement>(null);
@@ -98,13 +120,13 @@ export function SelectionCanvas() {
         onClick={event => {
           if (busy || phase !== 0) return;
           const point = imagePoint(event.clientX, event.clientY); if (!point) return;
-          if (refine) { void addPoint(point, false); return; }
+          if (refine) { addPoint(point, false); return; }
           const hit = [...masks.current].reverse().find(mask => mask.pixels[(point.y * image.width + point.x) * 4] >= 128);
           if (hit) toggle(hit.candidate.id);
         }} onContextMenu={event => {
           if (!refine) return;
           event.preventDefault(); if (busy || phase !== 0) return;
-          const point = imagePoint(event.clientX, event.clientY); if (point) void addPoint(point, true);
+          const point = imagePoint(event.clientX, event.clientY); if (point) addPoint(point, true);
         }} /> : <Stack sx={{ position: "absolute", inset: 0, p: 3 }} alignItems="center" justifyContent="center" spacing={2}>
         <Typography sx={{ fontSize: 48, color: "primary.main", lineHeight: 1 }}>↥</Typography>
         <Typography variant="h2">Start with a photo</Typography>
@@ -113,8 +135,10 @@ export function SelectionCanvas() {
         <Typography variant="caption" color="text.secondary">JPEG, PNG or WebP · up to 20 MB</Typography>
       </Stack>}
       {image && refine && <svg viewBox={`0 0 ${image.width} ${image.height}`} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none" }}>
-        {positive.map((point, i) => <circle key={`p${i}`} cx={point.x} cy={point.y} r={8} fill="#f2ff59" stroke="#211927" strokeWidth={3} />)}
-        {negative.map((point, i) => <circle key={`n${i}`} cx={point.x} cy={point.y} r={8} fill="#ff3b3b" stroke="#211927" strokeWidth={3} />)}
+        {positive.map((point, i) => <RefinementPoint key={`p${i}`} point={point} color="#f2ff59" label={`Remove include point ${i + 1}`}
+          disabled={busy || phase !== 0} onRemove={() => removePoint(i, false)} />)}
+        {negative.map((point, i) => <RefinementPoint key={`n${i}`} point={point} color="#ff3b3b" label={`Remove exclude point ${i + 1}`}
+          disabled={busy || phase !== 0} onRemove={() => removePoint(i, true)} />)}
       </svg>}
       {busy && <Box sx={{ position: "absolute", top: 16, left: 16, bgcolor: "background.paper", borderRadius: 99, py: 1, px: 2, display: "flex", gap: 1, alignItems: "center" }}>
         <CircularProgress size={16} /><Typography variant="caption">Working…</Typography>

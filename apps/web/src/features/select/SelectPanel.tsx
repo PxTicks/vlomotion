@@ -10,6 +10,11 @@ export function SelectPanel() {
   const toggle = useSelectionStore(s => s.toggleCandidate);
   const refine = useSelectionStore(s => s.refine);
   const setRefine = useSelectionStore(s => s.setRefine);
+  const positive = useSelectionStore(s => s.positive);
+  const negative = useSelectionStore(s => s.negative);
+  const pointsPending = useSelectionStore(s => s.pointsPending);
+  const applyRefinement = useSelectionStore(s => s.applyRefinement);
+  const clearPoints = useSelectionStore(s => s.clearPoints);
   const segment = useSelectionStore(s => s.segment);
   const confirm = useSelectionStore(s => s.confirm);
   const busy = useSelectionStore(s => s.busy);
@@ -32,12 +37,18 @@ export function SelectPanel() {
           variant={selectedIds.includes(candidate.id) ? "filled" : "outlined"} onClick={() => toggle(candidate.id)} />)}</Stack>
     </Stack>}
     <Stack><FormControlLabel control={<Switch checked={refine} onChange={(_, checked) => setRefine(checked)} disabled={!image || busy} />} label="Refine with points" />
-      {refine && <Typography variant="caption" color="text.secondary">Click inside the subject. Right click to exclude an area. Refines the first selected subject; other selections stay in place.</Typography>}</Stack>
+      {refine && <Stack spacing={1.5}>
+        <Typography variant="caption" color="text.secondary">Add all your points, then apply refinement. Left click to include; right click to exclude. Click an existing point to remove it. Refines the first selected subject; other selections stay in place.</Typography>
+        <Typography variant="caption" color="text.secondary" role="status">{positive.length} include · {negative.length} exclude{pointsPending ? " · Unapplied changes" : ""}</Typography>
+        <Button variant="outlined" disabled={busy || !positive.length || !pointsPending} onClick={() => void applyRefinement()}>Apply refinement</Button>
+        <Button disabled={busy || (!positive.length && !negative.length)} onClick={clearPoints}>Clear points</Button>
+        {pointsPending && <Typography variant="caption" color="text.secondary">{positive.length ? "Apply or clear your points before confirming selection." : "Add at least one include point to apply refinement."}</Typography>}
+      </Stack>}</Stack>
     {busy && job && <Stack spacing={1} aria-live="polite">
       <Typography variant="body2">{job.message}</Typography>
       <LinearProgress variant={job.progress === null ? "indeterminate" : "determinate"} value={(job.progress ?? 0) * 100} />
       <Button onClick={() => void cancel()}>Cancel selection</Button>
     </Stack>}
-    <Button variant="contained" size="large" disabled={!selectedIds.length || busy} onClick={() => void confirm()}>Confirm selection →</Button>
+    <Button variant="contained" size="large" disabled={!selectedIds.length || busy || pointsPending} onClick={() => void confirm()}>Confirm selection →</Button>
   </Stack>;
 }
