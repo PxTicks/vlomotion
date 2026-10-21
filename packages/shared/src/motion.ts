@@ -6,13 +6,15 @@ export type MotionTiming = "smooth" | "linear";
 /** keys[0] is the photo: frame 0 at the anchor, never moved, retimed or deleted. */
 export interface SubjectMotion { anchor: Point; frames: FrameCount; timing: MotionTiming; keys: MotionKey[] }
 export interface Rect { x: number; y: number; width: number; height: number }
-export interface RecordedSample { frame: number; x: number; y: number }
+/** A recorded pointer position; `time` is in milliseconds from the start of the drag. */
+export interface TimedSample { time: number; x: number; y: number }
 
 export const MAX_MOTION_KEYS = 32;
 const START_KEY_ID = "start";
 const ALPHA = 0.5;
 const RECORD_TIME_SCALE = 2;
 const RECORD_EPSILON = 4;
+const RECORD_MOVE_EPSILON = 1;
 
 const distance = (a: Point, b: Point) => Math.hypot(b.x - a.x, b.y - a.y);
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
@@ -249,7 +251,9 @@ export function setClipFrames(motion: SubjectMotion, frames: FrameCount): Subjec
   return withFrames(next, spaceFrames(motion.keys.map(key => key.frame * last / end), last));
 }
 
-function rdp(points: (RecordedSample & { z: number })[], epsilon: number): (RecordedSample & { z: number })[] {
+type FrameSample = Point & { frame: number; z: number };
+
+function rdp(points: FrameSample[], epsilon: number): FrameSample[] {
   if (points.length <= 2) return points;
   const a = points[0], b = points[points.length - 1];
   const ab = [b.x - a.x, b.y - a.y, b.z - a.z], span = ab[0] ** 2 + ab[1] ** 2 + ab[2] ** 2;
@@ -265,27 +269,40 @@ function rdp(points: (RecordedSample & { z: number })[], epsilon: number): (Reco
 }
 
 /**
- * Replaces everything from the first recorded frame onward with keys simplified from a live drag.
- * Simplification runs over (x, y, time) so pauses and speed changes survive as keys.
+ * Turns a recorded drag into keys from `startFrame` to the end of the clip, following vlo: the take's
+ * timing is normalised to fill that span whatever time the drag took. Idle time before the first movement
+ * and after the subject reaches its final position is dropped; pauses and speed changes in between keep
+ * their proportions. Keys before `startFrame` are kept and everything after it is replaced.
  */
-export function applyRecording(motion: SubjectMotion, samples: RecordedSample[], newId: () => string): SubjectMotion {
-  if (samples.length < 2) return motion;
+export function applyRecording(motion: SubjectMotion, samples: TimedSample[], startFrame: number, newId: () => string): SubjectMotion {
   const last = lastFrame(motion);
-  const start = clamp(Math.round(samples[0].frame), 0, last);
-  const kept = motion.keys.filter((key, i) => i === 0 || key.frame < start);
-  const scaled = samples.map(sample => ({ ...sample, frame: clamp(sample.frame, start, last), z: clamp(sample.frame, start, last) * RECORD_TIME_SCALE }));
-  const coarse = [scaled[0]];
-  for (const sample of scaled.slice(1)) {
+  const start = clamp(Math.round(startFrame), 0, last);
+  if (samples.length < 2 || start >= last) return motion;
+  const origin = samples[0], final = samples[samples.length - 1];
+  const first = samples.findIndex(sample => distance(sample, origin) > RECORD_MOVE_EPSILON);
+  if (first < 0) return motion;
+  let end = samples.length - 1;
+  while (end > first && distance(samples[end - 1], final) <= RECORD_MOVE_EPSILON) end--;
+  const base = samples[first - 1].time, duration = samples[end].time - base;
+  if (duration <= 0) return motion;
+  const toFrame = (time: number) => start + (time - base) / duration * (last - start);
+  const timed = [{ ...origin, time: base }, ...samples.slice(first, end), { ...final, time: samples[end].time }]
+    .map(({ x, y, time }) => ({ x, y, frame: toFrame(time), z: toFrame(time) * RECORD_TIME_SCALE }));
+  const coarse = [timed[0]];
+  for (const sample of timed.slice(1, -1)) {
     const previous = coarse[coarse.length - 1];
     if (Math.hypot(sample.x - previous.x, sample.y - previous.y, sample.z - previous.z) >= 1) coarse.push(sample);
   }
-  if (coarse[coarse.length - 1] !== scaled[scaled.length - 1]) coarse.push(scaled[scaled.length - 1]);
+  coarse.push(timed[timed.length - 1]);
+  const kept = motion.keys.filter((key, i) => i === 0 || key.frame < start);
   let epsilon = RECORD_EPSILON, simplified = rdp(coarse, epsilon);
   while (kept.length + simplified.length > MAX_MOTION_KEYS) simplified = rdp(coarse, epsilon *= 1.5);
   const recorded: MotionKey[] = [];
   for (const sample of simplified) {
-    const frame = Math.round(sample.frame);
-    if (frame === 0 || frame <= (recorded[recorded.length - 1]?.frame ?? kept[kept.length - 1].frame)) continue;
+    const frame = Math.round(sample.frame), previous = recorded[recorded.length - 1];
+    // Later samples win a shared frame, so the take always ends exactly where the drag was released.
+    if (previous?.frame === frame) { previous.x = sample.x; previous.y = sample.y; continue; }
+    if (frame === 0 || frame <= (previous ?? kept[kept.length - 1]).frame) continue;
     recorded.push({ id: newId(), frame, x: sample.x, y: sample.y });
   }
   return { ...motion, keys: [...kept, ...recorded] };

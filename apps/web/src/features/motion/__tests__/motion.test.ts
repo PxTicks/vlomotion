@@ -64,15 +64,16 @@ describe("motion store", () => {
     state().setPlayhead(40);
     expect(state()).toMatchObject({ playing: false, playhead: 40 });
   });
-  it("records only when armed, locks editing during the take and applies it", () => {
+  it("records only when armed, without playing, and fits the take to the clip", () => {
     expect(state().startRecording()).toBeNull();
     state().setArmed(true);
     expect(state().startRecording()).toBe(0);
+    expect(state().playing).toBe(false);
     state().setPlayhead(50);
     expect(state().playhead).toBe(0);
-    state().finishRecording([{ frame: 0, x: 100, y: 200 }, { frame: 24, x: 300, y: 200 }, { frame: 48, x: 300, y: 400 }]);
+    state().finishRecording([{ time: 0, x: 100, y: 200 }, { time: 300, x: 300, y: 200 }, { time: 600, x: 300, y: 400 }]);
     expect(state()).toMatchObject({ recording: false, armed: false, playing: false });
-    expect(state().motion?.keys.map(key => [key.frame, key.x, key.y])).toEqual([[0, 100, 200], [24, 300, 200], [48, 300, 400]]);
+    expect(state().motion?.keys.map(key => [key.frame, key.x, key.y])).toEqual([[0, 100, 200], [62, 300, 200], [123, 300, 400]]);
   });
   it("drops an unfinished take when the editor closes", () => {
     state().setArmed(true); state().startRecording();

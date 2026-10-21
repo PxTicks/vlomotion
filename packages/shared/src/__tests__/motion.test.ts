@@ -115,21 +115,45 @@ describe("motion editing", () => {
 });
 
 describe("recording", () => {
-  it("simplifies a live drag into keys that keep pauses and replace later keys", () => {
-    const motion = motionWith([20, 120, 200], [100, 900, 900]);
-    const samples = [];
-    for (let frame = 20; frame <= 40; frame += 0.5) samples.push({ frame, x: 120 + (frame - 20) * 10, y: 200 });
-    for (let frame = 40.5; frame <= 70; frame += 0.5) samples.push({ frame, x: 320, y: 200 });
-    for (let frame = 70.5; frame <= 80; frame += 0.5) samples.push({ frame, x: 320, y: 200 + (frame - 70) * 10 });
-    const recorded = applyRecording(motion, samples, id);
-    expect(validateMotion(recorded)).toEqual([]);
-    expect(recorded.keys.map(key => [key.frame, Math.round(key.x), Math.round(key.y)])).toEqual([
-      [0, 100, 200], [20, 120, 200], [40, 320, 200], [70, 320, 200], [80, 320, 300],
-    ]);
+  // A drag sampled at 60 Hz: `still` holds position, `move` travels in a straight line.
+  function take(...parts: ({ still: number } | { move: number; to: [number, number] })[]) {
+    const samples = [{ time: 0, x: 100, y: 200 }];
+    for (const part of parts) {
+      const from = samples[samples.length - 1], steps = Math.round(("still" in part ? part.still : part.move) / 1000 * 60);
+      for (let i = 1; i <= steps; i++) {
+        const to = "to" in part ? { x: from.x + (part.to[0] - from.x) * i / steps, y: from.y + (part.to[1] - from.y) * i / steps } : from;
+        samples.push({ time: from.time + i * 1000 / 60, x: to.x, y: to.y });
+      }
+    }
+    return samples;
+  }
+  const keys = (motion: SubjectMotion) => motion.keys.map(key => [key.frame, Math.round(key.x), Math.round(key.y)]);
+
+  it("stretches a take to fill the clip, whatever time the drag took", () => {
+    for (const ms of [500, 4000]) {
+      const recorded = applyRecording(createMotion(anchor), take({ move: ms, to: [500, 200] }), 0, id);
+      expect(keys(recorded)).toEqual([[0, 100, 200], [123, 500, 200]]);
+    }
   });
-  it("ignores a recording too short to describe motion", () => {
+  it("drops idle time before the first movement and after the subject arrives", () => {
+    const recorded = applyRecording(createMotion(anchor), take({ still: 1500 }, { move: 1000, to: [500, 200] }, { still: 2000 }), 0, id);
+    expect(keys(recorded)).toEqual([[0, 100, 200], [123, 500, 200]]);
+  });
+  it("keeps pauses and speed changes in proportion", () => {
+    // 1 s right, 1 s pause, 2 s down: quarters of the clip are 30.75 frames.
+    const recorded = applyRecording(createMotion(anchor), take({ move: 1000, to: [300, 200] }, { still: 1000 }, { move: 2000, to: [300, 400] }), 0, id);
+    expect(validateMotion(recorded)).toEqual([]);
+    expect(keys(recorded)).toEqual([[0, 100, 200], [31, 300, 200], [62, 300, 200], [123, 300, 400]]);
+  });
+  it("fills from the playhead and keeps earlier keys", () => {
+    const motion = motionWith([20, 100, 300], [100, 900, 900]);
+    const recorded = applyRecording(motion, take({ move: 1000, to: [500, 200] }), 60, id);
+    expect(keys(recorded)).toEqual([[0, 100, 200], [20, 100, 300], [60, 100, 200], [123, 500, 200]]);
+  });
+  it("ignores takes without movement or with no room left in the clip", () => {
     const motion = motionWith([20, 120, 200]);
-    expect(applyRecording(motion, [{ frame: 5, x: 0, y: 0 }], id)).toBe(motion);
+    expect(applyRecording(motion, take({ still: 1000 }), 0, id)).toBe(motion);
+    expect(applyRecording(motion, take({ move: 1000, to: [500, 200] }), 123, id)).toBe(motion);
   });
 });
 

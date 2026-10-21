@@ -2,8 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import { Alert, Box, CircularProgress, Typography } from "@mui/material";
 import { styled } from "@mui/material/styles";
-import { FPS, buildMotionCurve, isStartKey } from "@h3-motion/shared";
-import type { Point, RecordedSample } from "@h3-motion/shared";
+import { buildMotionCurve, isStartKey } from "@h3-motion/shared";
+import type { Point, TimedSample } from "@h3-motion/shared";
 import { currentIsolation, useSelectionStore } from "../select";
 import { drawGhost, drawReference, hitsSubject, loadSubjectLayers, subjectKeyOf } from "./subjectLayers";
 import type { SubjectLayers } from "./subjectLayers";
@@ -12,7 +12,7 @@ import { useMotionStore } from "./useMotionStore";
 
 const Surface = styled("canvas")({ display: "block", width: "100%", height: "100%" });
 type Drag = { pointerId: number; origin: Point; start: Point } & (
-  | { kind: "subject" } | { kind: "key"; id: string } | { kind: "record"; startFrame: number; startTime: number });
+  | { kind: "subject" } | { kind: "key"; id: string } | { kind: "record"; startTime: number });
 type Hover = "key" | "subject" | "path" | null;
 
 
@@ -31,7 +31,7 @@ export function MotionCanvas() {
   const canvas = useRef<HTMLCanvasElement>(null);
   const overlay = useRef<SVGSVGElement>(null);
   const drag = useRef<Drag | null>(null);
-  const samples = useRef<RecordedSample[]>([]);
+  const samples = useRef<TimedSample[]>([]);
   const [layers, setLayers] = useState<SubjectLayers | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [scale, setScale] = useState(1);
@@ -71,11 +71,6 @@ export function MotionCanvas() {
       if (key.x !== current.x || key.y !== current.y) drawGhost(context, layers, { x: key.x - anchor.x, y: key.y - anchor.y }, .22);
     }
   }, [layers, curve, ready, playhead, playing, recording, live]);
-
-  useEffect(() => {
-    // Playback reaching the clip end stops a take that is still held.
-    if (recording && !playing && drag.current?.kind === "record") finishTake();
-  }, [recording, playing]);
 
   const path = useMemo(() => curve && curve.length > 0
     ? curve.samples.map((p, i) => `${i ? "L" : "M"}${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join("") : "", [curve]);
@@ -130,9 +125,9 @@ export function MotionCanvas() {
         const startFrame = store.startRecording();
         if (startFrame === null) return;
         const start = curve.positionAt(startFrame);
-        samples.current = [{ frame: startFrame, ...start }];
+        samples.current = [{ time: 0, ...start }];
         setLive(start);
-        startDrag(event, { kind: "record", pointerId, origin: point, start, startFrame, startTime: performance.now() });
+        startDrag(event, { kind: "record", pointerId, origin: point, start, startTime: performance.now() });
         return;
       }
       const start = store.beginSubjectDrag();
@@ -161,7 +156,7 @@ export function MotionCanvas() {
     if (current.kind === "key") store.moveKey(current.id, target);
     else if (current.kind === "subject") store.placeSubject(target);
     else {
-      samples.current.push({ frame: current.startFrame + (performance.now() - current.startTime) / 1000 * FPS, ...target });
+      samples.current.push({ time: performance.now() - current.startTime, ...target });
       setLive(target);
     }
   }
@@ -171,7 +166,7 @@ export function MotionCanvas() {
     if (!current || current.pointerId !== event.pointerId) return;
     if (current.kind === "record") {
       const point = toImage(event);
-      samples.current.push({ frame: current.startFrame + (performance.now() - current.startTime) / 1000 * FPS,
+      samples.current.push({ time: performance.now() - current.startTime,
         x: current.start.x + point.x - current.origin.x, y: current.start.y + point.y - current.origin.y });
       finishTake();
     } else drag.current = null;
@@ -214,7 +209,7 @@ export function MotionCanvas() {
     </Box>}
     {ready && curve && !playing && (armed || curve.motion.keys.length === 1) && <Box sx={{ position: "absolute", bottom: 12, left: "50%", transform: "translateX(-50%)",
       pointerEvents: "none", bgcolor: "background.paper", borderRadius: 99, px: 2, py: .75, maxWidth: "calc(100% - 24px)" }}>
-      <Typography variant="caption">{armed ? "Press on the subject and drag it while the clip plays" : "Drag the subject to where it should end up"}</Typography>
+      <Typography variant="caption">{armed ? "Drag the subject along its path. It will fill the rest of the clip." : "Drag the subject to where it should end up"}</Typography>
     </Box>}
     {recording && <Box sx={{ position: "absolute", top: 12, left: 12, bgcolor: "error.main", color: "#fff", borderRadius: 99, px: 1.5, py: .25 }}>
       <Typography variant="caption" sx={{ fontWeight: 600 }}>● REC</Typography>

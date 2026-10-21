@@ -3,7 +3,7 @@ import {
   applyRecording, buildMotionCurve, createMotion, deleteKey, evenSpeed, insertKeyAtLength, isStartKey, lastFrame,
   moveKey, retimeKey, setClipFrames, upsertKey,
 } from "@h3-motion/shared";
-import type { FrameCount, FrameSize, MotionTiming, Point, RecordedSample, Rect, SubjectMotion } from "@h3-motion/shared";
+import type { FrameCount, FrameSize, MotionTiming, Point, Rect, SubjectMotion, TimedSample } from "@h3-motion/shared";
 
 interface MotionState {
   subjectKey: string | null; bounds: Rect | null; size: FrameSize | null; motion: SubjectMotion | null;
@@ -21,7 +21,8 @@ interface MotionState {
   deleteSelected: () => void; evenSpeed: () => void;
   setFrames: (frames: FrameCount) => void; setTiming: (timing: MotionTiming) => void;
   setArmed: (armed: boolean) => void; startRecording: () => number | null;
-  finishRecording: (samples: RecordedSample[]) => void;
+  /** Applies a take, timed to fill the clip from the playhead where it started. */
+  finishRecording: (samples: TimedSample[]) => void;
 }
 
 const newId = () => globalThis.crypto.randomUUID();
@@ -132,15 +133,15 @@ export const useMotionStore = create<MotionState>((set, get) => {
       const { motion, armed, playhead } = get();
       if (!motion || !armed) return null;
       const start = playhead >= lastFrame(motion) ? 0 : playhead;
-      set({ recording: true, playing: true, playhead: start, selectedKeyId: null, notice: null });
+      set({ recording: true, playing: false, playhead: start, selectedKeyId: null, notice: null });
       return start;
     },
     finishRecording: samples => {
-      const { motion, recording } = get();
+      const { motion, recording, playhead } = get();
       if (!motion || !recording) return;
-      const next = applyRecording(motion, samples, newId);
-      set({ motion: next, recording: false, armed: false, playing: false, playhead: Math.round(samples[0]?.frame ?? 0),
-        notice: next === motion ? "The recording was too short. Hold the subject and drag while the clip plays." : "Recording applied. Drag ◆ keys to fine-tune it." });
+      const next = applyRecording(motion, samples, playhead, newId);
+      set({ motion: next, recording: false, armed: false, playing: false,
+        notice: next === motion ? "Nothing was recorded. Press on the subject and drag it along its path." : "Recording applied. Drag ◆ keys to fine-tune it." });
     },
   };
 });

@@ -93,7 +93,7 @@ export function MotionTimeline() {
       </Typography>
       <Stack direction="row" alignItems="center" gap={1}>
         <ToggleButton value="record" size="small" selected={armed} disabled={recording} onChange={() => setArmed(!armed)}
-          aria-label="Record a drag in real time" sx={{ px: 1.5, py: .5, borderRadius: 99, "&.Mui-selected": { color: "error.main" } }}>● Rec</ToggleButton>
+          aria-label="Record a drag" sx={{ px: 1.5, py: .5, borderRadius: 99, "&.Mui-selected": { color: "error.main" } }}>● Rec</ToggleButton>
         <ToggleButtonGroup exclusive size="small" value={motion.frames} disabled={recording} aria-label="Clip length"
           onChange={(_, value: unknown) => { const parsed = frameCountSchema.safeParse(value); if (parsed.success) setFrames(parsed.data); }}>
           {Object.entries(CLIP_FRAMES).map(([seconds, frames]) => <ToggleButton key={frames} value={frames} sx={{ px: 1.5, py: .5, borderRadius: 99 }}>{seconds} s</ToggleButton>)}

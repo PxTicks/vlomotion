@@ -86,7 +86,9 @@ again to bend the path, click the path to insert a key, or drag a ◆ along the
 timeline to change the speed on either side of it. Two keys in one place make a
 hold, and the subject stays still after the last key. **Even speed** re-spaces
 keys for constant speed; **Smooth/Linear** sets how speed eases between keys.
-**● Rec** records a live drag while the clip plays and simplifies it into keys.
+**● Rec** records a drag and simplifies it into keys. As in vlo, the take is
+timed to fill the clip from the playhead to the end, however long the drag took;
+pauses and speed changes keep their proportions.
 The first frame is always the original photo. Clips are 5, 7 or 10 s (124, 175
 or 243 frames at 24 fps), and keys sit on those frames. Shortcuts: Space plays,
 K adds a key, Delete removes the selected key, and arrow keys step frames.
