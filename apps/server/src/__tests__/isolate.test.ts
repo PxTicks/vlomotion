@@ -52,14 +52,14 @@ describe("isolation pipeline", () => {
     await app.request("/api/jobs/isolate", post(cookie, { ...request, instruction: "Remove only the dog, keeping the grass.", seed: 43 }));
     await session.job!.done;
     expect(submit).toHaveBeenCalledTimes(3);
-    expect(session.isolation).toMatchObject({ seed: 43, instruction: "Remove only the dog, keeping the grass." });
+    expect(session.isolation).toMatchObject({ seed: 43, instruction: "Remove only the dog, keeping the grass.", descriptionSource: "model", instructionSource: "custom" });
     expect(submit.mock.calls[2][0].json["3"]).toMatchObject({ class_type: "UNETLoader" });
   });
   it("does not let malformed caption JSON block the edit", async () => {
     const { app, client, session, cookie, png, request } = await setup();
-    vi.spyOn(client, "submit").mockResolvedValueOnce(remote({ "5": [], "6": [new TextEncoder().encode("oops")] })).mockResolvedValueOnce(remote({ "19": [png] }));
+    vi.spyOn(client, "submit").mockResolvedValueOnce(remote({ "5": [new TextEncoder().encode("the black cat")], "6": [new TextEncoder().encode("oops")] })).mockResolvedValueOnce(remote({ "19": [png] }));
     await app.request("/api/jobs/isolate", post(cookie, request)); await session.job!.done;
-    expect(session.isolation).toMatchObject({ phrase: "the selected dog", caption: { style: DEFAULT_CAPTION.style } });
+    expect(session.isolation).toMatchObject({ phrase: "the black cat", caption: { style: DEFAULT_CAPTION.style } });
   });
   it("uses a custom instruction directly without requiring description generation", async () => {
     const { app, client, session, cookie, png, request } = await setup();
@@ -68,6 +68,7 @@ describe("isolation pipeline", () => {
     expect(submit).toHaveBeenCalledOnce();
     expect(session.isolation?.instruction).toBe("Remove the dog.");
     expect(session.isolation?.descriptionSource).toBe("fallback");
+    expect(session.isolation?.instructionSource).toBe("custom");
     expect(session.description).toBeUndefined();
     submit.mockResolvedValueOnce(description()).mockResolvedValueOnce(remote({ "19": [png] }));
     await app.request("/api/jobs/isolate", post(cookie, request)); await session.job!.done;
@@ -84,6 +85,52 @@ describe("isolation pipeline", () => {
     expect(submit).toHaveBeenCalledTimes(4);
     expect(submit.mock.calls[2][0].json["3"]).toMatchObject({ inputs: { prompt: expect.stringContaining('"brown dog"') } });
     expect(session.description?.userText).toBe("brown dog");
+  });
+  it("recovers an invalid phrase from the model caption rather than the search hint", async () => {
+    const { app, client, session, cookie, png, request } = await setup();
+    const submit = vi.spyOn(client, "submit").mockResolvedValueOnce(remote({ "5": [new TextEncoder().encode("This response has far too many words to be a short identifying noun phrase.")],
+      "6": [new TextEncoder().encode('{"subject":"the black cat"}')] })).mockResolvedValueOnce(remote({ "19": [png] }));
+    await app.request("/api/jobs/isolate", post(cookie, request)); await session.job!.done;
+    expect(submit).toHaveBeenCalledTimes(2);
+    expect(session.isolation).toMatchObject({ phrase: "the black cat", instructionSource: "model", instruction: expect.stringContaining("Remove the black cat") });
+  });
+  it.each(["dog", ""])("requires a manual instruction if both model subject outputs are invalid (hint: %s)", async userText => {
+    const { app, client, session, cookie, png, request } = await setup();
+    const submit = vi.spyOn(client, "submit").mockResolvedValueOnce(remote({ "5": [], "6": [new TextEncoder().encode("not JSON")] }));
+    await app.request("/api/jobs/isolate", post(cookie, { ...request, userText })); await session.job!.done;
+    expect(submit).toHaveBeenCalledOnce();
+    expect(session.job!.snapshot).toMatchObject({ status: "failed", stage: "describe", imageId: request.imageId, maskId: request.maskId, error: expect.stringContaining("write a removal instruction") });
+    expect(session.description).toBeUndefined();
+    expect(session.isolation).toBeUndefined();
+    submit.mockResolvedValueOnce(remote({ "19": [png] }));
+    await app.request("/api/jobs/isolate", post(cookie, { ...request, userText, instruction: "Remove the black cat." })); await session.job!.done;
+    expect(submit).toHaveBeenCalledTimes(2);
+    expect(session.isolation).toMatchObject({ instruction: "Remove the black cat.", instructionSource: "custom", descriptionSource: "fallback" });
+    expect(session.description).toBeUndefined();
+  });
+  it("allows a manual retry after the VLM workflow itself fails", async () => {
+    const { app, client, session, cookie, png, request } = await setup();
+    const submit = vi.spyOn(client, "submit").mockRejectedValueOnce(new Error("TextGenerate unavailable"));
+    await app.request("/api/jobs/isolate", post(cookie, request)); await session.job!.done;
+    expect(session.job!.snapshot).toMatchObject({ status: "failed", stage: "describe", imageId: request.imageId, maskId: request.maskId });
+    submit.mockResolvedValueOnce(remote({ "19": [png] }));
+    await app.request("/api/jobs/isolate", post(cookie, { ...request, instruction: "Remove the red car." })); await session.job!.done;
+    expect(session.job!.snapshot.status).toBe("completed");
+    expect(submit).toHaveBeenCalledTimes(2);
+    expect(submit.mock.calls[1][0].json["6"]).toMatchObject({ inputs: { prompt: "Remove the red car." } });
+  });
+  it("describes a different confirmed mask again even when the search hint is unchanged", async () => {
+    const { app, store, client, session, cookie, png, request } = await setup();
+    const submit = vi.spyOn(client, "submit").mockResolvedValueOnce(description()).mockResolvedValueOnce(remote({ "19": [png] }));
+    await app.request("/api/jobs/isolate", post(cookie, request)); await session.job!.done;
+    // Leave the old cache in place deliberately to exercise the mask-ID guard too.
+    session.selection = { ...await store.savePng(session, await encodeMask(Uint8Array.from([0, 0, 255, 0]), 2, 2)), width: 2, height: 2 };
+    const text = remote({ "5": [new TextEncoder().encode("the black cat")], "6": [new TextEncoder().encode('{"subject":"the black cat"}')] });
+    submit.mockResolvedValueOnce(text).mockResolvedValueOnce(remote({ "19": [png] }));
+    await app.request("/api/jobs/isolate", post(cookie, { ...request, maskId: session.selection.id })); await session.job!.done;
+    expect(submit).toHaveBeenCalledTimes(4);
+    expect(session.isolation).toMatchObject({ maskId: session.selection.id, phrase: "the black cat", instruction: expect.stringContaining("Remove the black cat") });
+    expect(submit.mock.calls[3][0].json["6"]).toMatchObject({ inputs: { prompt: expect.not.stringContaining("dog") } });
   });
   it("rejects stale masks and unconfirmed selections before submitting", async () => {
     const { app, client, session, cookie, request } = await setup();

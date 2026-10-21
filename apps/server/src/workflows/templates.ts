@@ -49,10 +49,11 @@ export async function buildDescribeWorkflow(client: Comfy, highlightPath: string
   assertBindings(graph, [...Object.values(DESCRIBE_BINDINGS), ...Object.values(DESCRIBE_OUTPUTS)]);
   const { highlight, phrase, caption } = DESCRIBE_BINDINGS;
   const captionPrompt = graph[caption.node].inputs[caption.input];
+  const hint = userText ? ` The user's search hint is ${JSON.stringify(userText)}; use it only if it matches the highlighted subject.` : "";
   const workflow = client.workflows.fromJson(graph);
   workflow.setInput(highlight.node, highlight.input, client.assets.fromFile(highlightPath));
-  workflow.setInput(phrase.node, phrase.input, `The object or group highlighted in yellow is the selected subject. The user's short name is ${JSON.stringify(userText)}. Reply only with an unambiguous noun phrase of at most 8 words identifying all highlighted subjects. Do not mention the highlight.`);
-  workflow.setInput(caption.node, caption.input, `${captionPrompt} The user's short name is ${JSON.stringify(userText)}. Use "moves" for motion_verb if no action is visible.`);
+  workflow.setInput(phrase.node, phrase.input, `Identify the subject from the highlighted region. The yellow highlight marks the selected object or group.${hint} Reply only with an unambiguous noun phrase of at most 8 words identifying all highlighted subjects. Do not mention the highlight.`);
+  workflow.setInput(caption.node, caption.input, `${captionPrompt} Identify the subject from the highlighted region.${hint} Use "moves" for motion_verb if no action is visible.`);
   return workflow;
 }
 

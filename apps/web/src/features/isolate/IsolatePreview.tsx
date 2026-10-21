@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { Alert, Box, ButtonBase, Stack, Typography } from "@mui/material";
-import { useSelectionStore } from "../select";
+import { currentIsolation, useSelectionStore } from "../select";
 
 export function IsolatePreview() {
   const image = useSelectionStore(s => s.image);
-  const result = useSelectionStore(s => s.isolation);
+  const result = useSelectionStore(currentIsolation);
   const [original, setOriginal] = useState(false);
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
   if (!image || !result) return null;

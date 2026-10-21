@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Alert, Box, Button, Chip, Container, Divider, Paper, Stack, Step, StepButton, Stepper, ToggleButton, ToggleButtonGroup, Typography } from "@mui/material";
 import { aspectRatioSchema, generationSize, healthSchema } from "@h3-motion/shared";
 import { apiRequest } from "../../api";
-import { SelectPanel, SelectionCanvas, useSelectionStore } from "../select";
+import { currentIsolation, SelectPanel, SelectionCanvas, useSelectionStore } from "../select";
 import { IsolatePanel, IsolatePreview } from "../isolate";
 
 let sessionPromise: Promise<unknown> | undefined;
@@ -16,7 +16,7 @@ export function App() {
   const busy = useSelectionStore(s => s.busy);
   const phase = useSelectionStore(s => s.phase);
   const mask = useSelectionStore(s => s.mask);
-  const isolation = useSelectionStore(s => s.isolation);
+  const isolation = useSelectionStore(currentIsolation);
   const visitPhase = useSelectionStore(s => s.visitPhase);
   const error = useSelectionStore(s => s.error);
   const notice = useSelectionStore(s => s.notice);

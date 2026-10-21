@@ -20,25 +20,28 @@ function unfence(text: string): string {
   return text.trim().replace(/^```(?:json|text)?\s*/i, "").replace(/\s*```$/, "").trim();
 }
 
-export function defaultDescription(userText: string): SubjectDescription {
-  const name = userText.trim().replace(/\s+/g, " ").split(" ").slice(0, 5).join(" ");
-  const phrase = name ? `the selected ${name}` : DEFAULT_CAPTION.subject;
-  return { phrase, caption: { ...DEFAULT_CAPTION, subject: phrase } };
+export function defaultDescription(): SubjectDescription {
+  return { phrase: DEFAULT_CAPTION.subject, caption: { ...DEFAULT_CAPTION } };
 }
 
-/** Malformed VLM JSON never prevents removal; each caption field has a fallback. */
-export function parseDescription(phraseText: string, captionText: string, userText: string): SubjectDescription {
-  const fallback = defaultDescription(userText);
+function shortPhrase(value: unknown): string | undefined {
+  if (typeof value !== "string") return;
+  const phrase = value.trim();
+  if (phrase && phrase.length <= 160 && !/[\r\n]/.test(phrase) && phrase.split(/\s+/).length <= 8) return phrase;
+}
+
+/** Caption fields have defaults; automatic removal still needs a model-identified subject. */
+export function parseDescription(phraseText: string, captionText: string): SubjectDescription {
   let phrase: unknown = unfence(phraseText);
   try { phrase = JSON.parse(phrase as string); } catch { /* A noun phrase is normally plain text. */ }
-  const validPhrase = typeof phrase === "string" && phrase.trim().length > 0
-    && phrase.trim().length <= 160 && !phrase.includes("\n") && phrase.trim().split(/\s+/).length <= 8;
   let rawCaption: unknown = {};
   try { rawCaption = JSON.parse(unfence(captionText)); } catch { /* Use defaults for malformed captions. */ }
-  const subject = validPhrase ? (phrase as string).trim() : fallback.phrase;
+  const captionSubject = rawCaption !== null && typeof rawCaption === "object" && "subject" in rawCaption ? rawCaption.subject : undefined;
+  const subject = shortPhrase(phrase) ?? shortPhrase(captionSubject);
+  if (!subject) throw new Error("Could not identify the highlighted subject. Retry isolation or write a removal instruction.");
   const parsed = captionSchema.extend({ subject: field(subject) }).safeParse(rawCaption);
   return { phrase: subject,
-    caption: parsed.success ? parsed.data : { ...fallback.caption, subject } };
+    caption: parsed.success ? parsed.data : { ...DEFAULT_CAPTION, subject } };
 }
 
 export function removalInstruction(phrase: string): string {

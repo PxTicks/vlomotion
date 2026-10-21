@@ -22,6 +22,8 @@ export function startIsolate(client: Comfy, store: SessionStore, session: Sessio
     throw new Error("Confirm the current subject selection before isolating it.");
   }
   const managed = createManagedJob("Preparing background removal…");
+  managed.snapshot.imageId = image.id;
+  managed.snapshot.maskId = selection.id;
   session.job = managed;
   managed.done = execute();
   return managed;
@@ -42,11 +44,11 @@ export function startIsolate(client: Comfy, store: SessionStore, session: Sessio
         throwIfCancelled(managed);
         const caption = await textOutput(job, DESCRIBE_OUTPUTS.caption.node);
         throwIfCancelled(managed);
-        description = { ...parseDescription(phrase, caption, userText), imageId: image!.id, maskId: selection!.id, userText };
+        description = { ...parseDescription(phrase, caption), imageId: image!.id, maskId: selection!.id, userText };
         session.description = description;
       }
       const descriptionSource = description ? "model" : "fallback";
-      const subject = description ?? defaultDescription(userText);
+      const subject = description ?? defaultDescription();
       throwIfCancelled(managed);
       const instruction = request.instruction ?? removalInstruction(subject.phrase);
       const seed = request.seed ?? randomInt(0, 2 ** 48 - 1);
@@ -64,7 +66,8 @@ export function startIsolate(client: Comfy, store: SessionStore, session: Sessio
       if (session.image !== image || session.selection !== selection) throw new Error("Selection changed. Confirm it and isolate again.");
       const result: IsolationResult = { imageId: image!.id, maskId: selection!.id,
         plate: { id: file.id, url: file.url, width: image!.width, height: image!.height },
-        phrase: subject.phrase, caption: subject.caption, descriptionSource, instruction, seed };
+        phrase: subject.phrase, caption: subject.caption, descriptionSource,
+        instructionSource: request.instruction ? "custom" : "model", instruction, seed };
       session.isolation = result;
       managed.snapshot = { ...managed.snapshot, status: "completed", progress: 1,
         message: "Background ready. Hold the preview to compare with the original.", isolation: result };

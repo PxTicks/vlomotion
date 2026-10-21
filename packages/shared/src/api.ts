@@ -30,6 +30,7 @@ export const isolationResultSchema = z.object({
   imageId: idSchema, maskId: idSchema, plate: imageAssetSchema,
   phrase: z.string(), caption: captionSchema, instruction: z.string(),
   descriptionSource: z.enum(["model", "fallback"]),
+  instructionSource: z.enum(["model", "custom"]),
   seed: z.number().int().nonnegative(),
 });
 export type IsolationResult = z.infer<typeof isolationResultSchema>;
@@ -40,6 +41,7 @@ export const jobSnapshotSchema = z.object({
   candidates: z.array(maskCandidateSchema), error: z.string().nullable(),
   stage: z.enum(["segment", "describe", "isolate"]).optional(),
   isolation: isolationResultSchema.optional(),
+  imageId: idSchema.optional(), maskId: idSchema.optional(),
 });
 export type JobSnapshot = z.infer<typeof jobSnapshotSchema>;
 export const selectionRequestSchema = z.object({

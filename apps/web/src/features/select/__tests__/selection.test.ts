@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_CAPTION } from "@h3-motion/shared";
 import type { IsolationResult, JobSnapshot, MaskCandidate } from "@h3-motion/shared";
 import { apiRequest, submitSegment, watchJob } from "../../../api";
-import { useSelectionStore } from "../useSelectionStore";
+import { canRecoverIsolation, currentIsolation, useSelectionStore } from "../useSelectionStore";
 
 vi.mock("../../../api", () => ({ apiRequest: vi.fn(), submitSegment: vi.fn(), uploadImage: vi.fn(), watchJob: vi.fn() }));
 const image = { id: "f4c8a75f-2c99-4d89-b30e-fe18d97ede92", url: "/api/files/photo", width: 100, height: 100 };
@@ -10,7 +10,7 @@ const candidate = (id: string): MaskCandidate => ({ id, url: `/api/files/${id}`,
 const first = candidate("first"), second = candidate("second"), refined = candidate("refined");
 const result = (candidates: MaskCandidate[]): JobSnapshot => ({ id: "job", status: "completed", message: "Done", progress: 1, candidates, error: null });
 const isolated: IsolationResult = { imageId: image.id, maskId: image.id, plate: { ...image, url: "/api/files/plate" },
-  phrase: "the brown dog", caption: DEFAULT_CAPTION, descriptionSource: "model", instruction: "Remove the brown dog.", seed: 42 };
+  phrase: "the brown dog", caption: DEFAULT_CAPTION, descriptionSource: "model", instructionSource: "model", instruction: "Remove the brown dog.", seed: 42 };
 const isolationJob = (status: JobSnapshot["status"]): JobSnapshot => ({ ...result([]), id: "86e24514-60d6-4dd7-a85b-a0d025caf7c4",
   stage: "isolate", status, ...(status === "completed" ? { isolation: isolated } : {}) });
 
@@ -164,14 +164,21 @@ describe("selection transitions", () => {
     expect(useSelectionStore.getState().isolation).toEqual(isolated);
   });
   it("retains the last background when a retry fails and sends its instruction without a fixed seed", async () => {
-    useSelectionStore.setState({ mask: image, isolation: isolated, phase: 1 });
+    useSelectionStore.setState({ mask: image, isolation: { ...isolated, instructionSource: "custom" }, phase: 1 });
     vi.mocked(apiRequest).mockResolvedValue(isolationJob("queued"));
     vi.mocked(watchJob).mockResolvedValue({ ...isolationJob("failed"), error: "GPU unavailable" });
     await useSelectionStore.getState().isolate();
     const sent = JSON.parse(vi.mocked(apiRequest).mock.calls[0][1]!.body as string);
     expect(sent.instruction).toBe(isolated.instruction);
     expect(sent).not.toHaveProperty("seed");
-    expect(useSelectionStore.getState()).toMatchObject({ isolation: isolated, busy: false, error: "GPU unavailable" });
+    expect(useSelectionStore.getState()).toMatchObject({ isolation: { ...isolated, instructionSource: "custom" }, busy: false, error: "GPU unavailable" });
+  });
+  it("keeps automatic retries automatic so a cached model phrase is not labelled custom", async () => {
+    useSelectionStore.setState({ mask: image, isolation: isolated, phase: 1 });
+    vi.mocked(apiRequest).mockResolvedValue(isolationJob("queued"));
+    vi.mocked(watchJob).mockResolvedValue(isolationJob("completed"));
+    await useSelectionStore.getState().isolate();
+    expect(JSON.parse(vi.mocked(apiRequest).mock.calls[0][1]!.body as string)).not.toHaveProperty("instruction");
   });
   it("sends an edited instruction and invalidates the background when selection points change", async () => {
     useSelectionStore.setState({ mask: image, isolation: isolated, phase: 1 });
@@ -202,15 +209,59 @@ describe("selection transitions", () => {
     expect(JSON.parse(vi.mocked(apiRequest).mock.calls[0][1]!.body as string).userText).toBe("dog");
     expect(useSelectionStore.getState().selectionText).toBe("dog");
   });
-  it("updates the name when a new text selection is submitted and keeps it through point refinement", async () => {
+  it("uses the submitted name for text detection and drops it after point refinement", async () => {
     useSelectionStore.getState().setText("cat");
     vi.mocked(watchJob).mockResolvedValue(result([first]));
     await useSelectionStore.getState().segment();
+    expect(useSelectionStore.getState().selectionText).toBe("cat");
     useSelectionStore.getState().setText("dog");
     useSelectionStore.getState().setRefine(true);
     useSelectionStore.getState().addPoint({ x: 4, y: 5 }, false);
     vi.mocked(watchJob).mockResolvedValue(result([refined]));
     await useSelectionStore.getState().applyRefinement();
-    expect(useSelectionStore.getState().selectionText).toBe("cat");
+    expect(useSelectionStore.getState().selectionText).toBe("");
+  });
+  it("describes a newly pointed subject without the previous subject's name or removal instruction", async () => {
+    useSelectionStore.setState({ mask: image, isolation: isolated, phase: 1, candidates: [first], selectedIds: [first.id] });
+    useSelectionStore.getState().visitPhase(0);
+    useSelectionStore.getState().setRefine(true);
+    useSelectionStore.getState().addPoint({ x: 80, y: 80 }, false);
+    vi.mocked(watchJob).mockResolvedValue(result([refined]));
+    await useSelectionStore.getState().applyRefinement();
+    expect(useSelectionStore.getState()).toMatchObject({ mask: null, isolation: null, selectionText: "", text: "dog" });
+    const nextMask = { ...image, id: "fe2b7e67-cab8-4c40-862c-7d23ea250782" };
+    vi.mocked(apiRequest).mockResolvedValueOnce({ mask: nextMask }).mockResolvedValueOnce(isolationJob("queued"));
+    await useSelectionStore.getState().confirm();
+    const nextIsolation = { ...isolated, maskId: nextMask.id, phrase: "the black cat", instruction: "Remove the black cat." };
+    vi.mocked(watchJob).mockResolvedValue({ ...isolationJob("completed"), isolation: nextIsolation });
+    await useSelectionStore.getState().isolate();
+    const call = vi.mocked(apiRequest).mock.calls.find(([path]) => path === "/jobs/isolate")!;
+    expect(JSON.parse(call[1]!.body as string)).toEqual({ imageId: image.id, maskId: nextMask.id, userText: "" });
+    expect(useSelectionStore.getState().isolation?.instruction).toBe("Remove the black cat.");
+  });
+  it("does not reuse an instruction whose confirmed mask differs from the current one", async () => {
+    const nextMask = { ...image, id: "fe2b7e67-cab8-4c40-862c-7d23ea250782" };
+    useSelectionStore.setState({ mask: nextMask, isolation: isolated, phase: 1 });
+    vi.mocked(apiRequest).mockResolvedValue(isolationJob("queued"));
+    vi.mocked(watchJob).mockResolvedValue({ ...isolationJob("completed"), isolation: { ...isolated, maskId: nextMask.id } });
+    await useSelectionStore.getState().isolate();
+    expect(JSON.parse(vi.mocked(apiRequest).mock.calls[0][1]!.body as string)).not.toHaveProperty("instruction");
+  });
+  it.each(["imageId", "maskId"] as const)("rejects a stale isolation's %s for preview, navigation and retry", field => {
+    useSelectionStore.setState({ mask: image, isolation: { ...isolated, [field]: crypto.randomUUID() }, phase: 1 });
+    expect(currentIsolation(useSelectionStore.getState())).toBeNull();
+    useSelectionStore.getState().visitPhase(2);
+    expect(useSelectionStore.getState().phase).toBe(1);
+  });
+  it("allows manual recovery only for a failed isolation belonging to the current photo and mask", () => {
+    const job = { ...isolationJob("failed"), imageId: image.id, maskId: image.id };
+    useSelectionStore.setState({ mask: image, job });
+    expect(canRecoverIsolation(useSelectionStore.getState())).toBe(true);
+    useSelectionStore.setState({ job: { ...job, imageId: crypto.randomUUID() } });
+    expect(canRecoverIsolation(useSelectionStore.getState())).toBe(false);
+    useSelectionStore.setState({ job: { ...job, maskId: crypto.randomUUID() } });
+    expect(canRecoverIsolation(useSelectionStore.getState())).toBe(false);
+    useSelectionStore.setState({ job: { ...job, status: "completed" } });
+    expect(canRecoverIsolation(useSelectionStore.getState())).toBe(false);
   });
 });

@@ -64,12 +64,20 @@ GPU services below. Images are centre-cropped to the working ratio and a working
 size of twice the generation dimensions. Changing the crop or selection clears
 the confirmed mask and background. After confirming, choose **Isolate subject**.
 Retries reuse the subject description; editing the instruction reruns only removal.
-You can also supply an instruction before the first run to skip description.
-The editor starts with the name used for selection, or stays empty for an unnamed
-point selection. A manual run without a model description is labelled **Custom
-removal instruction** and doesn't populate the description cache. The selection's
-subject hint stays tied to the submitted search; typing a new name alone doesn't
-change it. Submit **Find subject** to create a selection with the new name.
+The instruction editor becomes available after isolation and shows the exact
+prompt used for that confirmed mask. If isolation fails, **Write removal instruction**
+opens a blank editor so you can supply an instruction and skip description.
+An invalid VLM phrase can use a valid subject from the VLM caption; if neither
+identifies the subject, automatic removal stops and offers this manual recovery.
+The search hint is never used as an automatic fallback removal target.
+Changing the selection clears the old prompt;
+isolate again to describe the new highlighted subject. Point edits drop the old
+search hint because they can select a different object. For text detections, the
+hint stays tied to the submitted search; typing a new name alone doesn't change it.
+Submit **Find subject** to create a selection with the new name. User-written
+instructions are labelled **Custom removal instruction**, including when a VLM
+caption is cached. Manual runs without a model description don't populate that
+cache. Missing caption fields use defaults without blocking a valid removal phrase.
 Cancellation or a failed retry keeps the last successful background.
 
 ```sh

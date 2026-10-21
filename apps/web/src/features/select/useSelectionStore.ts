@@ -25,6 +25,16 @@ interface SelectionState {
 
 const message = (error: unknown) => error instanceof Error ? error.message : "Something went wrong. Try again.";
 
+export function currentIsolation(state: Pick<SelectionState, "image" | "mask" | "isolation">): IsolationResult | null {
+  const { image, mask, isolation } = state;
+  return image && mask && isolation?.imageId === image.id && isolation.maskId === mask.id ? isolation : null;
+}
+
+export function canRecoverIsolation(state: Pick<SelectionState, "image" | "mask" | "job">): boolean {
+  const { image, mask, job } = state;
+  return !!image && !!mask && job?.status === "failed" && job.imageId === image.id && job.maskId === mask.id;
+}
+
 export const useSelectionStore = create<SelectionState>((set, get) => {
   async function run(mode: "text" | "points", positive: Point[] = [], negative: Point[] = []) {
     const { image, text, busy, selectedIds, candidates } = get();
@@ -50,7 +60,8 @@ export const useSelectionStore = create<SelectionState>((set, get) => {
         const targetIndex = candidates.findIndex(candidate => candidate.id === replacedId);
         if (targetIndex >= 0) nextCandidates.splice(targetIndex, 1, ...(replacement ? [replacement] : []));
         else if (replacement) nextCandidates.push(replacement);
-        set({ candidates: nextCandidates, ...(candidates.length === 0 ? { selectionText: text.trim() } : {}),
+        // Points can select a different object, so the old search name is no longer reliable.
+        set({ candidates: nextCandidates, selectionText: "",
           selectedIds: [replacement.id, ...selectedIds.filter(id => id !== replacedId)], pointsPending: false });
       }
       set({ notice: result.message });
@@ -136,14 +147,16 @@ export const useSelectionStore = create<SelectionState>((set, get) => {
       catch (error) { set({ error: message(error) }); }
     },
     visitPhase: phase => {
-      const { busy, mask, isolation } = get();
-      if (busy || (phase >= 1 && !mask) || (phase === 2 && !isolation)) return;
+      const state = get();
+      if (state.busy || (phase >= 1 && !state.mask) || (phase === 2 && !currentIsolation(state))) return;
       set({ phase });
     },
     isolate: async instruction => {
-      const { image, mask, busy, selectionText, isolation } = get();
+      const state = get();
+      const { image, mask, busy, selectionText } = state;
       if (!image || !mask || busy) return;
-      const editInstruction = instruction ?? isolation?.instruction;
+      const previous = currentIsolation(state);
+      const editInstruction = instruction ?? (previous?.instructionSource === "custom" ? previous.instruction : undefined);
       set({ busy: true, error: null, notice: null, job: null });
       try {
         const initial = jobSnapshotSchema.parse(await apiRequest("/jobs/isolate", { method: "POST",
