@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { JobSnapshot, MaskCandidate } from "@h3-motion/shared";
+import { DEFAULT_CAPTION } from "@h3-motion/shared";
+import type { IsolationResult, JobSnapshot, MaskCandidate } from "@h3-motion/shared";
 import { apiRequest, submitSegment, watchJob } from "../../../api";
 import { useSelectionStore } from "../useSelectionStore";
 
@@ -8,11 +9,15 @@ const image = { id: "f4c8a75f-2c99-4d89-b30e-fe18d97ede92", url: "/api/files/pho
 const candidate = (id: string): MaskCandidate => ({ id, url: `/api/files/${id}`, bounds: { x: 0, y: 0, width: 10, height: 10 } });
 const first = candidate("first"), second = candidate("second"), refined = candidate("refined");
 const result = (candidates: MaskCandidate[]): JobSnapshot => ({ id: "job", status: "completed", message: "Done", progress: 1, candidates, error: null });
+const isolated: IsolationResult = { imageId: image.id, maskId: image.id, plate: { ...image, url: "/api/files/plate" },
+  phrase: "the brown dog", caption: DEFAULT_CAPTION, descriptionSource: "model", instruction: "Remove the brown dog.", seed: 42 };
+const isolationJob = (status: JobSnapshot["status"]): JobSnapshot => ({ ...result([]), id: "86e24514-60d6-4dd7-a85b-a0d025caf7c4",
+  stage: "isolate", status, ...(status === "completed" ? { isolation: isolated } : {}) });
 
 beforeEach(() => {
   vi.resetAllMocks();
   useSelectionStore.setState(useSelectionStore.getInitialState(), true);
-  useSelectionStore.setState({ image, text: "dog" });
+  useSelectionStore.setState({ image, text: "dog", selectionText: "dog" });
   vi.mocked(submitSegment).mockResolvedValue({ ...result([]), status: "queued" });
 });
 
@@ -142,5 +147,70 @@ describe("selection transitions", () => {
     vi.mocked(apiRequest).mockResolvedValue({ mask: image });
     await useSelectionStore.getState().confirm();
     expect(useSelectionStore.getState()).toMatchObject({ phase: 1, mask: image, busy: false });
+  });
+  it("runs isolation for the confirmed selection and enables the Move phase only after success", async () => {
+    useSelectionStore.getState().visitPhase(2);
+    expect(useSelectionStore.getState().phase).toBe(0);
+    useSelectionStore.setState({ mask: image, phase: 1 });
+    vi.mocked(apiRequest).mockResolvedValue(isolationJob("queued"));
+    vi.mocked(watchJob).mockResolvedValue(isolationJob("completed"));
+    await useSelectionStore.getState().isolate();
+    const sent = JSON.parse(vi.mocked(apiRequest).mock.calls[0][1]!.body as string);
+    expect(sent).toEqual({ imageId: image.id, maskId: image.id, userText: "dog" });
+    expect(useSelectionStore.getState()).toMatchObject({ isolation: isolated, busy: false });
+    useSelectionStore.getState().visitPhase(2);
+    expect(useSelectionStore.getState().phase).toBe(2);
+    useSelectionStore.getState().visitPhase(1);
+    expect(useSelectionStore.getState().isolation).toEqual(isolated);
+  });
+  it("retains the last background when a retry fails and sends its instruction without a fixed seed", async () => {
+    useSelectionStore.setState({ mask: image, isolation: isolated, phase: 1 });
+    vi.mocked(apiRequest).mockResolvedValue(isolationJob("queued"));
+    vi.mocked(watchJob).mockResolvedValue({ ...isolationJob("failed"), error: "GPU unavailable" });
+    await useSelectionStore.getState().isolate();
+    const sent = JSON.parse(vi.mocked(apiRequest).mock.calls[0][1]!.body as string);
+    expect(sent.instruction).toBe(isolated.instruction);
+    expect(sent).not.toHaveProperty("seed");
+    expect(useSelectionStore.getState()).toMatchObject({ isolation: isolated, busy: false, error: "GPU unavailable" });
+  });
+  it("sends an edited instruction and invalidates the background when selection points change", async () => {
+    useSelectionStore.setState({ mask: image, isolation: isolated, phase: 1 });
+    vi.mocked(apiRequest).mockResolvedValue(isolationJob("queued"));
+    vi.mocked(watchJob).mockResolvedValue(isolationJob("completed"));
+    await useSelectionStore.getState().isolate("Remove only the dog.");
+    expect(JSON.parse(vi.mocked(apiRequest).mock.calls[0][1]!.body as string).instruction).toBe("Remove only the dog.");
+    useSelectionStore.getState().visitPhase(0);
+    useSelectionStore.getState().setRefine(true);
+    useSelectionStore.getState().addPoint({ x: 5, y: 5 }, false);
+    expect(useSelectionStore.getState()).toMatchObject({ isolation: null, mask: null });
+    useSelectionStore.getState().visitPhase(2);
+    expect(useSelectionStore.getState().phase).toBe(0);
+  });
+  it("does not start isolation without a confirmed mask", async () => {
+    await useSelectionStore.getState().isolate();
+    expect(apiRequest).not.toHaveBeenCalled();
+    expect(useSelectionStore.getState().busy).toBe(false);
+  });
+  it.each(["cat", ""])("keeps the selection's submitted name when the text field changes to %s", async text => {
+    vi.mocked(watchJob).mockResolvedValue(result([first]));
+    await useSelectionStore.getState().segment();
+    useSelectionStore.getState().setText(text);
+    useSelectionStore.setState({ mask: image, phase: 1 });
+    vi.mocked(apiRequest).mockResolvedValue(isolationJob("queued"));
+    vi.mocked(watchJob).mockResolvedValue(isolationJob("completed"));
+    await useSelectionStore.getState().isolate();
+    expect(JSON.parse(vi.mocked(apiRequest).mock.calls[0][1]!.body as string).userText).toBe("dog");
+    expect(useSelectionStore.getState().selectionText).toBe("dog");
+  });
+  it("updates the name when a new text selection is submitted and keeps it through point refinement", async () => {
+    useSelectionStore.getState().setText("cat");
+    vi.mocked(watchJob).mockResolvedValue(result([first]));
+    await useSelectionStore.getState().segment();
+    useSelectionStore.getState().setText("dog");
+    useSelectionStore.getState().setRefine(true);
+    useSelectionStore.getState().addPoint({ x: 4, y: 5 }, false);
+    vi.mocked(watchJob).mockResolvedValue(result([refined]));
+    await useSelectionStore.getState().applyRefinement();
+    expect(useSelectionStore.getState().selectionText).toBe("cat");
   });
 });

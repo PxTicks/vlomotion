@@ -9,12 +9,14 @@ import { serveStatic } from "@hono/node-server/serve-static";
 import { ZodError } from "zod";
 import sharp from "sharp";
 import type { Comfy } from "@comfyorg/sdk";
-import { segmentRequestSchema, selectionRequestSchema } from "@h3-motion/shared";
+import { isolateRequestSchema, segmentRequestSchema, selectionRequestSchema } from "@h3-motion/shared";
 import { comfy, checkComfyHealth } from "./comfy.js";
 import { REPO_ROOT } from "./config.js";
-import { SessionStore, isBusy } from "./sessions.js";
+import { SessionStore, clearIsolation, isBusy } from "./sessions.js";
 import type { Session } from "./sessions.js";
-import { cancelSegment, startSegment } from "./jobs/segment.js";
+import { startSegment } from "./jobs/segment.js";
+import { startIsolate } from "./jobs/isolate.js";
+import { cancelJob } from "./jobs/runtime.js";
 import { decodeMask, encodeMask } from "./media/masks.js";
 
 type AppEnvironment = { Variables: { session: Session } };
@@ -46,7 +48,7 @@ export function createApp(options: AppOptions = {}) {
   });
   app.post("/api/images", async c => {
     const session = c.get("session");
-    if (isBusy(session)) throw new HTTPException(409, { message: "Cancel the active selection before changing the photo." });
+    if (isBusy(session)) throw new HTTPException(409, { message: "Cancel the active job before changing the photo." });
     const form = await c.req.formData();
     const file = form.get("image");
     if (!(file instanceof File)) throw new HTTPException(400, { message: "Choose a photo to upload." });
@@ -63,10 +65,12 @@ export function createApp(options: AppOptions = {}) {
     } catch {
       throw new HTTPException(400, { message: "Use a PNG, JPEG or WebP photo with a working size no larger than 2560 pixels per side." });
     }
-    if (isBusy(session)) throw new HTTPException(409, { message: "A selection is already running." });
+    if (isBusy(session)) throw new HTTPException(409, { message: "A job is already running." });
     const saved = await store.savePng(session, png);
+    if (isBusy(session)) throw new HTTPException(409, { message: "A job started while the photo was uploading. Wait for it to finish or cancel it before replacing the photo." });
     session.image = { ...saved, width, height };
     session.candidates.clear(); session.selection = undefined; session.job = undefined;
+    clearIsolation(session);
     return c.json({ id: saved.id, url: saved.url, width, height }, 201);
   });
   app.get("/api/files/:id", async c => {
@@ -78,7 +82,7 @@ export function createApp(options: AppOptions = {}) {
     const session = c.get("session");
     const request = segmentRequestSchema.parse(await c.req.json());
     if (!session.image || request.imageId !== session.image.id) throw new HTTPException(409, { message: "The photo has changed. Select the subject again." });
-    if (isBusy(session)) throw new HTTPException(409, { message: "A selection is already running in this session." });
+    if (isBusy(session)) throw new HTTPException(409, { message: "A job is already running in this session." });
     if (request.mode === "points") {
       const { width, height } = session.image;
       if ([...request.positive, ...request.negative].some(p => p.x >= width || p.y >= height)) {
@@ -86,7 +90,18 @@ export function createApp(options: AppOptions = {}) {
       }
     }
     session.selection = undefined;
+    clearIsolation(session);
     return c.json(startSegment(client, store, session, request).snapshot, 202);
+  });
+  app.post("/api/jobs/isolate", async c => {
+    const session = c.get("session");
+    const request = isolateRequestSchema.parse(await c.req.json());
+    if (isBusy(session)) throw new HTTPException(409, { message: "A job is already running in this session." });
+    if (!session.image || session.image.id !== request.imageId || !session.selection || session.selection.id !== request.maskId) {
+      throw new HTTPException(409, { message: "The photo or selection changed. Confirm your selection before isolating it." });
+    }
+    if (Math.min(session.image.width, session.image.height) < 2) throw new HTTPException(400, { message: "The working photo is too small to isolate." });
+    return c.json(startIsolate(client, store, session, request).snapshot, 202);
   });
   app.get("/api/jobs/:id", c => {
     const job = c.get("session").job;
@@ -96,7 +111,7 @@ export function createApp(options: AppOptions = {}) {
   app.post("/api/jobs/:id/cancel", async c => {
     const job = c.get("session").job;
     if (!job || job.snapshot.id !== c.req.param("id")) throw new HTTPException(404, { message: "Job not found." });
-    if (isBusy(c.get("session"))) await cancelSegment(job);
+    if (isBusy(c.get("session"))) await cancelJob(job);
     return c.json(job.snapshot);
   });
   app.get("/api/jobs/:id/events", c => {
@@ -116,7 +131,7 @@ export function createApp(options: AppOptions = {}) {
     const session = c.get("session");
     const request = selectionRequestSchema.parse(await c.req.json());
     const image = session.image;
-    if (isBusy(session)) throw new HTTPException(409, { message: "Wait for selection to finish." });
+    if (isBusy(session)) throw new HTTPException(409, { message: "Wait for the active job to finish." });
     if (!image || request.imageId !== image.id) throw new HTTPException(409, { message: "The photo has changed. Select the subject again." });
     const pixels = Buffer.alloc(image.width * image.height);
     for (const id of new Set(request.candidateIds)) {
@@ -127,7 +142,9 @@ export function createApp(options: AppOptions = {}) {
     }
     if (session.image !== image || isBusy(session)) throw new HTTPException(409, { message: "Selection changed. Confirm it again." });
     const saved = await store.savePng(session, await encodeMask(pixels, image.width, image.height));
+    if (session.image !== image || isBusy(session)) throw new HTTPException(409, { message: "Selection changed. Confirm it again." });
     session.selection = { ...saved, width: image.width, height: image.height };
+    clearIsolation(session);
     return c.json({ mask: { id: saved.id, url: saved.url, width: image.width, height: image.height } });
   });
   app.onError((error, c) => {

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { captionSchema } from "./description.js";
 
 export const pointSchema = z.object({ x: z.number().finite().nonnegative(), y: z.number().finite().nonnegative() });
 const idSchema = z.uuid();
@@ -18,11 +19,27 @@ export const maskCandidateSchema = z.object({
   bounds: z.object({ x: z.number(), y: z.number(), width: z.number(), height: z.number() }),
 });
 export type MaskCandidate = z.infer<typeof maskCandidateSchema>;
+export const isolateRequestSchema = z.object({
+  imageId: idSchema, maskId: idSchema,
+  userText: z.string().trim().max(160).default(""),
+  instruction: z.string().trim().min(1).max(2000).optional(),
+  seed: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional(),
+});
+export type IsolateRequest = z.infer<typeof isolateRequestSchema>;
+export const isolationResultSchema = z.object({
+  imageId: idSchema, maskId: idSchema, plate: imageAssetSchema,
+  phrase: z.string(), caption: captionSchema, instruction: z.string(),
+  descriptionSource: z.enum(["model", "fallback"]),
+  seed: z.number().int().nonnegative(),
+});
+export type IsolationResult = z.infer<typeof isolationResultSchema>;
 export const jobSnapshotSchema = z.object({
   id: idSchema,
   status: z.enum(["queued", "running", "completed", "failed", "cancelled"]),
   message: z.string(), progress: z.number().min(0).max(1).nullable(),
   candidates: z.array(maskCandidateSchema), error: z.string().nullable(),
+  stage: z.enum(["segment", "describe", "isolate"]).optional(),
+  isolation: isolationResultSchema.optional(),
 });
 export type JobSnapshot = z.infer<typeof jobSnapshotSchema>;
 export const selectionRequestSchema = z.object({

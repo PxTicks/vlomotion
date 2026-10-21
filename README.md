@@ -6,9 +6,12 @@ using the Comfy SDK and self-hosted ComfyUI. This is an early implementation.
 Currently implemented: npm workspaces, the themed app shell, photo upload with
 centre crop, text-based SAM 3.1 candidates, multiple selection, point refinement,
 mask union/confirmation, session-scoped files, job progress and cancellation.
-**Background removal, motion editing and H3 generation are not implemented yet.**
-GPU workflows require validation against a running ComfyUI; no detections or
-generated results are simulated.
+The Isolate phase describes the confirmed subject locally with Qwen3-VL, removes
+it with Qwen Image 2.1, and previews the clean background. Retry with a new seed,
+edit the removal instruction, or hold the preview to compare with the original.
+**Motion editing and H3 generation are not implemented yet.**
+The description/removal chain has passed a real GPU run against Windows ComfyUI;
+broader scene-quality checks remain. No detections or generated results are simulated.
 
 ## Local development
 
@@ -59,7 +62,15 @@ Open http://127.0.0.1:5180. Vite forwards `/api` to the Hono server on `8790`.
 The photo canvas works while ComfyUI is offline; selecting a subject needs the
 GPU services below. Images are centre-cropped to the working ratio and a working
 size of twice the generation dimensions. Changing the crop or selection clears
-the confirmed mask.
+the confirmed mask and background. After confirming, choose **Isolate subject**.
+Retries reuse the subject description; editing the instruction reruns only removal.
+You can also supply an instruction before the first run to skip description.
+The editor starts with the name used for selection, or stays empty for an unnamed
+point selection. A manual run without a model description is labelled **Custom
+removal instruction** and doesn't populate the description cache. The selection's
+subject hint stays tied to the submitted search; typing a new name alone doesn't
+change it. Submit **Find subject** to create a selection with the new name.
+Cancellation or a failed retry keeps the last successful background.
 
 ```sh
 npm test
@@ -78,8 +89,9 @@ is a later feature.
 Use a current ComfyUI with the core SAM 3.1, Qwen Image 2.1, TextGenerate and
 MiniMax H3 nodes. Install [ComfyUI-vlo](https://github.com/PxTicks/ComfyUI-vlo)
 for the planned Time-to-Move stage. Its H3 support needs ComfyUI's per-token
-mask support (upstream since August 2026). The current selection stage only
-requires the SAM checkpoint.
+mask support (upstream since August 2026). Selection requires the SAM checkpoint.
+Isolation also requires the Qwen diffusion model, Qwen3-VL encoder and Qwen VAE
+listed below.
 
 Start ComfyUI on `8188`, then install and run the
 [v2 proxy](https://github.com/Comfy-Org/comfy-api-proxy) manually if you prefer.
@@ -104,10 +116,16 @@ npm run check-env
 npm run spike -- s1
 npm run spike -- s2 --image /path/to/photo.png --text dog
 npm run spike -- s3 --image /path/to/highlight.png
+npm run spike:isolate -- --fixture
+# Or test your own photo and white-subject/black-background mask:
+npm run spike:isolate -- --image /path/to/photo.png --mask /path/to/mask.png --text dog
 ```
 
 See [spike evidence and remaining checks](scripts/spikes/RESULTS.md). S1 uses
 only core image/text/video nodes. S2 requires SAM; S3 requires Qwen's encoder.
+The isolation spike exercises the full description → removal → composite chain,
+refuses to start while ComfyUI's queue is busy, and saves its inputs, plate and
+result JSON under `.data/spikes/`.
 
 ## Models
 
@@ -142,11 +160,14 @@ scripts/           Environment checks and compatibility spikes
 The original UI graphs cannot be submitted to the v2 API. Each bound API node
 has a class/name contract covered by tests. SAM masks use white for the subject;
 the server derives candidate bounds directly from their pixels because v2
-returns file outputs, rather than SAM's bounding-box node data.
+returns file outputs, rather than SAM's bounding-box node data. It creates the
+yellow VLM highlight from the confirmed union mask, so the description matches
+the exact selection. Qwen edits are composited over the original only inside a
+grown, softly blurred subject mask, preserving pixels outside that region.
+Shadows beyond that region can remain; retry or refine the selection as needed.
 
-The next implementation step is to run S1–S3 on the GPU, then wire the local
-VLM description into Qwen background removal. Motion keys, the browser
-compositor, encoding and H3/TTM follow that stage.
+The next implementation step is the Move phase: motion keys, path editing and
+preview playback. The browser compositor, encoding and H3/TTM generation follow.
 
 ## License and acknowledgements
 

@@ -11,7 +11,8 @@
     "start": "npm run start -w @h3-motion/server",
     "test": "vitest run",
     "check-env": "node --import tsx --env-file-if-exists=.env scripts/check-env.ts",
-    "spike": "node --import tsx --env-file-if-exists=.env scripts/spikes/run.ts"
+    "spike": "node --import tsx --env-file-if-exists=.env scripts/spikes/run.ts",
+    "spike:isolate": "node --import tsx --env-file-if-exists=.env scripts/spikes/isolate.ts"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

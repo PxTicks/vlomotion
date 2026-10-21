@@ -3,6 +3,7 @@ import { Alert, Box, Button, Chip, Container, Divider, Paper, Stack, Step, StepB
 import { aspectRatioSchema, generationSize, healthSchema } from "@h3-motion/shared";
 import { apiRequest } from "../../api";
 import { SelectPanel, SelectionCanvas, useSelectionStore } from "../select";
+import { IsolatePanel, IsolatePreview } from "../isolate";
 
 let sessionPromise: Promise<unknown> | undefined;
 
@@ -15,7 +16,8 @@ export function App() {
   const busy = useSelectionStore(s => s.busy);
   const phase = useSelectionStore(s => s.phase);
   const mask = useSelectionStore(s => s.mask);
-  const editSelection = useSelectionStore(s => s.editSelection);
+  const isolation = useSelectionStore(s => s.isolation);
+  const visitPhase = useSelectionStore(s => s.visitPhase);
   const error = useSelectionStore(s => s.error);
   const notice = useSelectionStore(s => s.notice);
   const clearError = useSelectionStore(s => s.clearError);
@@ -51,13 +53,13 @@ export function App() {
       pointerEvents: ready ? "auto" : "none", opacity: ready ? 1 : .45 }} inert={!ready}>
       <Paper sx={{ p: { xs: 1.5, md: 2.5 }, overflow: "hidden" }}>
         <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 2 }}>
-          <Typography variant="overline" color="text.secondary">SOURCE PHOTO</Typography>
+          <Typography variant="overline" color="text.secondary">{phase > 0 && isolation ? "BACKGROUND PREVIEW" : "SOURCE PHOTO"}</Typography>
           <ToggleButtonGroup exclusive size="small" value={ratio} disabled={busy} aria-label="Working aspect ratio"
             onChange={(_, value: unknown) => { const parsed = aspectRatioSchema.safeParse(value); if (parsed.success) void changeRatio(parsed.data); }}>
             {["16:9", "9:16", "1:1"].map(value => <ToggleButton key={value} value={value} sx={{ px: 1.5, py: .5, borderRadius: 99 }}>{value}</ToggleButton>)}
           </ToggleButtonGroup>
         </Stack>
-        <SelectionCanvas />
+        {phase > 0 && isolation ? <IsolatePreview /> : <SelectionCanvas />}
         <Divider sx={{ my: 2 }} />
         <Stack direction="row" justifyContent="space-between" gap={2}>
           <Typography variant="caption" color="text.secondary">Centre crop · 480p · {size.width} × {size.height}</Typography>
@@ -66,19 +68,19 @@ export function App() {
       </Paper>
       <Paper sx={{ p: 3 }}>
         <Stepper activeStep={phase} alternativeLabel sx={{ mb: 4, mx: -2, ".MuiStepLabel-label": { fontSize: 12 } }}>
-          {["Select", "Isolate", "Move", "Generate"].map((label, index) => <Step key={label}>
-            <StepButton disabled={busy || index > phase} onClick={index === 0 ? editSelection : undefined}>{label}</StepButton>
+          {["Select", "Isolate", "Move", "Generate"].map((label, index) => <Step key={label} completed={index === 0 ? !!mask : index === 1 ? !!isolation : false}>
+            <StepButton disabled={busy || index === 3 || (index === 1 && !mask) || (index === 2 && !isolation)}
+              onClick={() => { if (index < 3) visitPhase(index as 0 | 1 | 2); }}>{label}</StepButton>
           </Step>)}
         </Stepper>
-        {phase === 0 ? <SelectPanel /> : <Stack spacing={2}>
-          <Chip label="Selection confirmed" color="primary" sx={{ alignSelf: "start" }} />
-          <Typography variant="h2">Ready to isolate</Typography>
-          <Typography variant="body2" color="text.secondary">Your subject mask is saved. Background removal, motion editing and generation are the next implementation milestones.</Typography>
-          {mask && <Button component="a" href={mask.url} download="h3-motion-subject-mask.png" variant="outlined">Download subject mask</Button>}
-          <Button onClick={editSelection}>Edit selection</Button>
+        {phase === 0 ? <SelectPanel /> : phase === 1 ? <IsolatePanel /> : <Stack spacing={2}>
+          <Chip label="Background ready" color="primary" sx={{ alignSelf: "start" }} />
+          <Typography variant="h2">Ready to move</Typography>
+          <Typography variant="body2" color="text.secondary">Your subject mask and clean background are ready. The path editor is the next implementation milestone.</Typography>
+          <Button onClick={() => visitPhase(1)}>Edit background</Button>
         </Stack>}
       </Paper>
     </Box>
-    <Typography variant="caption" color="text.secondary" component="p" sx={{ mt: 3 }}>Early development · Photo selection is implemented. Isolate, Move and Generate are coming next.</Typography>
+    <Typography variant="caption" color="text.secondary" component="p" sx={{ mt: 3 }}>Early development · Select and Isolate are implemented. Motion editing and video generation are coming next.</Typography>
   </Container>;
 }

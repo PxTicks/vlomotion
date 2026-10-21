@@ -1,0 +1,21 @@
+{
+  "1": { "class_type": "LoadImage", "inputs": { "image": "original.png" } },
+  "2": { "class_type": "LoadImage", "inputs": { "image": "subject_mask.png" } },
+  "3": { "class_type": "UNETLoader", "inputs": { "unet_name": "qwen_image_2.1_int8_convrot.safetensors", "weight_dtype": "default" } },
+  "4": { "class_type": "CLIPLoader", "inputs": { "clip_name": "qwen3vl_8b_int8_convrot.safetensors", "type": "qwen_image", "device": "default" } },
+  "5": { "class_type": "VAELoader", "inputs": { "vae_name": "qwen_image_2.1_vae_bf16.safetensors" } },
+  "6": { "class_type": "TextEncodeQwenImage21", "inputs": { "clip": ["4", 0], "vae": ["5", 0], "images.image_1": ["11", 0], "prompt": "Remove the selected subject from <image1>.", "negative_prompt": "", "resolution": 0 } },
+  "7": { "class_type": "QwenImage21Cache", "inputs": { "model": ["3", 0], "device": "auto", "dtype": "default" } },
+  "8": { "class_type": "KSampler", "inputs": { "model": ["7", 0], "positive": ["6", 0], "negative": ["6", 1], "latent_image": ["6", 2], "seed": 0, "steps": 25, "cfg": 1, "sampler_name": "euler", "scheduler": "simple", "denoise": 1 } },
+  "9": { "class_type": "VAEDecode", "inputs": { "samples": ["8", 0], "vae": ["5", 0] } },
+  "10": { "class_type": "GetImageSize", "inputs": { "image": ["1", 0] } },
+  "11": { "class_type": "ImageScale", "inputs": { "image": ["1", 0], "upscale_method": "lanczos", "width": 1728, "height": 960, "crop": "disabled" } },
+  "12": { "class_type": "ImageScale", "inputs": { "image": ["9", 0], "upscale_method": "lanczos", "width": ["10", 0], "height": ["10", 1], "crop": "disabled" } },
+  "13": { "class_type": "ImageToMask", "inputs": { "image": ["2", 0], "channel": "red" } },
+  "14": { "class_type": "GrowMask", "inputs": { "mask": ["13", 0], "expand": 19, "tapered_corners": true } },
+  "15": { "class_type": "MaskToImage", "inputs": { "mask": ["14", 0] } },
+  "16": { "class_type": "ImageBlur", "inputs": { "image": ["15", 0], "blur_radius": 10, "sigma": 3.3 } },
+  "17": { "class_type": "ImageToMask", "inputs": { "image": ["16", 0], "channel": "red" } },
+  "18": { "class_type": "ImageCompositeMasked", "inputs": { "destination": ["1", 0], "source": ["12", 0], "mask": ["17", 0], "x": 0, "y": 0, "resize_source": false } },
+  "19": { "class_type": "SaveImage", "inputs": { "images": ["18", 0], "filename_prefix": "h3m/plate" } }
+}
