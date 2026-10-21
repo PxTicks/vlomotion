@@ -9,7 +9,8 @@ mask union/confirmation, session-scoped files, job progress and cancellation.
 The Isolate phase describes the confirmed subject locally with Qwen3-VL, removes
 it with Qwen Image 2.1, and previews the clean background. Retry with a new seed,
 edit the removal instruction, or hold the preview to compare with the original.
-**Motion editing and H3 generation are not implemented yet.**
+The Move phase keyframes the subject along a path with a timeline and real-time
+preview playback. **H3 generation is not implemented yet.**
 The description/removal chain has passed a real GPU run against Windows ComfyUI;
 broader scene-quality checks remain. No detections or generated results are simulated.
 
@@ -78,6 +79,18 @@ Submit **Find subject** to create a selection with the new name. User-written
 instructions are labelled **Custom removal instruction**, including when a VLM
 caption is cached. Manual runs without a model description don't populate that
 cache. Missing caption fields use defaults without blocking a valid removal phrase.
+
+**Continue** opens the Move phase. Drag the subject to where it should end up;
+the first drag sets a ◆ key at the end of the clip. Move the playhead and drag
+again to bend the path, click the path to insert a key, or drag a ◆ along the
+timeline to change the speed on either side of it. Two keys in one place make a
+hold, and the subject stays still after the last key. **Even speed** re-spaces
+keys for constant speed; **Smooth/Linear** sets how speed eases between keys.
+**● Rec** records a live drag while the clip plays and simplifies it into keys.
+The first frame is always the original photo. Clips are 5, 7 or 10 s (124, 175
+or 243 frames at 24 fps), and keys sit on those frames. Shortcuts: Space plays,
+K adds a key, Delete removes the selected key, and arrow keys step frames.
+Retrying the background keeps the path; changing the selection resets it.
 Cancellation or a failed retry keeps the last successful background.
 
 ```sh
@@ -159,7 +172,7 @@ to match ComfyUI's loader options. Model downloads are intentionally not automat
 ```text
 apps/web/          React, Vite, MUI, Zustand; feature-based UI
 apps/server/       Hono, Comfy SDK, session files and jobs
-packages/shared/   Zod API schemas and media conventions
+packages/shared/   Zod API schemas, media conventions and the motion model
 workflows/api/     Fixed API templates used by the server and spikes
 workflows/source/  Original vlo UI graphs for the later isolate/animate stages
 scripts/           Environment checks and compatibility spikes
@@ -174,8 +187,12 @@ the exact selection. Qwen edits are composited over the original only inside a
 grown, softly blurred subject mask, preserving pixels outside that region.
 Shadows beyond that region can remain; retry or refine the selection as needed.
 
-The next implementation step is the Move phase: motion keys, path editing and
-preview playback. The browser compositor, encoding and H3/TTM generation follow.
+Motion is stored as keys with frame times. The subject follows a centripetal
+Catmull-Rom path through the key positions, and a monotone cubic through
+(frame, distance travelled) sets its speed, so it never backtracks and holds stay
+still. The preview draws each frame from the background plate plus the feathered
+cut-out at its offset; at rest it draws the original photo. The next
+implementation step is Generate: encoding those frames and running H3 with TTM.
 
 ## License and acknowledgements
 

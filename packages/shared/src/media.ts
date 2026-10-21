@@ -12,6 +12,7 @@ export const frameSizeSchema = z.object({
   height: z.number().int().positive().multipleOf(32),
 });
 export const frameCountSchema = z.union([z.literal(124), z.literal(175), z.literal(243)]);
+export type FrameCount = z.infer<typeof frameCountSchema>;
 
 /** Python's round uses ties-to-even; match vlo's dimension search. */
 export function pythonRound(value: number): number {

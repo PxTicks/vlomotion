@@ -4,6 +4,7 @@ import { aspectRatioSchema, generationSize, healthSchema } from "@h3-motion/shar
 import { apiRequest } from "../../api";
 import { currentIsolation, SelectPanel, SelectionCanvas, useSelectionStore } from "../select";
 import { IsolatePanel, IsolatePreview } from "../isolate";
+import { MotionEditor, MotionPanel, subjectKeyOf, useMotionStore } from "../motion";
 
 let sessionPromise: Promise<unknown> | undefined;
 
@@ -17,6 +18,8 @@ export function App() {
   const phase = useSelectionStore(s => s.phase);
   const mask = useSelectionStore(s => s.mask);
   const isolation = useSelectionStore(currentIsolation);
+  const image = useSelectionStore(s => s.image);
+  const moved = useMotionStore(s => !!image && !!mask && s.subjectKey === subjectKeyOf(image.id, mask.id) && (s.motion?.keys.length ?? 0) > 1);
   const visitPhase = useSelectionStore(s => s.visitPhase);
   const error = useSelectionStore(s => s.error);
   const notice = useSelectionStore(s => s.notice);
@@ -53,13 +56,13 @@ export function App() {
       pointerEvents: ready ? "auto" : "none", opacity: ready ? 1 : .45 }} inert={!ready}>
       <Paper sx={{ p: { xs: 1.5, md: 2.5 }, overflow: "hidden" }}>
         <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 2 }}>
-          <Typography variant="overline" color="text.secondary">{phase > 0 && isolation ? "BACKGROUND PREVIEW" : "SOURCE PHOTO"}</Typography>
+          <Typography variant="overline" color="text.secondary">{phase === 2 && isolation ? "MOTION PREVIEW" : phase > 0 && isolation ? "BACKGROUND PREVIEW" : "SOURCE PHOTO"}</Typography>
           <ToggleButtonGroup exclusive size="small" value={ratio} disabled={busy} aria-label="Working aspect ratio"
             onChange={(_, value: unknown) => { const parsed = aspectRatioSchema.safeParse(value); if (parsed.success) void changeRatio(parsed.data); }}>
             {["16:9", "9:16", "1:1"].map(value => <ToggleButton key={value} value={value} sx={{ px: 1.5, py: .5, borderRadius: 99 }}>{value}</ToggleButton>)}
           </ToggleButtonGroup>
         </Stack>
-        {phase > 0 && isolation ? <IsolatePreview /> : <SelectionCanvas />}
+        {phase === 2 && isolation ? <MotionEditor /> : phase > 0 && isolation ? <IsolatePreview /> : <SelectionCanvas />}
         <Divider sx={{ my: 2 }} />
         <Stack direction="row" justifyContent="space-between" gap={2}>
           <Typography variant="caption" color="text.secondary">Centre crop · 480p · {size.width} × {size.height}</Typography>
@@ -68,19 +71,14 @@ export function App() {
       </Paper>
       <Paper sx={{ p: 3 }}>
         <Stepper activeStep={phase} alternativeLabel sx={{ mb: 4, mx: -2, ".MuiStepLabel-label": { fontSize: 12 } }}>
-          {["Select", "Isolate", "Move", "Generate"].map((label, index) => <Step key={label} completed={index === 0 ? !!mask : index === 1 ? !!isolation : false}>
+          {["Select", "Isolate", "Move", "Generate"].map((label, index) => <Step key={label} completed={index === 0 ? !!mask : index === 1 ? !!isolation : index === 2 ? moved : false}>
             <StepButton disabled={busy || index === 3 || (index === 1 && !mask) || (index === 2 && !isolation)}
               onClick={() => { if (index < 3) visitPhase(index as 0 | 1 | 2); }}>{label}</StepButton>
           </Step>)}
         </Stepper>
-        {phase === 0 ? <SelectPanel /> : phase === 1 ? <IsolatePanel /> : <Stack spacing={2}>
-          <Chip label="Background ready" color="primary" sx={{ alignSelf: "start" }} />
-          <Typography variant="h2">Ready to move</Typography>
-          <Typography variant="body2" color="text.secondary">Your subject mask and clean background are ready. The path editor is the next implementation milestone.</Typography>
-          <Button onClick={() => visitPhase(1)}>Edit background</Button>
-        </Stack>}
+        {phase === 0 ? <SelectPanel /> : phase === 1 ? <IsolatePanel /> : <MotionPanel />}
       </Paper>
     </Box>
-    <Typography variant="caption" color="text.secondary" component="p" sx={{ mt: 3 }}>Early development · Select and Isolate are implemented. Motion editing and video generation are coming next.</Typography>
+    <Typography variant="caption" color="text.secondary" component="p" sx={{ mt: 3 }}>Early development · Select, Isolate and Move are implemented. Video generation is coming next.</Typography>
   </Container>;
 }
