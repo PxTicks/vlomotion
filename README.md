@@ -39,7 +39,7 @@ addresses it checked; it never launches ComfyUI or downloads models. NAT mode
 requires the Windows ComfyUI to listen on an address reachable from WSL.
 
 It reuses a healthy API proxy, or starts a local one on `8189`. With `uv`, the
-proxy package (`comfy-api-proxy==0.1.0`) is downloaded and cached automatically
+proxy package (`comfy-api-proxy==0.1.6`) is downloaded and cached automatically
 on first use. Ctrl+C stops the app and only the proxy started by that invocation;
 Windows ComfyUI and pre-existing proxies stay running. A failed remote proxy is
 not started locally, and an occupied port is left alone.
@@ -139,7 +139,7 @@ Start ComfyUI on `8188`, then install and run the
 The proxy can run in WSL while ComfyUI runs on Windows; it communicates over HTTP:
 
 ```sh
-pip install comfy-api-proxy
+pip install 'comfy-api-proxy==0.1.6'
 comfy-api-proxy --comfyui http://127.0.0.1:8188 --port 8189 --max-upload-mb 500
 ```
 
@@ -149,6 +149,10 @@ overrides the launcher's ComfyUI detection and lets the environment checker
 inspect the GPU's node/model list. If `COMFY_API_KEY` is set, start the
 authenticated proxy yourself; the launcher reuses it but will not start an
 unauthenticated replacement.
+Use proxy **0.1.6 or later**: 0.1.0 drops `SaveText` file outputs, so the subject
+can be identified successfully in ComfyUI while isolation receives no description.
+If you use an installed or already running proxy, upgrade it and restart it;
+the launcher reuses existing proxies without replacing them.
 The server uses `@comfyorg/sdk` for workflow submission, asset transfers,
 progress and cancellation; it does not use Router or partner nodes.
 

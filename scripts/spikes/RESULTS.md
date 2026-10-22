@@ -17,6 +17,16 @@ write artifacts and a machine-readable result under `.data/spikes/`.
 
 ## Isolate evidence
 
+2026-10-22: Reproduced a proxy compatibility failure against an actual gloved-hand
+selection. ComfyUI history contained valid phrase and caption files, but proxy
+0.1.0 returned `status: succeeded` with `outputs: []`. With a temporary 0.1.6
+proxy on a separate port, the SDK downloaded both files from the same existing
+job, and `parseDescription` plus `removalInstruction` produced the expected
+removal prompt. No new GPU run was needed. The launcher now pins 0.1.6; installed
+or already running older proxies must be upgraded and restarted separately.
+Missing description files now report the proxy problem rather than claiming
+the highlighted subject could not be identified.
+
 `npm run spike:isolate -- --fixture` passed the actual server lifecycle:
 server-generated yellow highlight → phrase and caption → Qwen Image 2.1 edit
 (25 Euler/simple steps, CFG 1) → grown/blurred mask composite → saved PNG.

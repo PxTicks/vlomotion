@@ -74,7 +74,7 @@ try {
     abort.signal.throwIfAborted();
     console.info("[h3-motion] Starting local API proxy (uv downloads it on first use)…");
     startedProxy = supervisor.launch(installed ?? uv!, [
-      ...(installed ? [] : ["tool", "run", "--from", "comfy-api-proxy==0.1.0", "comfy-api-proxy"]),
+      ...(installed ? [] : ["tool", "run", "--from", "comfy-api-proxy==0.1.6", "comfy-api-proxy"]),
       "--comfyui", comfyUrl, "--host", address.host, "--port", String(address.port),
       "--max-upload-mb", "500",
     ]);

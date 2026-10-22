@@ -119,6 +119,20 @@ describe("isolation pipeline", () => {
     expect(submit).toHaveBeenCalledTimes(2);
     expect(submit.mock.calls[1][0].json["6"]).toMatchObject({ inputs: { prompt: "Remove the red car." } });
   });
+  it("reports missing proxy text files separately from an unidentified subject and allows manual recovery", async () => {
+    const { app, client, session, cookie, png, request } = await setup();
+    const submit = vi.spyOn(client, "submit").mockResolvedValueOnce(remote({}));
+    await app.request("/api/jobs/isolate", post(cookie, request)); await session.job!.done;
+    expect(session.job!.snapshot).toMatchObject({ status: "failed", stage: "describe",
+      error: expect.stringContaining("Upgrade comfy-api-proxy to 0.1.6") });
+    expect(session.description).toBeUndefined();
+    expect(session.isolation).toBeUndefined();
+    expect(submit).toHaveBeenCalledOnce();
+    submit.mockResolvedValueOnce(remote({ "19": [png] }));
+    await app.request("/api/jobs/isolate", post(cookie, { ...request, instruction: "Remove the dog." })); await session.job!.done;
+    expect(session.job!.snapshot.status).toBe("completed");
+    expect(session.isolation).toMatchObject({ instruction: "Remove the dog.", instructionSource: "custom" });
+  });
   it("describes a different confirmed mask again even when the search hint is unchanged", async () => {
     const { app, store, client, session, cookie, png, request } = await setup();
     const submit = vi.spyOn(client, "submit").mockResolvedValueOnce(description()).mockResolvedValueOnce(remote({ "19": [png] }));

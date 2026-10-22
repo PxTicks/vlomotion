@@ -40,6 +40,9 @@ export function startIsolate(client: Comfy, store: SessionStore, session: Sessio
         throwIfCancelled(managed);
         const workflow = await buildDescribeWorkflow(client, highlight.path, userText);
         const job = await runWorkflow(client, managed, workflow, { stage: "describe", message: "Describing your subject…", from: 0, to: 0.2 });
+        if (!job.getOutputs(DESCRIBE_OUTPUTS.phrase.node).length && !job.getOutputs(DESCRIBE_OUTPUTS.caption.node).length) {
+          throw new Error("The API proxy returned no subject-description files. Upgrade comfy-api-proxy to 0.1.6 or later and restart the proxy, then retry isolation. You can also write a removal instruction to continue.");
+        }
         const phrase = await textOutput(job, DESCRIBE_OUTPUTS.phrase.node);
         throwIfCancelled(managed);
         const caption = await textOutput(job, DESCRIBE_OUTPUTS.caption.node);
