@@ -71,8 +71,7 @@ export function MotionPanel() {
       {moving ? `${motion.keys.length} keys · ${Math.round(curve.length)} px path · moves until ${formatSeconds(motion.keys[motion.keys.length - 1].frame)}` : "No motion yet."}
       <br />Space play · K add key · Delete remove key · ← → step frames
     </Typography>
-    <Button variant="contained" size="large" disabled>Generate video</Button>
-    <Typography variant="caption" color="text.secondary" sx={{ mt: -1.5 }}>Generation is the next milestone.</Typography>
+    <Button variant="contained" size="large" disabled={recording || !moving || errors.length > 0} onClick={() => visitPhase(3)}>Continue →</Button>
     <Button disabled={recording} onClick={() => visitPhase(1)}>Edit background</Button>
   </Stack>;
 }

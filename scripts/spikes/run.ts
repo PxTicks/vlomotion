@@ -15,10 +15,11 @@ const { positionals, values } = parseArgs({ allowPositionals: true, options: {
   image: { type: "string" }, text: { type: "string", default: "dog" },
   positive: { type: "string" }, negative: { type: "string", default: "[]" },
   "clip-type": { type: "string", default: "qwen_image" },
+  reference: { type: "string" }, mask: { type: "string" }, frames: { type: "string" },
 } });
 const spike = positionals[0];
-if (!["s1", "s2", "s3"].includes(spike ?? "")) {
-  console.info("Usage: npm run spike -- s1\n       npm run spike -- s2 --image photo.png --text dog\n       npm run spike -- s2 --image photo.png --positive '[{\"x\":100,\"y\":100}]'\n       npm run spike -- s3 --image highlight.png [--clip-type qwen_image|ideogram4]");
+if (!["s1", "s2", "s3", "s5"].includes(spike ?? "")) {
+  console.info("Usage: npm run spike -- s1\n       npm run spike -- s2 --image photo.png --text dog\n       npm run spike -- s2 --image photo.png --positive '[{\"x\":100,\"y\":100}]'\n       npm run spike -- s3 --image highlight.png [--clip-type qwen_image|ideogram4]\n       npm run spike -- s5 --reference reference.mp4 --mask mask.mp4 --frames 124");
   process.exitCode = 1;
 } else {
   const client = new Comfy({ timeoutMs: 30_000, clientInfo: "h3-motion-spikes" });
@@ -61,6 +62,35 @@ if (!["s1", "s2", "s3"].includes(spike ?? "")) {
         : { mode: "text", imageId: randomUUID(), text: values.text });
       const job = await execute(await buildSegmentWorkflow(client, request, resolve(values.image)));
       console.info(`S2 ${request.mode}: ${job.getOutputs("6").length} mask files. Inspect overlays to judge segmentation quality.`);
+    } else if (spike === "s5") {
+      if (!values.reference || !values.mask || !values.frames) throw new Error("S5 requires --reference, --mask and --frames.");
+      const frames = Number(values.frames);
+      const workflow = client.workflows.fromJson({
+        "1": { class_type: "LoadVideo", inputs: { file: "reference.mp4" } },
+        "2": { class_type: "GetVideoComponents", inputs: { video: ["1", 0] } },
+        "3": { class_type: "SaveImage", inputs: { images: ["2", 0], filename_prefix: "h3m/spike_s5_reference" } },
+        "4": { class_type: "LoadVideo", inputs: { file: "mask.mp4" } },
+        "5": { class_type: "GetVideoComponents", inputs: { video: ["4", 0] } },
+        "6": { class_type: "SaveImage", inputs: { images: ["5", 0], filename_prefix: "h3m/spike_s5_mask" } },
+      });
+      workflow.setInput("1", "file", client.assets.fromFile(resolve(values.reference)));
+      workflow.setInput("4", "file", client.assets.fromFile(resolve(values.mask)));
+      const job = await execute(workflow);
+      const reference = job.getOutputs("3"), mask = job.getOutputs("6");
+      assert.equal(reference.length, frames, `Reference decoded to ${reference.length} frames, expected ${frames}`);
+      assert.equal(mask.length, frames, `Mask decoded to ${mask.length} frames, expected ${frames}`);
+      // The graph thresholds the red channel at 0.5; values far from both ends would make that threshold fragile.
+      let ambiguous = 0, white = 0, total = 0;
+      for (const output of mask.filter((_, i) => i % 10 === 0)) {
+        const { data, info } = await sharp(await output.toBytes()).raw().toBuffer({ resolveWithObject: true });
+        for (let i = 0; i < data.length; i += info.channels) {
+          total++;
+          if (data[i] >= 128) white++;
+          if (data[i] > 48 && data[i] < 208) ambiguous++;
+        }
+      }
+      assert.ok(white > 0, "Mask frames contain no subject pixels");
+      console.info(`PASS S5: ${frames} reference and mask frames decoded. Mask: ${(white / total * 100).toFixed(2)}% subject, ${(ambiguous / total * 100).toFixed(3)}% mid-grey (edge) pixels.`);
     } else {
       if (!values.image) throw new Error("S3 requires --image pointing to a highlighted photo.");
       if (!["qwen_image", "ideogram4"].includes(values["clip-type"]!)) throw new Error("Use --clip-type qwen_image or ideogram4.");

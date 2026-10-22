@@ -1,0 +1,89 @@
+import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, LinearProgress, Slider, Stack, TextField, ToggleButton, ToggleButtonGroup, Tooltip, Typography } from "@mui/material";
+import { FPS, LOCK_IN } from "@h3-motion/shared";
+import { useSelectionStore } from "../select";
+import { useGenerationInputs } from "./inputs";
+import { useCurrentResult, useGenerateStore } from "./useGenerateStore";
+
+const LOCK_IN_HELP = "How long the subject is held to your path. Higher values follow the path more tightly, but leave the model less room to blend the cut-out into the scene. At 1, the path only seeds the motion.";
+
+export function GeneratePanel() {
+  const lockIn = useGenerateStore(s => s.lockIn);
+  const tier = useGenerateStore(s => s.tier);
+  const seed = useGenerateStore(s => s.seed);
+  const prompt = useGenerateStore(s => s.prompt);
+  const status = useGenerateStore(s => s.status);
+  const progress = useGenerateStore(s => s.progress);
+  const job = useGenerateStore(s => s.job);
+  const error = useGenerateStore(s => s.error);
+  const notice = useGenerateStore(s => s.notice);
+  const { setLockIn, setTier, setSeed, setPrompt, generate, cancel, clearError } = useGenerateStore.getState();
+  const visitPhase = useSelectionStore(s => s.visitPhase);
+  const inputs = useGenerationInputs({ tier, lockIn, prompt });
+  const result = useCurrentResult();
+  const busy = status !== "idle";
+  const statusText = status === "rendering" ? `Rendering motion frames… ${Math.round((progress ?? 0) * 100)}%`
+    : status === "uploading" ? "Uploading the motion videos…" : job?.message ?? "Waiting for ComfyUI…";
+
+  return <Stack spacing={2.5}>
+    <Stack spacing={1}>
+      <Typography variant="h2">Bring it to life</Typography>
+      <Typography variant="body2" color="text.secondary">MiniMax H3 animates the photo along your path, blending the moving subject into the scene and adding sound.</Typography>
+    </Stack>
+    <Box>
+      <Stack direction="row" justifyContent="space-between" alignItems="center">
+        <Tooltip title={LOCK_IN_HELP} placement="top-start">
+          <Typography variant="overline" color="text.secondary" tabIndex={0} sx={{ cursor: "help" }}>Motion lock-in ⓘ</Typography>
+        </Tooltip>
+        <Typography variant="body2" sx={{ fontVariantNumeric: "tabular-nums" }}>{lockIn}</Typography>
+      </Stack>
+      <Slider value={lockIn} min={LOCK_IN.min} max={LOCK_IN.max} step={1} marks disabled={busy} aria-label="Motion lock-in"
+        onChange={(_, value) => setLockIn(Array.isArray(value) ? value[0] : value)} />
+      <Stack direction="row" justifyContent="space-between" sx={{ mt: -1 }}>
+        <Typography variant="caption" color="text.secondary">Loose</Typography>
+        <Typography variant="caption" color="text.secondary">Locked</Typography>
+      </Stack>
+    </Box>
+    {busy ? <Stack spacing={1} aria-live="polite">
+      <Typography variant="body2">{statusText}</Typography>
+      <LinearProgress variant={progress == null ? "indeterminate" : "determinate"} value={(progress ?? 0) * 100} />
+      <Typography variant="caption" color="text.secondary">Generation usually takes several minutes. Keep this tab open.</Typography>
+      <Button onClick={() => void cancel()}>Cancel</Button>
+    </Stack> : <Button variant="contained" size="large" fullWidth disabled={!inputs} onClick={() => void generate()}
+      sx={{ minHeight: 56, fontFamily: "Barlow Condensed, sans-serif", fontSize: 22, letterSpacing: ".14em" }}>GENERATE</Button>}
+    {error && <Alert severity="error" onClose={clearError}>{error}</Alert>}
+    {notice && !busy && <Typography role="status" variant="body2" color="text.secondary">{notice}</Typography>}
+    {result && <Stack spacing={1}>
+      <Typography variant="overline" color="text.secondary">Output</Typography>
+      <Typography variant="caption" color="text.secondary">
+        {result.width} × {result.height} · {(result.frames / FPS).toFixed(1)} s · lock-in {result.lockIn} · seed {result.seed}
+      </Typography>
+      <Stack direction="row" gap={1} flexWrap="wrap">
+        <Button variant="outlined" component="a" href={result.video.url} download="h3-motion.mp4">Download video</Button>
+        <Button disabled={busy} onClick={() => void generate({ newSeed: true })}>Regenerate</Button>
+        <Button disabled={busy} onClick={() => setSeed(String(result.seed))}>Reuse seed</Button>
+      </Stack>
+    </Stack>}
+    <Accordion disableGutters elevation={0} sx={{ bgcolor: "transparent", border: "1px solid", borderColor: "divider", borderRadius: 1, "&::before": { display: "none" } }}>
+      <AccordionSummary expandIcon={<Typography color="text.secondary">▾</Typography>}><Typography variant="overline">Advanced</Typography></AccordionSummary>
+      <AccordionDetails>
+        <Stack spacing={2.5}>
+          <Stack spacing={1}>
+            <Typography variant="caption" color="text.secondary">Resolution{inputs ? ` · ${inputs.size.width} × ${inputs.size.height}` : ""}</Typography>
+            <ToggleButtonGroup exclusive size="small" value={tier} disabled={busy} aria-label="Resolution"
+              onChange={(_, value: unknown) => { if (value === 480 || value === 720) setTier(value); }}>
+              <ToggleButton value={480} sx={{ px: 1.5, py: .5, borderRadius: 99 }}>480p</ToggleButton>
+              <ToggleButton value={720} sx={{ px: 1.5, py: .5, borderRadius: 99 }}>720p</ToggleButton>
+            </ToggleButtonGroup>
+          </Stack>
+          <TextField size="small" label="Seed" placeholder="Random" value={seed} disabled={busy} onChange={event => setSeed(event.target.value)}
+            slotProps={{ htmlInput: { inputMode: "numeric" } }} helperText="Leave empty for a new random seed each time." />
+          <TextField multiline minRows={8} label="H3 prompt" value={prompt ?? inputs?.autoPrompt ?? ""} disabled={busy || !inputs}
+            onChange={event => setPrompt(event.target.value)} slotProps={{ htmlInput: { maxLength: 4000 } }}
+            helperText={prompt === null ? "Written from the subject description and your path." : "Edited. Your prompt is used as written."} />
+          {prompt !== null && <Button size="small" disabled={busy} onClick={() => setPrompt(null)} sx={{ alignSelf: "start" }}>Use the automatic prompt</Button>}
+        </Stack>
+      </AccordionDetails>
+    </Accordion>
+    <Button disabled={busy} onClick={() => visitPhase(2)}>Edit motion</Button>
+  </Stack>;
+}

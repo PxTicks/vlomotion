@@ -4,9 +4,9 @@ import { Alert, Box, CircularProgress, Typography } from "@mui/material";
 import { styled } from "@mui/material/styles";
 import { buildMotionCurve, isStartKey } from "@h3-motion/shared";
 import type { Point, TimedSample } from "@h3-motion/shared";
-import { currentIsolation, useSelectionStore } from "../select";
-import { drawGhost, drawReference, hitsSubject, loadSubjectLayers, subjectKeyOf } from "./subjectLayers";
-import type { SubjectLayers } from "./subjectLayers";
+import { useSelectionStore } from "../select";
+import { drawGhost, drawReference, hitsSubject, subjectKeyOf } from "./subjectLayers";
+import { useSubjectLayers } from "./useSubjectLayers";
 import { formatSeconds, signed } from "./format";
 import { useMotionStore } from "./useMotionStore";
 
@@ -16,10 +16,10 @@ type Drag = { pointerId: number; origin: Point; start: Point } & (
 type Hover = "key" | "subject" | "path" | null;
 
 
-export function MotionCanvas() {
+/** The motion canvas. Read-only, it shows only the exact frames that will be rendered, with no editing overlay. */
+export function MotionCanvas({ readOnly = false }: { readOnly?: boolean }) {
   const image = useSelectionStore(s => s.image);
   const mask = useSelectionStore(s => s.mask);
-  const plateUrl = useSelectionStore(s => currentIsolation(s)?.plate.url);
   const motion = useMotionStore(s => s.motion);
   const subjectKey = useMotionStore(s => s.subjectKey);
   const playhead = useMotionStore(s => s.playhead);
@@ -27,30 +27,16 @@ export function MotionCanvas() {
   const armed = useMotionStore(s => s.armed);
   const recording = useMotionStore(s => s.recording);
   const selectedKeyId = useMotionStore(s => s.selectedKeyId);
-  const prepare = useMotionStore(s => s.prepare);
   const canvas = useRef<HTMLCanvasElement>(null);
   const overlay = useRef<SVGSVGElement>(null);
   const drag = useRef<Drag | null>(null);
   const samples = useRef<TimedSample[]>([]);
-  const [layers, setLayers] = useState<SubjectLayers | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const { layers, error } = useSubjectLayers();
   const [scale, setScale] = useState(1);
   const [live, setLive] = useState<Point | null>(null);
   const [hover, setHover] = useState<Hover>(null);
   const curve = useMemo(() => motion ? buildMotionCurve(motion) : null, [motion]);
   const ready = !!layers && !!curve && !!image && !!mask && subjectKey === subjectKeyOf(image.id, mask.id);
-
-  useEffect(() => {
-    if (!image || !mask || !plateUrl) return;
-    let disposed = false;
-    setError(null);
-    loadSubjectLayers(image.url, plateUrl, mask.url).then(loaded => {
-      if (disposed) return;
-      setLayers(loaded);
-      prepare(subjectKeyOf(image.id, mask.id), loaded.bounds, { width: loaded.width, height: loaded.height });
-    }).catch(error => { if (!disposed) setError(error instanceof Error ? error.message : "Could not load the subject layers."); });
-    return () => { disposed = true; };
-  }, [image, mask, plateUrl, prepare]);
 
   useEffect(() => {
     const element = overlay.current;
@@ -65,12 +51,12 @@ export function MotionCanvas() {
     if (!context || !layers || !curve || !ready) return;
     const { anchor, keys } = curve.motion;
     drawReference(context, layers, live ? { x: live.x - anchor.x, y: live.y - anchor.y } : curve.offsetAt(playhead));
-    if (playing || recording) return;
+    if (playing || recording || readOnly) return;
     const current = curve.positionAt(playhead);
     for (const key of keys) {
       if (key.x !== current.x || key.y !== current.y) drawGhost(context, layers, { x: key.x - anchor.x, y: key.y - anchor.y }, .22);
     }
-  }, [layers, curve, ready, playhead, playing, recording, live]);
+  }, [layers, curve, ready, playhead, playing, recording, live, readOnly]);
 
   const path = useMemo(() => curve && curve.length > 0
     ? curve.samples.map((p, i) => `${i ? "L" : "M"}${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join("") : "", [curve]);
@@ -176,17 +162,17 @@ export function MotionCanvas() {
   const cursor = drag.current ? (drag.current.kind === "record" ? "crosshair" : "grabbing")
     : hover === "key" && !armed ? "grab" : hover === "subject" ? (armed ? "crosshair" : "move") : hover === "path" && !armed ? "copy" : "default";
   const selected = curve?.motion.keys.find(key => key.id === selectedKeyId);
-  const showOverlay = ready && !playing && !recording;
+  const showOverlay = ready && !playing && !recording && !readOnly;
   const size = 6 * scale;
 
   return <Box sx={{ position: "relative", borderRadius: 1, overflow: "hidden", width: "100%", maxWidth: image.height > image.width ? 420 : "100%",
     mx: "auto", bgcolor: "#19151f", aspectRatio: `${image.width}/${image.height}` }}>
     {layers && <Surface ref={canvas} width={layers.width} height={layers.height} aria-hidden />}
-    {layers && <svg ref={overlay} viewBox={`0 0 ${layers.width} ${layers.height}`} role="application"
-      aria-label="Motion editor. Drag the subject to place it at the playhead time, drag diamond keys to move them, or click the path to add a key."
+    {layers && <svg ref={overlay} viewBox={`0 0 ${layers.width} ${layers.height}`} role={readOnly ? "img" : "application"}
+      aria-label={readOnly ? "Motion preview showing the frames that will be generated." : "Motion editor. Drag the subject to place it at the playhead time, drag diamond keys to move them, or click the path to add a key."}
       style={{ position: "absolute", inset: 0, width: "100%", height: "100%", touchAction: "none", cursor }}
-      onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp}
-      onPointerLeave={() => { if (!drag.current) setHover(null); }}>
+      {...(readOnly ? {} : { onPointerDown, onPointerMove, onPointerUp, onPointerCancel: onPointerUp,
+        onPointerLeave: () => { if (!drag.current) setHover(null); } })}>
       {showOverlay && path && <>
         <path d={path} fill="none" stroke="#211927" strokeOpacity={.7} strokeWidth={5 * scale} strokeLinecap="round" strokeLinejoin="round" />
         <path d={path} fill="none" stroke="#f2ff59" strokeWidth={2 * scale} strokeLinecap="round" strokeLinejoin="round" />
@@ -207,7 +193,7 @@ export function MotionCanvas() {
       <Typography variant="caption"><Box component="span" sx={{ color: "primary.main" }}>◆</Box> {formatSeconds(selected.frame)}
         {" · "}{signed(selected.x - curve.motion.anchor.x)}, {signed(selected.y - curve.motion.anchor.y)}</Typography>
     </Box>}
-    {ready && curve && !playing && (armed || curve.motion.keys.length === 1) && <Box sx={{ position: "absolute", bottom: 12, left: "50%", transform: "translateX(-50%)",
+    {ready && curve && !playing && !readOnly && (armed || curve.motion.keys.length === 1) && <Box sx={{ position: "absolute", bottom: 12, left: "50%", transform: "translateX(-50%)",
       pointerEvents: "none", bgcolor: "background.paper", borderRadius: 99, px: 2, py: .75, maxWidth: "calc(100% - 24px)" }}>
       <Typography variant="caption">{armed ? "Drag the subject along its path. It will fill the rest of the clip." : "Drag the subject to where it should end up"}</Typography>
     </Box>}

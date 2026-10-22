@@ -4,11 +4,14 @@ import {
   moveKey, retimeKey, setClipFrames, upsertKey,
 } from "@h3-motion/shared";
 import type { FrameCount, FrameSize, MotionTiming, Point, Rect, SubjectMotion, TimedSample } from "@h3-motion/shared";
+import type { SubjectLayers } from "./subjectLayers";
 
 interface MotionState {
   subjectKey: string | null; bounds: Rect | null; size: FrameSize | null; motion: SubjectMotion | null;
   playhead: number; playing: boolean; armed: boolean; recording: boolean;
   selectedKeyId: string | null; notice: string | null;
+  /** Loaded subject images, keyed by the photo, mask and plate they came from. */
+  layers: SubjectLayers | null; layersKey: string | null;
   prepare: (subjectKey: string, bounds: Rect, size: FrameSize) => void;
   setPlayhead: (frame: number) => void; togglePlay: () => void;
   /** Stops playback and drops an unfinished take, e.g. when the editor closes. */
@@ -40,7 +43,7 @@ export const useMotionStore = create<MotionState>((set, get) => {
   }
   return {
     subjectKey: null, bounds: null, size: null, motion: null, playhead: 0, playing: false, armed: false, recording: false,
-    selectedKeyId: null, notice: null,
+    selectedKeyId: null, notice: null, layers: null, layersKey: null,
     prepare: (subjectKey, bounds, size) => {
       const state = get();
       if (state.subjectKey === subjectKey) return;

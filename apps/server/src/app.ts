@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { extname, join } from "node:path";
 import { Hono } from "hono";
 import { getCookie, setCookie } from "hono/cookie";
 import { bodyLimit } from "hono/body-limit";
@@ -9,26 +9,44 @@ import { serveStatic } from "@hono/node-server/serve-static";
 import { ZodError } from "zod";
 import sharp from "sharp";
 import type { Comfy } from "@comfyorg/sdk";
-import { isolateRequestSchema, segmentRequestSchema, selectionRequestSchema } from "@h3-motion/shared";
+import { animateRequestSchema, aspectRatioSchema, generationSize, isolateRequestSchema, segmentRequestSchema, selectionRequestSchema } from "@h3-motion/shared";
+import type { AnimateRequest } from "@h3-motion/shared";
 import { comfy, checkComfyHealth } from "./comfy.js";
 import { REPO_ROOT } from "./config.js";
 import { SessionStore, clearIsolation, isBusy } from "./sessions.js";
 import type { Session } from "./sessions.js";
 import { startSegment } from "./jobs/segment.js";
 import { startIsolate } from "./jobs/isolate.js";
+import { startAnimate } from "./jobs/animate.js";
 import { cancelJob } from "./jobs/runtime.js";
 import { decodeMask, encodeMask } from "./media/masks.js";
+import { inspectVideo } from "./media/video.js";
 
 type AppEnvironment = { Variables: { session: Session } };
 interface AppOptions { store?: SessionStore; client?: Comfy; health?: () => Promise<boolean> }
+const GENERATION_SIZES = aspectRatioSchema.options.flatMap(ratio => ([480, 720] as const).map(tier => generationSize(ratio, tier)));
+const CONTENT_TYPES: Record<string, string> = { ".png": "image/png", ".mp4": "video/mp4", ".webm": "video/webm" };
+
+async function readVideoUpload(value: FormDataEntryValue | null, request: AnimateRequest, label: string) {
+  if (!(value instanceof File)) throw new HTTPException(400, { message: `The ${label} video is missing.` });
+  const bytes = new Uint8Array(await value.arrayBuffer());
+  const info = await inspectVideo(bytes).catch(() => { throw new HTTPException(400, { message: `The ${label} video can't be read. Use MP4 or WebM.` }); });
+  if (info.width !== request.width || info.height !== request.height || info.frames !== request.frames) {
+    throw new HTTPException(400, { message: `The ${label} video must be ${request.width} × ${request.height} with exactly ${request.frames} frames; it is ${info.width} × ${info.height} with ${info.frames}.` });
+  }
+  return { bytes, container: info.container };
+}
 
 export function createApp(options: AppOptions = {}) {
   const store = options.store ?? new SessionStore();
   const client = options.client ?? comfy;
   const app = new Hono<AppEnvironment>();
 
-  app.use("/api/*", bodyLimit({ maxSize: 20 * 1024 * 1024,
-    onError: c => c.json({ error: "Photo is too large. Choose an image under 20 MB." }, 413) }));
+  const photoLimit = bodyLimit({ maxSize: 20 * 1024 * 1024,
+    onError: c => c.json({ error: "Photo is too large. Choose an image under 20 MB." }, 413) });
+  const videoLimit = bodyLimit({ maxSize: 200 * 1024 * 1024,
+    onError: c => c.json({ error: "The motion videos are too large to upload." }, 413) });
+  app.use("/api/*", (c, next) => (c.req.path === "/api/jobs/animate" ? videoLimit : photoLimit)(c, next));
   app.use("/api/*", async (c, next) => {
     c.header("Cache-Control", "no-store");
     c.header("X-Content-Type-Options", "nosniff");
@@ -75,8 +93,18 @@ export function createApp(options: AppOptions = {}) {
   });
   app.get("/api/files/:id", async c => {
     const path = c.get("session").files.get(c.req.param("id"));
-    if (!path) throw new HTTPException(404, { message: "Image not found in this session." });
-    return c.body(new Uint8Array(await readFile(path)), 200, { "Content-Type": "image/png" });
+    if (!path) throw new HTTPException(404, { message: "File not found in this session." });
+    const bytes = await readFile(path);
+    const type = CONTENT_TYPES[extname(path)] ?? "application/octet-stream";
+    if (!type.startsWith("video/")) return c.body(new Uint8Array(bytes), 200, { "Content-Type": type });
+    // Video elements seek with byte ranges.
+    const range = /^bytes=(\d*)-(\d*)$/.exec(c.req.header("Range") ?? "");
+    if (!range) return c.body(new Uint8Array(bytes), 200, { "Content-Type": type, "Accept-Ranges": "bytes" });
+    const start = range[1] ? Number(range[1]) : Math.max(0, bytes.length - Number(range[2] || 0));
+    const end = range[1] && range[2] ? Math.min(Number(range[2]), bytes.length - 1) : bytes.length - 1;
+    if ((!range[1] && !range[2]) || start > end) return c.body(null, 416, { "Content-Range": `bytes */${bytes.length}` });
+    return c.body(new Uint8Array(bytes.subarray(start, end + 1)), 206,
+      { "Content-Type": type, "Accept-Ranges": "bytes", "Content-Range": `bytes ${start}-${end}/${bytes.length}` });
   });
   app.post("/api/jobs/segment", async c => {
     const session = c.get("session");
@@ -102,6 +130,35 @@ export function createApp(options: AppOptions = {}) {
     }
     if (Math.min(session.image.width, session.image.height) < 2) throw new HTTPException(400, { message: "The working photo is too small to isolate." });
     return c.json(startIsolate(client, store, session, request).snapshot, 202);
+  });
+  app.post("/api/jobs/animate", async c => {
+    const session = c.get("session");
+    if (isBusy(session)) throw new HTTPException(409, { message: "A job is already running in this session." });
+    const form = await c.req.formData().catch(() => { throw new HTTPException(400, { message: "Send the motion videos as a multipart form." }); });
+    const request = animateRequestSchema.parse(JSON.parse(String(form.get("request") ?? "")));
+    const { image, selection, isolation } = session;
+    if (!image || !selection || !isolation || image.id !== request.imageId || selection.id !== request.maskId || isolation.plate.id !== request.plateId) {
+      throw new HTTPException(409, { message: "The subject or background changed. Isolate it again before generating." });
+    }
+    if (!GENERATION_SIZES.some(size => size.width === request.width && size.height === request.height)
+      || Math.abs(request.width / request.height / (image.width / image.height) - 1) > 0.02) {
+      throw new HTTPException(400, { message: "The video size doesn't match the photo's aspect ratio. Reload and try again." });
+    }
+    const reference = await readVideoUpload(form.get("reference"), request, "reference");
+    const mask = await readVideoUpload(form.get("mask"), request, "mask");
+    const start = form.get("start");
+    const startBytes = start instanceof File ? new Uint8Array(await start.arrayBuffer()) : undefined;
+    const startInfo = startBytes ? await sharp(startBytes).metadata().catch(() => undefined) : undefined;
+    if (!startBytes || startInfo?.format !== "png" || startInfo.width !== request.width || startInfo.height !== request.height) {
+      throw new HTTPException(400, { message: `The start frame must be a ${request.width} × ${request.height} PNG.` });
+    }
+    const unchanged = () => !isBusy(session) && session.image === image && session.selection === selection && session.isolation === isolation;
+    if (!unchanged()) throw new HTTPException(409, { message: "The subject changed while uploading. Generate again." });
+    const [startFile, referenceFile, maskFile] = await Promise.all([store.savePng(session, startBytes),
+      store.saveFile(session, reference.bytes, reference.container), store.saveFile(session, mask.bytes, mask.container)]);
+    if (!unchanged()) throw new HTTPException(409, { message: "The subject changed while uploading. Generate again." });
+    return c.json(startAnimate(client, store, session, request,
+      { startPath: startFile.path, referencePath: referenceFile.path, maskPath: maskFile.path }).snapshot, 202);
   });
   app.get("/api/jobs/:id", c => {
     const job = c.get("session").job;

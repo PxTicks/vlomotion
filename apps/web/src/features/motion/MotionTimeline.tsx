@@ -7,7 +7,8 @@ import { useMotionStore } from "./useMotionStore";
 
 type TrackDrag = { pointerId: number } & ({ kind: "scrub" } | { kind: "key"; id: string });
 
-export function MotionTimeline() {
+/** Read-only, the timeline only plays and scrubs: keys are shown but can't be moved, added or recorded. */
+export function MotionTimeline({ readOnly = false }: { readOnly?: boolean }) {
   const motion = useMotionStore(s => s.motion);
   const playhead = useMotionStore(s => s.playhead);
   const playing = useMotionStore(s => s.playing);
@@ -33,7 +34,7 @@ export function MotionTimeline() {
   function onPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
     if (recording || event.button !== 0 || !motion) return;
     const store = useMotionStore.getState();
-    const keyId = (event.target as HTMLElement).closest("[data-key-id]")?.getAttribute("data-key-id");
+    const keyId = readOnly ? null : (event.target as HTMLElement).closest("[data-key-id]")?.getAttribute("data-key-id");
     event.currentTarget.setPointerCapture(event.pointerId);
     if (keyId) {
       const key = motion.keys.find(k => k.id === keyId);
@@ -82,23 +83,23 @@ export function MotionTimeline() {
           return <Box key={key.id} data-key-id={key.id} title={`Key at ${formatSeconds(key.frame)}${start ? " (photo)" : ""}`}
             sx={{ position: "absolute", left: percent(key.frame), top: "50%", width: 14, height: 14, transform: "translate(-50%, -50%) rotate(45deg)",
               bgcolor: active ? "primary.main" : start ? "#7e7c78" : "#211927", border: "2px solid", borderRadius: "2px",
-              borderColor: active ? "#f0efed" : start ? "#c2bfb9" : "primary.main", cursor: start ? "pointer" : "ew-resize" }} />;
+              borderColor: active ? "#f0efed" : start ? "#c2bfb9" : "primary.main", cursor: readOnly ? "inherit" : start ? "pointer" : "ew-resize" }} />;
         })}
       </Box>
-      <Button variant="outlined" size="small" onClick={addKey} disabled={recording || playhead === 0 || keyAtPlayhead} sx={{ minWidth: 0, px: 1.5 }}>◆ Key</Button>
+      {!readOnly && <Button variant="outlined" size="small" onClick={addKey} disabled={recording || playhead === 0 || keyAtPlayhead} sx={{ minWidth: 0, px: 1.5 }}>◆ Key</Button>}
     </Stack>
     <Stack direction="row" alignItems="center" justifyContent="space-between" flexWrap="wrap" gap={1}>
       <Typography variant="caption" color="text.secondary" sx={{ fontVariantNumeric: "tabular-nums" }}>
         {formatSeconds(playhead)} / {formatSeconds(last)} · frame {playhead}
       </Typography>
-      <Stack direction="row" alignItems="center" gap={1}>
+      {!readOnly && <Stack direction="row" alignItems="center" gap={1}>
         <ToggleButton value="record" size="small" selected={armed} disabled={recording} onChange={() => setArmed(!armed)}
           aria-label="Record a drag" sx={{ px: 1.5, py: .5, borderRadius: 99, "&.Mui-selected": { color: "error.main" } }}>● Rec</ToggleButton>
         <ToggleButtonGroup exclusive size="small" value={motion.frames} disabled={recording} aria-label="Clip length"
           onChange={(_, value: unknown) => { const parsed = frameCountSchema.safeParse(value); if (parsed.success) setFrames(parsed.data); }}>
           {Object.entries(CLIP_FRAMES).map(([seconds, frames]) => <ToggleButton key={frames} value={frames} sx={{ px: 1.5, py: .5, borderRadius: 99 }}>{seconds} s</ToggleButton>)}
         </ToggleButtonGroup>
-      </Stack>
+      </Stack>}
     </Stack>
   </Stack>;
 }

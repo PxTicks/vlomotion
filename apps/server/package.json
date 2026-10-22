@@ -8,10 +8,11 @@
     "start": "node --env-file-if-exists=../../.env dist/index.js"
   },
   "dependencies": {
-    "@h3-motion/shared": "*",
     "@comfyorg/sdk": "0.5.0",
+    "@h3-motion/shared": "*",
     "@hono/node-server": "^1.19.0",
     "hono": "^4.10.0",
+    "mediabunny": "1.61.3",
     "sharp": "^0.35.5"
   }
 }

@@ -10,7 +10,8 @@ The Isolate phase describes the confirmed subject locally with Qwen3-VL, removes
 it with Qwen Image 2.1, and previews the clean background. Retry with a new seed,
 edit the removal instruction, or hold the preview to compare with the original.
 The Move phase keyframes the subject along a path with a timeline and real-time
-preview playback. **H3 generation is not implemented yet.**
+preview playback. The Generate phase renders those frames in the browser and
+animates them with MiniMax H3 and Time-to-Move, with sound.
 The description/removal chain has passed a real GPU run against Windows ComfyUI;
 broader scene-quality checks remain. No detections or generated results are simulated.
 
@@ -93,6 +94,19 @@ The first frame is always the original photo. Clips are 5, 7 or 10 s (124, 175
 or 243 frames at 24 fps), and keys sit on those frames. Shortcuts: Space plays,
 K adds a key, Delete removes the selected key, and arrow keys step frames.
 Retrying the background keeps the path; changing the selection resets it.
+
+**Continue** opens Generate. **Motion lock-in** (1–8, default 3) sets how many
+sampling steps hold the subject to your path: higher follows it more tightly but
+leaves H3 less room to blend the cut-out into the scene. **GENERATE** renders the
+reference and mask videos in a Web Worker, encodes exactly 124, 175 or 243
+frames with mediabunny (H.264 MP4, or VP9 WebM where H.264 isn't available),
+uploads them with the start frame and runs the animate workflow. **Source |
+Result** switches between the frames H3 receives and the generated video.
+**Advanced** holds the resolution (480p, or 720p at 1248 × 704 for 16:9), a
+fixed seed and the H3 prompt. The prompt follows MiniMax's I2VA format, built
+from the subject caption and a description of your path; edit it to override.
+**Regenerate** runs again with a new seed. A result is marked out of date when
+the motion or settings change afterwards.
 Cancellation or a failed retry keeps the last successful background.
 
 ```sh
@@ -111,10 +125,14 @@ is a later feature.
 
 Use a current ComfyUI with the core SAM 3.1, Qwen Image 2.1, TextGenerate and
 MiniMax H3 nodes. Install [ComfyUI-vlo](https://github.com/PxTicks/ComfyUI-vlo)
-for the planned Time-to-Move stage. Its H3 support needs ComfyUI's per-token
-mask support (upstream since August 2026). Selection requires the SAM checkpoint.
-Isolation also requires the Qwen diffusion model, Qwen3-VL encoder and Qwen VAE
-listed below.
+for its Time-to-Move node (`vloTimeToMove`). Its H3 support needs ComfyUI's
+per-token mask support (upstream since August 2026). Selection requires the SAM
+checkpoint. Isolation also requires the Qwen diffusion model, Qwen3-VL encoder
+and Qwen VAE listed below; generation requires the four MiniMax H3 files. The
+animate workflow uses Comfy Kitchen INT8 attention, which needs an NVIDIA or AMD
+GPU. Set `H3M_SPECTRUM=1` to splice in the third-party
+[Spectrum H3](https://github.com/xmarre/ComfyUI-Spectrum-MiniMax-H3) speed-up;
+it is off by default so nothing beyond ComfyUI-vlo is required.
 
 Start ComfyUI on `8188`, then install and run the
 [v2 proxy](https://github.com/Comfy-Org/comfy-api-proxy) manually if you prefer.
@@ -142,6 +160,8 @@ npm run spike -- s3 --image /path/to/highlight.png
 npm run spike:isolate -- --fixture
 # Or test your own photo and white-subject/black-background mask:
 npm run spike:isolate -- --image /path/to/photo.png --mask /path/to/mask.png --text dog
+# Check that ComfyUI decodes the app's MP4s to exactly N frames (S5):
+npm run spike -- s5 --reference reference.mp4 --mask mask.mp4 --frames 124
 ```
 
 See [spike evidence and remaining checks](scripts/spikes/RESULTS.md). S1 uses
@@ -176,7 +196,7 @@ apps/web/          React, Vite, MUI, Zustand; feature-based UI
 apps/server/       Hono, Comfy SDK, session files and jobs
 packages/shared/   Zod API schemas, media conventions and the motion model
 workflows/api/     Fixed API templates used by the server and spikes
-workflows/source/  Original vlo UI graphs for the later isolate/animate stages
+workflows/source/  Original vlo UI graphs the isolate/animate templates were trimmed from
 scripts/           Environment checks and compatibility spikes
 ```
 
@@ -193,8 +213,11 @@ Motion is stored as keys with frame times. The subject follows a centripetal
 Catmull-Rom path through the key positions, and a monotone cubic through
 (frame, distance travelled) sets its speed, so it never backtracks and holds stay
 still. The preview draws each frame from the background plate plus the feathered
-cut-out at its offset; at rest it draws the original photo. The next
-implementation step is Generate: encoding those frames and running H3 with TTM.
+cut-out at its offset; at rest it draws the original photo. Generation draws
+the same frames at the output size, plus a mask video with the subject in white,
+and the server checks each upload's size and frame count before submitting.
+The animate graph is vlo's H3 + TTM graph without its resize, frame-trimming,
+end-frame and inversion nodes: the app sends exact sizes and frame counts.
 
 ## License and acknowledgements
 

@@ -18,7 +18,7 @@ export const SEGMENT_BINDINGS = {
 } satisfies Record<string, Binding>;
 export const SEGMENT_OUTPUT = "6";
 
-export async function loadTemplate(name: "segment_text" | "segment_points" | "describe" | "isolate"): Promise<ApiGraph> {
+export async function loadTemplate(name: "segment_text" | "segment_points" | "describe" | "isolate" | "animate"): Promise<ApiGraph> {
   return graphSchema.parse(JSON.parse(await readFile(join(REPO_ROOT, "workflows/api", `h3m_${name}.api.json`), "utf8")));
 }
 
@@ -43,6 +43,26 @@ export const ISOLATE_BINDINGS = {
   sigma: { node: "16", input: "sigma", classType: "ImageBlur" },
 } satisfies Record<string, Binding>;
 export const ISOLATE_OUTPUT = "19";
+
+export const ANIMATE_BINDINGS = {
+  start: { node: "5", input: "image", classType: "LoadImage" },
+  reference: { node: "6", input: "file", classType: "LoadVideo" },
+  mask: { node: "7", input: "file", classType: "LoadVideo" },
+  grow: { node: "13", input: "expand", classType: "GrowMask" },
+  prompt: { node: "14", input: "prompt", classType: "MiniMaxH3ImageToVideo" },
+  width: { node: "14", input: "width", classType: "MiniMaxH3ImageToVideo" },
+  height: { node: "14", input: "height", classType: "MiniMaxH3ImageToVideo" },
+  length: { node: "14", input: "length", classType: "MiniMaxH3ImageToVideo" },
+  lockIn: { node: "16", input: "end_step", classType: "vloTimeToMove" },
+  seed: { node: "20", input: "noise_seed", classType: "RandomNoise" },
+} satisfies Record<string, Binding>;
+/** The model chain Spectrum is spliced into: attention backend → (Spectrum) → TTM and the scheduler. */
+export const ANIMATE_MODEL = {
+  base: { node: "15", input: "model", classType: "ModelAttentionBackend" },
+  ttm: { node: "16", input: "model", classType: "vloTimeToMove" },
+  scheduler: { node: "18", input: "model", classType: "BasicScheduler" },
+} satisfies Record<string, Binding>;
+export const ANIMATE_OUTPUT = "25";
 
 export async function buildDescribeWorkflow(client: Comfy, highlightPath: string, userText: string): Promise<Workflow> {
   const graph = await loadTemplate("describe");
@@ -78,6 +98,33 @@ export async function buildIsolateWorkflow(client: Comfy, options: {
       : geometry[key as keyof typeof geometry];
     workflow.setInput(binding.node, binding.input, value);
   }
+  return workflow;
+}
+
+/** The held region is dilated by vlo's 15 px at 480p, scaled with the short edge. */
+export const animationGrow = (size: FrameSize) => Math.max(1, Math.round(15 * Math.min(size.width, size.height) / 480));
+
+export async function buildAnimateWorkflow(client: Comfy, options: {
+  startPath: string; referencePath: string; maskPath: string; size: FrameSize; frames: number;
+  prompt: string; lockIn: number; seed: number; spectrum?: boolean;
+}): Promise<Workflow> {
+  const graph = await loadTemplate("animate");
+  assertBindings(graph, [...Object.values(ANIMATE_BINDINGS), ...Object.values(ANIMATE_MODEL)]);
+  if (options.spectrum) {
+    // vlo's Spectrum settings are the node's defaults; only storage and bootstrap are optional inputs.
+    graph.spectrum = { class_type: "SpectrumApplyMiniMaxH3", inputs: { model: [ANIMATE_MODEL.base.node, 0], enabled: true, blend_weight: 0.5,
+      degree: 1, ridge_lambda: 0.1, window_size: 2, flex_window: 0.75, warmup_steps: 1, tail_actual_steps: 1, max_history: 8, debug: false,
+      history_storage: "system_ram", bootstrap_first_forecast: true } };
+    graph[ANIMATE_MODEL.ttm.node].inputs.model = ["spectrum", 0];
+    graph[ANIMATE_MODEL.scheduler.node].inputs.model = ["spectrum", 0];
+  }
+  const workflow = client.workflows.fromJson(graph);
+  const values: Record<keyof typeof ANIMATE_BINDINGS, unknown> = {
+    start: client.assets.fromFile(options.startPath), reference: client.assets.fromFile(options.referencePath),
+    mask: client.assets.fromFile(options.maskPath), grow: animationGrow(options.size), prompt: options.prompt,
+    width: options.size.width, height: options.size.height, length: options.frames, lockIn: options.lockIn, seed: options.seed,
+  };
+  for (const [key, binding] of Object.entries(ANIMATE_BINDINGS)) workflow.setInput(binding.node, binding.input, values[key as keyof typeof values]);
   return workflow;
 }
 

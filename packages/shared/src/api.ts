@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { captionSchema } from "./description.js";
+import { frameCountSchema } from "./media.js";
 
 export const pointSchema = z.object({ x: z.number().finite().nonnegative(), y: z.number().finite().nonnegative() });
 const idSchema = z.uuid();
@@ -34,13 +35,33 @@ export const isolationResultSchema = z.object({
   seed: z.number().int().nonnegative(),
 });
 export type IsolationResult = z.infer<typeof isolationResultSchema>;
+export const LOCK_IN = { min: 1, max: 8, default: 3 } as const;
+const dimensionSchema = z.number().int().min(32).max(2048).multipleOf(32);
+const seedSchema = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
+/** Sent as the `request` field of a multipart upload alongside the reference, mask and start-frame files. */
+export const animateRequestSchema = z.object({
+  imageId: idSchema, maskId: idSchema, plateId: idSchema,
+  width: dimensionSchema, height: dimensionSchema, frames: frameCountSchema,
+  prompt: z.string().trim().min(1).max(4000),
+  lockIn: z.number().int().min(LOCK_IN.min).max(LOCK_IN.max),
+  seed: seedSchema.optional(),
+});
+export type AnimateRequest = z.infer<typeof animateRequestSchema>;
+export const animationResultSchema = z.object({
+  imageId: idSchema, maskId: idSchema, plateId: idSchema,
+  video: z.object({ id: idSchema, url: z.string() }),
+  width: dimensionSchema, height: dimensionSchema, frames: frameCountSchema,
+  prompt: z.string(), lockIn: z.number().int(), seed: seedSchema,
+});
+export type AnimationResult = z.infer<typeof animationResultSchema>;
 export const jobSnapshotSchema = z.object({
   id: idSchema,
   status: z.enum(["queued", "running", "completed", "failed", "cancelled"]),
   message: z.string(), progress: z.number().min(0).max(1).nullable(),
   candidates: z.array(maskCandidateSchema), error: z.string().nullable(),
-  stage: z.enum(["segment", "describe", "isolate"]).optional(),
+  stage: z.enum(["segment", "describe", "isolate", "animate"]).optional(),
   isolation: isolationResultSchema.optional(),
+  animation: animationResultSchema.optional(),
   imageId: idSchema.optional(), maskId: idSchema.optional(),
 });
 export type JobSnapshot = z.infer<typeof jobSnapshotSchema>;

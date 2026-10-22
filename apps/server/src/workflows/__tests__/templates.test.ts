@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Comfy } from "@comfyorg/sdk";
-import { assertBindings, buildDescribeWorkflow, buildIsolateWorkflow, buildSegmentWorkflow, DESCRIBE_BINDINGS, DESCRIBE_OUTPUTS, ISOLATE_BINDINGS, ISOLATE_OUTPUT, isolationGeometry, loadTemplate, samText, SEGMENT_BINDINGS, SEGMENT_OUTPUT } from "../templates.js";
+import { ANIMATE_BINDINGS, ANIMATE_MODEL, ANIMATE_OUTPUT, animationGrow, assertBindings, buildAnimateWorkflow, buildDescribeWorkflow, buildIsolateWorkflow, buildSegmentWorkflow, DESCRIBE_BINDINGS, DESCRIBE_OUTPUTS, ISOLATE_BINDINGS, ISOLATE_OUTPUT, isolationGeometry, loadTemplate, samText, SEGMENT_BINDINGS, SEGMENT_OUTPUT } from "../templates.js";
+import type { ApiGraph } from "../templates.js";
 
 describe("workflow contracts", () => {
   it("binds text and points variants to the correct classes", async () => {
@@ -69,5 +70,34 @@ describe("workflow contracts", () => {
     expect(workflow.json["8"]).toMatchObject({ inputs: { seed: 42 } });
     expect(isolationGeometry({ width: 1728, height: 960 })).toMatchObject({ grow: 19, feather: 10 });
     expect(isolationGeometry({ width: 2560, height: 2560 }).sigma).toBeLessThanOrEqual(10);
+  });
+  it("drives H3 through TTM with a binary, dilated mask and the photo as the first frame", async () => {
+    const graph = await loadTemplate("animate");
+    assertBindings(graph, [...Object.values(ANIMATE_BINDINGS), ...Object.values(ANIMATE_MODEL)]);
+    expect(graph[ANIMATE_OUTPUT]).toMatchObject({ class_type: "SaveVideo", inputs: { format: "mp4" } });
+    expect(graph["14"].inputs.first_frame).toEqual([ANIMATE_BINDINGS.start.node, 0]);
+    expect(graph["11"].inputs).toMatchObject({ channel: "red" });
+    expect(graph["12"]).toMatchObject({ class_type: "ThresholdMask", inputs: { value: 0.5 } });
+    expect(graph["16"].inputs).toMatchObject({ start_step: 1, mask: ["13", 0] });
+    expect(graph["21"].inputs.latent_image).toEqual(["14", 1]);
+    // No resize, frame trimming, KJNodes or end-frame nodes: the app sends exact sizes and frame counts.
+    expect(Object.values(graph).map(node => node.class_type)).not.toEqual(expect.arrayContaining(["ResizeImageMaskNode"]));
+    for (const node of Object.values(graph)) {
+      for (const value of Object.values(node.inputs)) if (Array.isArray(value)) expect(graph).toHaveProperty(String(value[0]));
+    }
+  });
+  it("binds animate inputs and splices Spectrum only when asked", async () => {
+    const options = { startPath: "/tmp/start.png", referencePath: "/tmp/reference.mp4", maskPath: "/tmp/mask.mp4",
+      size: { width: 1248, height: 704 }, frames: 175, prompt: "A dog runs.", lockIn: 5, seed: 9 };
+    const plain = (await buildAnimateWorkflow(new Comfy(), options)).json as ApiGraph;
+    expect(plain["14"].inputs).toMatchObject({ width: 1248, height: 704, length: 175, prompt: "A dog runs." });
+    expect(plain["16"].inputs).toMatchObject({ end_step: 5, model: ["15", 0] });
+    expect(plain).not.toHaveProperty("spectrum");
+    const fast = (await buildAnimateWorkflow(new Comfy(), { ...options, spectrum: true })).json as ApiGraph;
+    expect(fast.spectrum).toMatchObject({ class_type: "SpectrumApplyMiniMaxH3", inputs: { model: ["15", 0], enabled: true } });
+    expect(fast["16"].inputs.model).toEqual(["spectrum", 0]);
+    expect(fast["18"].inputs.model).toEqual(["spectrum", 0]);
+    expect((await loadTemplate("animate"))["16"].inputs.model).toEqual(["15", 0]);
+    expect([animationGrow({ width: 864, height: 480 }), animationGrow({ width: 1248, height: 704 })]).toEqual([15, 22]);
   });
 });

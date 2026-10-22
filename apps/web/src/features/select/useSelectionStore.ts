@@ -5,12 +5,15 @@ import { jobSnapshotSchema } from "@h3-motion/shared";
 import { apiRequest, submitSegment, uploadImage, watchJob } from "../../api";
 import { cropImage } from "./cropImage";
 
+/** Select, Isolate, Move, Generate. */
+export type Phase = 0 | 1 | 2 | 3;
+
 interface SelectionState {
   source: File | null; image: ImageAsset | null; aspectRatio: AspectRatio;
   text: string; selectionText: string; candidates: MaskCandidate[]; selectedIds: string[];
   refine: boolean; positive: Point[]; negative: Point[]; pointsPending: boolean;
   mask: ImageAsset | null; busy: boolean; job: JobSnapshot | null;
-  error: string | null; notice: string | null; phase: 0 | 1 | 2;
+  error: string | null; notice: string | null; phase: Phase;
   isolation: IsolationResult | null;
   setText: (text: string) => void; setRefine: (refine: boolean) => void;
   upload: (file: File, ratio?: AspectRatio) => Promise<void>;
@@ -20,7 +23,7 @@ interface SelectionState {
   applyRefinement: () => Promise<void>; clearPoints: () => void;
   toggleCandidate: (id: string) => void; confirm: () => Promise<void>;
   cancel: () => Promise<void>; clearError: () => void;
-  isolate: (instruction?: string) => Promise<void>; visitPhase: (phase: 0 | 1 | 2) => void;
+  isolate: (instruction?: string) => Promise<void>; visitPhase: (phase: Phase) => void;
 }
 
 const message = (error: unknown) => error instanceof Error ? error.message : "Something went wrong. Try again.";
@@ -148,7 +151,7 @@ export const useSelectionStore = create<SelectionState>((set, get) => {
     },
     visitPhase: phase => {
       const state = get();
-      if (state.busy || (phase >= 1 && !state.mask) || (phase === 2 && !currentIsolation(state))) return;
+      if (state.busy || (phase >= 1 && !state.mask) || (phase >= 2 && !currentIsolation(state))) return;
       set({ phase });
     },
     isolate: async instruction => {

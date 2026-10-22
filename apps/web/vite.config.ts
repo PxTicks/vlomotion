@@ -17,5 +17,7 @@ export default defineConfig(() => {
   return {
     plugins: [react()],
     server: { port: ports.web, proxy: { "/api": `http://127.0.0.1:${ports.api}` } },
+    // The encoder worker is the only importer; pre-bundling it avoids a full reload on the first generation.
+    optimizeDeps: { include: ["mediabunny"] },
   };
 });

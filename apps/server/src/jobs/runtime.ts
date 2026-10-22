@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { Comfy, Job, Workflow } from "@comfyorg/sdk";
+import type { Comfy, Job, Progress, Workflow } from "@comfyorg/sdk";
 import type { JobSnapshot } from "@h3-motion/shared";
 
 export interface ManagedJob {
@@ -27,12 +27,14 @@ export async function runWorkflow(client: Comfy, managed: ManagedJob, workflow: 
   managed.remote = job;
   const streamAbort = new AbortController();
   const events = (async () => {
+    let sampled = false;
     try {
       for await (const event of job.events(streamAbort.signal)) {
         if (event.kind !== "progress" || managed.cancelRequested) continue;
-        const progress = Number.isFinite(event.value) ? Math.max(0, Math.min(1, event.value)) : null;
-        managed.snapshot.progress = progress === null ? null : (options.from ?? 0) + progress * ((options.to ?? 1) - (options.from ?? 0));
-        managed.snapshot.message = event.message ? `${options.message} ${event.message}` : options.message;
+        const stage = stageProgress(event, sampled);
+        sampled ||= event.step != null;
+        managed.snapshot.progress = stage.fraction === null ? null : (options.from ?? 0) + stage.fraction * ((options.to ?? 1) - (options.from ?? 0));
+        managed.snapshot.message = stage.detail ? `${options.message} ${stage.detail}` : options.message;
       }
     } catch { /* Polling remains authoritative when SSE drops. */ }
   })();
@@ -50,6 +52,20 @@ export async function runWorkflow(client: Comfy, managed: ManagedJob, workflow: 
     await events;
     managed.remote = undefined;
   }
+}
+
+/**
+ * The proxy's `value` counts finished nodes, so it reaches ~95% as soon as the sampler (usually the last
+ * heavy node) starts. Sampler steps are the real work: loading counts as the first 5%, steps fill the
+ * middle, and anything after the sampler is finishing.
+ */
+export function stageProgress(event: Progress, sampled: boolean): { fraction: number | null; detail: string | null } {
+  if (event.step != null && event.steps) {
+    return { fraction: 0.05 + 0.9 * Math.min(1, event.step / event.steps), detail: `Step ${event.step} of ${event.steps}.` };
+  }
+  if (sampled) return { fraction: 0.95, detail: "Finishing…" };
+  const value = Number.isFinite(event.value) ? Math.max(0, Math.min(1, event.value)) : null;
+  return { fraction: value === null ? null : value * 0.05, detail: event.message };
 }
 
 export function failJob(managed: ManagedJob, error: unknown, operation: string): void {

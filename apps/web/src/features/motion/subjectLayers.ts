@@ -3,12 +3,17 @@ import type { Point, Rect } from "@h3-motion/shared";
 type Context2D = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
 type Drawable = CanvasImageSource & { width: number; height: number };
 
-/** Everything the compositor needs, in working-image pixels. */
-export interface SubjectLayers {
+/** The images the compositor draws, in working-image pixels. Plain enough to transfer to a worker as ImageBitmaps. */
+export interface RenderLayers {
   width: number; height: number;
   photo: Drawable; plate: Drawable;
   /** The original photo with the subject's feathered alpha: the piece that moves. */
   cutout: Drawable;
+  /** The binary subject in white on transparent, for the TTM mask video. */
+  matte: Drawable;
+}
+
+export interface SubjectLayers extends RenderLayers {
   /** Binary subject mask (0 or 255), one byte per pixel, for hit testing. */
   mask: Uint8ClampedArray;
   bounds: Rect;
@@ -47,6 +52,7 @@ export function featherMask(mask: Uint8ClampedArray, width: number, height: numb
 }
 
 export const subjectKeyOf = (imageId: string, maskId: string) => `${imageId}:${maskId}`;
+export const layersKeyOf = (photoUrl: string, maskUrl: string, plateUrl: string) => `${photoUrl}|${maskUrl}|${plateUrl}`;
 
 export const hitsSubject = (layers: SubjectLayers, point: Point, offset: Point) => {
   const x = Math.floor(point.x - offset.x), y = Math.floor(point.y - offset.y);
@@ -78,24 +84,42 @@ export async function loadSubjectLayers(photoUrl: string, plateUrl: string, mask
   const pixels = context.getImageData(0, 0, width, height);
   for (let i = 0; i < alpha.length; i++) pixels.data[i * 4 + 3] = alpha[i];
   context.putImageData(pixels, 0, 0);
-  return { width, height, photo, plate, cutout: canvas, mask, bounds };
+  const matte = document.createElement("canvas");
+  matte.width = width; matte.height = height;
+  const white = new ImageData(width, height);
+  for (let i = 0; i < mask.length; i++) { white.data[i * 4] = white.data[i * 4 + 1] = white.data[i * 4 + 2] = 255; white.data[i * 4 + 3] = mask[i]; }
+  matte.getContext("2d")!.putImageData(white, 0, 0);
+  return { width, height, photo, plate, cutout: canvas, matte, mask, bounds };
+}
+
+/** Draws a full-frame layer shifted by `offset` working pixels, scaled uniformly to cover the canvas and centred. */
+function drawLayer(context: Context2D, layers: RenderLayers, image: Drawable, offset: Point) {
+  const { width, height } = context.canvas;
+  const scale = Math.max(width / layers.width, height / layers.height);
+  const x = (width - layers.width * scale) / 2, y = (height - layers.height * scale) / 2;
+  context.drawImage(image, x + offset.x * scale, y + offset.y * scale, layers.width * scale, layers.height * scale);
 }
 
 /**
- * Draws one reference frame scaled to the context's canvas: the plate with the cut-out at its offset.
+ * Draws one reference frame: the plate with the cut-out at its offset.
  * At rest the original photo is drawn instead, so those frames match the start frame exactly.
  */
-export function drawReference(context: Context2D, layers: SubjectLayers, offset: Point) {
-  const { width, height } = context.canvas;
-  if (offset.x === 0 && offset.y === 0) { context.drawImage(layers.photo, 0, 0, width, height); return; }
-  context.drawImage(layers.plate, 0, 0, width, height);
-  context.drawImage(layers.cutout, offset.x * width / layers.width, offset.y * height / layers.height, width, height);
+export function drawReference(context: Context2D, layers: RenderLayers, offset: Point) {
+  if (offset.x === 0 && offset.y === 0) { drawLayer(context, layers, layers.photo, offset); return; }
+  drawLayer(context, layers, layers.plate, { x: 0, y: 0 });
+  drawLayer(context, layers, layers.cutout, offset);
 }
 
-export function drawGhost(context: Context2D, layers: SubjectLayers, offset: Point, opacity: number) {
-  const { width, height } = context.canvas;
+/** Draws one TTM mask frame: the subject in white at its offset, black everywhere else. */
+export function drawMask(context: Context2D, layers: RenderLayers, offset: Point) {
+  context.fillStyle = "#000";
+  context.fillRect(0, 0, context.canvas.width, context.canvas.height);
+  drawLayer(context, layers, layers.matte, offset);
+}
+
+export function drawGhost(context: Context2D, layers: RenderLayers, offset: Point, opacity: number) {
   context.save();
   context.globalAlpha = opacity;
-  context.drawImage(layers.cutout, offset.x * width / layers.width, offset.y * height / layers.height, width, height);
+  drawLayer(context, layers, layers.cutout, offset);
   context.restore();
 }
