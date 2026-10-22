@@ -11,7 +11,7 @@
   "10": { "class_type": "VAEEncode", "inputs": { "pixels": ["8", 0], "vae": ["3", 0] } },
   "11": { "class_type": "ImageToMask", "inputs": { "image": ["9", 0], "channel": "red" } },
   "12": { "class_type": "ThresholdMask", "inputs": { "mask": ["11", 0], "value": 0.5 } },
-  "13": { "class_type": "GrowMask", "inputs": { "mask": ["12", 0], "expand": 15, "tapered_corners": true } },
+  "13": { "class_type": "GrowMask", "inputs": { "mask": ["12", 0], "expand": -16, "tapered_corners": true } },
   "14": { "class_type": "MiniMaxH3ImageToVideo", "inputs": { "clip": ["2", 0], "vae": ["3", 0], "prompt": "", "width": 864, "height": 480, "length": 124, "first_frame": ["5", 0] } },
   "15": { "class_type": "ModelAttentionBackend", "inputs": { "model": ["1", 0], "attention": "comfy kitchen attention" } },
   "16": { "class_type": "vloTimeToMove", "inputs": { "model": ["15", 0], "reference_latents": ["10", 0], "mask": ["13", 0], "start_step": 1, "end_step": 3 } },

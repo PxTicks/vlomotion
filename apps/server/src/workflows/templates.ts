@@ -101,8 +101,8 @@ export async function buildIsolateWorkflow(client: Comfy, options: {
   return workflow;
 }
 
-/** The held region is dilated by vlo's 15 px at 480p, scaled with the short edge. */
-export const animationGrow = (size: FrameSize) => Math.max(1, Math.round(15 * Math.min(size.width, size.height) / 480));
+/** Erode by one H3 VAE latent-cell spacing (16 image pixels), independent of resolution. */
+export const ANIMATION_MASK_EXPAND = -16;
 
 export async function buildAnimateWorkflow(client: Comfy, options: {
   startPath: string; referencePath: string; maskPath: string; size: FrameSize; frames: number;
@@ -121,7 +121,7 @@ export async function buildAnimateWorkflow(client: Comfy, options: {
   const workflow = client.workflows.fromJson(graph);
   const values: Record<keyof typeof ANIMATE_BINDINGS, unknown> = {
     start: client.assets.fromFile(options.startPath), reference: client.assets.fromFile(options.referencePath),
-    mask: client.assets.fromFile(options.maskPath), grow: animationGrow(options.size), prompt: options.prompt,
+    mask: client.assets.fromFile(options.maskPath), grow: ANIMATION_MASK_EXPAND, prompt: options.prompt,
     width: options.size.width, height: options.size.height, length: options.frames, lockIn: options.lockIn, seed: options.seed,
   };
   for (const [key, binding] of Object.entries(ANIMATE_BINDINGS)) workflow.setInput(binding.node, binding.input, values[key as keyof typeof values]);

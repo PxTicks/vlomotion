@@ -222,6 +222,10 @@ the same frames at the output size, plus a mask video with the subject in white,
 and the server checks each upload's size and frame count before submitting.
 The animate graph is vlo's H3 + TTM graph without its resize, frame-trimming,
 end-frame and inversion nodes: the app sends exact sizes and frame counts.
+Before TTM, ComfyUI erodes the binary white subject mask by a fixed 16 image
+pixels using negative `GrowMask` expansion, then TTM downsamples it to the latent
+grid. The inset matches H3's 16× spatial VAE compression at every resolution,
+leaving the subject's edges flexible and reducing background leakage into the held region.
 
 ## License and acknowledgements
 

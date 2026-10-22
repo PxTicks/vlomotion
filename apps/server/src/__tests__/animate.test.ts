@@ -67,7 +67,7 @@ describe("animate job", () => {
     expect(json[ANIMATE_BINDINGS.prompt.node].inputs).toMatchObject({ prompt: "A dog runs.", width: 480, height: 480, length: 124 });
     expect(json[ANIMATE_BINDINGS.lockIn.node].inputs).toMatchObject({ start_step: 1, end_step: 3 });
     expect(json[ANIMATE_BINDINGS.seed.node].inputs.noise_seed).toBe(7);
-    expect(json[ANIMATE_BINDINGS.grow.node].inputs.expand).toBe(15);
+    expect(json[ANIMATE_BINDINGS.grow.node].inputs.expand).toBe(-16);
     expect(session.job!.snapshot).toMatchObject({ status: "completed", stage: "animate", animation: { seed: 7, frames: 124, lockIn: 3 } });
     const { url } = session.animation!.video;
     const full = await app.request(url, { headers: { cookie } });
