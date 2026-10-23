@@ -6,7 +6,7 @@ import { DATA_ROOT } from "./config.js";
 import type { ManagedJob } from "./jobs/runtime.js";
 
 export interface StoredImage extends ImageAsset { path: string }
-export interface StoredCandidate extends MaskCandidate { path: string; imageId: string }
+export interface StoredCandidate extends MaskCandidate { path: string; imageId: string; digest?: string }
 export interface Session {
   id: string;
   files: Map<string, string>;

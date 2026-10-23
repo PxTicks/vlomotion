@@ -8,14 +8,28 @@ import { cropImage } from "./cropImage";
 /** Select, Isolate, Move, Generate. */
 export type Phase = 0 | 1 | 2 | 3;
 
+interface PointDraft { positive: Point[]; negative: Point[]; pointsPending: boolean }
+interface SelectionSnapshot extends PointDraft {
+  candidates: MaskCandidate[]; selectedIds: string[]; activeId: string | null;
+  labels: Record<string, string>; drafts: Record<string, PointDraft>; selectionText: string;
+}
+const NEW_SUBJECT = "new";
+const emptyPoints = (): PointDraft => ({ positive: [], negative: [], pointsPending: false });
+export const hasPendingPoints = (state: Pick<SelectionState, "pointsPending" | "drafts">) =>
+  state.pointsPending || Object.values(state.drafts).some(draft => draft.pointsPending);
+
 interface SelectionState {
   source: File | null; image: ImageAsset | null; aspectRatio: AspectRatio;
   text: string; selectionText: string; candidates: MaskCandidate[]; selectedIds: string[];
-  refine: boolean; positive: Point[]; negative: Point[]; pointsPending: boolean;
+  activeId: string | null; labels: Record<string, string>; drafts: Record<string, PointDraft>; history: SelectionSnapshot[];
+  pointTool: "include" | "exclude"; hoveredId: string | null; positive: Point[]; negative: Point[]; pointsPending: boolean;
   mask: ImageAsset | null; busy: boolean; job: JobSnapshot | null;
   error: string | null; notice: string | null; phase: Phase;
   isolation: IsolationResult | null;
-  setText: (text: string) => void; setRefine: (refine: boolean) => void;
+  setText: (text: string) => void;
+  addSubject: () => void; editSubject: (id: string) => void; deleteSubject: (id: string) => void;
+  includeAll: () => void; undo: () => void;
+  setPointTool: (tool: "include" | "exclude") => void; setHoveredId: (id: string | null) => void;
   upload: (file: File, ratio?: AspectRatio) => Promise<void>;
   changeAspectRatio: (ratio: AspectRatio) => Promise<void>;
   segment: () => Promise<void>; addPoint: (point: Point, negative: boolean) => void;
@@ -39,46 +53,99 @@ export function canRecoverIsolation(state: Pick<SelectionState, "image" | "mask"
 }
 
 export const useSelectionStore = create<SelectionState>((set, get) => {
+  function snapshot(): SelectionSnapshot {
+    const { candidates, selectedIds, activeId, labels, drafts, positive, negative, pointsPending, selectionText } = get();
+    return { candidates, selectedIds, activeId, labels, drafts, positive, negative, pointsPending, selectionText };
+  }
+  function checkpoint() { set({ history: [...get().history.slice(-29), snapshot()] }); }
+  function updatePoints(draft: PointDraft) {
+    set({ ...draft, drafts: { ...get().drafts, [get().activeId ?? NEW_SUBJECT]: draft }, mask: null, isolation: null });
+  }
   async function run(mode: "text" | "points", positive: Point[] = [], negative: Point[] = []) {
-    const { image, text, busy, selectedIds, candidates } = get();
+    const { image, text, busy, selectedIds, candidates, activeId, labels, drafts } = get();
     if (!image || busy) return;
-    const replacedId = mode === "points" ? selectedIds[0] : undefined;
+    const before = snapshot();
     set({ busy: true, mask: null, isolation: null, phase: 0, error: null, notice: null, job: null });
     try {
+      // Each submission is an independent SAM job; a new subject never receives another subject's points.
       const initial = await submitSegment(mode === "text" ? { mode, imageId: image.id, text }
         : { mode, imageId: image.id, positive, negative });
       const result = await watchJob(initial, job => set({ job }));
       if (result.status === "failed") throw new Error(result.error ?? result.message);
-      if (result.status === "cancelled") { set({ notice: "Selection cancelled." }); return; }
+      if (result.status === "cancelled") { set({ notice: "Selection cancelled. Your subjects and points are unchanged." }); return; }
       const found = result.candidates;
+      if (!found.length) {
+        set({ notice: "No subject found. Try another name, or adjust your points and apply again." });
+        return;
+      }
+      set({ history: [...get().history.slice(-29), before] });
       if (mode === "text") {
-        set({ selectionText: text.trim(), candidates: found, selectedIds: found[0] ? [found[0].id] : [], positive: [], negative: [], pointsPending: false, refine: found.length === 0 });
+        const added = found.filter(candidate => !candidates.some(existing => existing.id === candidate.id));
+        const nextLabels = { ...labels };
+        added.forEach((candidate, index) => { nextLabels[candidate.id] = text.trim() + (found.length > 1 ? ` ${index + 1}` : ""); });
+        const single = found.length === 1 ? found[0] : undefined;
+        const nextActive = single?.id ?? activeId;
+        set({ selectionText: candidates.length ? "" : text.trim(), candidates: [...candidates, ...added],
+          selectedIds: single ? [...new Set([...selectedIds, single.id])] : selectedIds,
+          labels: nextLabels, activeId: nextActive, ...(drafts[nextActive ?? NEW_SUBJECT] ?? emptyPoints()),
+          notice: single ? "Subject added. Adjust its points or add another subject." : `Found ${found.length} subjects. Check the ones to include, or add all.` });
       } else {
         const replacement = found[0];
-        if (!replacement) {
-          set({ notice: "No subject found for these points. Adjust the points and apply again, or clear them to keep the current selection." });
-          return;
-        }
-        const nextCandidates = [...candidates];
-        const targetIndex = candidates.findIndex(candidate => candidate.id === replacedId);
-        if (targetIndex >= 0) nextCandidates.splice(targetIndex, 1, ...(replacement ? [replacement] : []));
-        else if (replacement) nextCandidates.push(replacement);
-        // Points can select a different object, so the old search name is no longer reliable.
-        set({ candidates: nextCandidates, selectionText: "",
-          selectedIds: [replacement.id, ...selectedIds.filter(id => id !== replacedId)], pointsPending: false });
+        const nextCandidates = candidates.filter(candidate => candidate.id !== replacement.id || candidate.id === activeId);
+        const targetIndex = nextCandidates.findIndex(candidate => candidate.id === activeId);
+        if (targetIndex >= 0) nextCandidates.splice(targetIndex, 1, replacement);
+        else nextCandidates.push(replacement);
+        const nextDrafts = { ...drafts };
+        delete nextDrafts[activeId ?? NEW_SUBJECT];
+        const draft = { positive, negative, pointsPending: false };
+        nextDrafts[replacement.id] = draft;
+        const nextLabels = { ...labels, [replacement.id]: activeId ? labels[activeId] ?? "Subject" : `Subject ${candidates.length + 1}` };
+        if (activeId && activeId !== replacement.id) delete nextLabels[activeId];
+        const included = activeId ? selectedIds.includes(activeId) : true;
+        set({ candidates: nextCandidates, selectionText: "", labels: nextLabels, drafts: nextDrafts,
+          activeId: replacement.id, ...draft,
+          selectedIds: [...new Set([...selectedIds.filter(id => id !== activeId), ...(included ? [replacement.id] : [])])],
+          notice: "Mask applied. Add more points, edit another subject, or continue." });
       }
-      set({ notice: result.message });
     } catch (error) { set({ error: message(error) }); }
     finally { set({ busy: false }); }
   }
   return {
     source: null, image: null, aspectRatio: "16:9", text: "", selectionText: "", candidates: [], selectedIds: [],
-    refine: false, positive: [], negative: [], pointsPending: false, mask: null, isolation: null, busy: false, job: null, error: null, notice: null, phase: 0,
+    activeId: null, labels: {}, drafts: {}, history: [], pointTool: "include", hoveredId: null,
+    ...emptyPoints(), mask: null, isolation: null, busy: false, job: null, error: null, notice: null, phase: 0,
     setText: text => set({ text }),
-    setRefine: refine => {
+    setPointTool: pointTool => { if (!get().busy) set({ pointTool }); },
+    setHoveredId: hoveredId => set({ hoveredId }),
+    addSubject: () => {
       if (get().busy) return;
-      set({ refine, positive: [], negative: [], pointsPending: false,
-        ...(get().pointsPending ? { notice: "Unapplied points cleared." } : {}) });
+      set({ activeId: null, text: "", pointTool: "include", ...(get().drafts[NEW_SUBJECT] ?? emptyPoints()), phase: 0,
+        notice: "New subject. Name it or place points, then apply." });
+    },
+    editSubject: id => {
+      if (get().busy || !get().candidates.some(candidate => candidate.id === id)) return;
+      set({ activeId: id, pointTool: "include", ...(get().drafts[id] ?? emptyPoints()), phase: 0,
+        notice: "Editing target changed. Inclusion stays unchanged." });
+    },
+    deleteSubject: id => {
+      if (get().busy || !get().candidates.some(candidate => candidate.id === id)) return;
+      checkpoint();
+      const state = get(), drafts = { ...state.drafts }, labels = { ...state.labels };
+      delete drafts[id]; delete labels[id];
+      set({ candidates: state.candidates.filter(candidate => candidate.id !== id), selectedIds: state.selectedIds.filter(value => value !== id),
+        drafts, labels, ...(state.activeId === id ? { activeId: null, ...(drafts[NEW_SUBJECT] ?? emptyPoints()) } : {}),
+        mask: null, isolation: null, phase: 0, selectionText: "", notice: "Subject deleted. Undo to restore it." });
+    },
+    includeAll: () => {
+      if (get().busy) return;
+      checkpoint();
+      set({ selectedIds: get().candidates.map(candidate => candidate.id), mask: null, isolation: null, phase: 0, selectionText: "" });
+    },
+    undo: () => {
+      const { history, busy } = get();
+      const previous = history.at(-1);
+      if (busy || !previous) return;
+      set({ ...previous, history: history.slice(0, -1), mask: null, isolation: null, phase: 0, hoveredId: null, notice: "Last selection change undone." });
     },
     clearError: () => set({ error: null }),
     upload: async (source, ratio = get().aspectRatio) => {
@@ -87,7 +154,7 @@ export const useSelectionStore = create<SelectionState>((set, get) => {
       try {
         const image = await uploadImage(await cropImage(source, ratio));
         set({ source, image, aspectRatio: ratio, selectionText: "", candidates: [], selectedIds: [], mask: null, isolation: null, job: null,
-          positive: [], negative: [], pointsPending: false, refine: false, phase: 0, notice: "Photo ready. Name the subject you want to move." });
+          ...emptyPoints(), activeId: null, labels: {}, drafts: {}, history: [], hoveredId: null, pointTool: "include", phase: 0, notice: "Photo ready. Name a subject or click one in the photo." });
       } catch (error) { set({ error: message(error) }); }
       finally { set({ busy: false }); }
     },
@@ -98,48 +165,54 @@ export const useSelectionStore = create<SelectionState>((set, get) => {
     },
     segment: () => run("text"),
     addPoint: (point, isNegative) => {
-      const { image, busy, refine, phase } = get();
-      if (!image || busy || !refine || phase !== 0) return;
+      const { image, busy, phase } = get();
+      if (!image || busy || phase !== 0) return;
       const positive = isNegative ? get().positive : [...get().positive, point];
       const negative = isNegative ? [...get().negative, point] : get().negative;
       if (positive.length > 64 || negative.length > 64) { set({ notice: "You can use up to 64 include points and 64 exclude points. Clear the points to start again." }); return; }
-      set({ positive, negative, pointsPending: true, mask: null, isolation: null,
-        notice: "Points added. Apply refinement when you’re ready." });
+      checkpoint();
+      updatePoints({ positive, negative, pointsPending: true });
+      set({ notice: "Points added. Apply when you’re ready." });
     },
     removePoint: (index, isNegative) => {
-      const { image, busy, refine, phase, positive, negative } = get();
+      const { image, busy, phase, positive, negative } = get();
       const points = isNegative ? negative : positive;
-      if (!image || busy || !refine || phase !== 0 || !Number.isInteger(index) || index < 0 || index >= points.length) return;
+      if (!image || busy || phase !== 0 || !Number.isInteger(index) || index < 0 || index >= points.length) return;
       const remaining = points.filter((_, i) => i !== index);
       const nextPositive = isNegative ? positive : remaining;
       const nextNegative = isNegative ? remaining : negative;
       const pointsPending = nextPositive.length + nextNegative.length > 0;
-      set({ positive: nextPositive, negative: nextNegative, pointsPending, mask: null, isolation: null,
-        notice: pointsPending ? "Point removed. Apply refinement when you’re ready." : "All points removed. Your current subject selection is unchanged." });
+      checkpoint();
+      updatePoints({ positive: nextPositive, negative: nextNegative, pointsPending });
+      set({ notice: pointsPending ? "Point removed. Apply refinement when you’re ready." : "All points removed. Your current subject selection is unchanged." });
     },
     applyRefinement: async () => {
-      const { image, busy, refine, phase, positive, negative, pointsPending } = get();
-      if (!image || busy || !refine || phase !== 0 || !positive.length || !pointsPending) return;
+      const { image, busy, phase, positive, negative, pointsPending } = get();
+      if (!image || busy || phase !== 0 || !positive.length || !pointsPending) return;
       await run("points", positive, negative);
     },
     clearPoints: () => {
       if (get().busy) return;
-      set({ positive: [], negative: [], pointsPending: false, notice: "Points cleared. Your current subject selection is unchanged." });
+      checkpoint();
+      updatePoints(emptyPoints());
+      set({ notice: "Points cleared. The applied mask is unchanged." });
     },
     toggleCandidate: id => {
       if (get().busy) return;
+      if (!get().candidates.some(candidate => candidate.id === id)) return;
+      checkpoint();
       const ids = get().selectedIds;
       set({ selectedIds: ids.includes(id) ? ids.filter(value => value !== id) : [...ids, id],
-        mask: null, isolation: null, phase: 0, positive: [], negative: [], pointsPending: false, notice: "Selection changed. Confirm it and isolate again to continue." });
+        mask: null, isolation: null, phase: 0, selectionText: "", notice: "Included subjects changed. Your correction points are saved." });
     },
     confirm: async () => {
-      const { image, selectedIds, busy, pointsPending } = get();
-      if (!image || !selectedIds.length || busy || pointsPending) return;
+      const { image, selectedIds, busy } = get();
+      if (!image || !selectedIds.length || busy || hasPendingPoints(get())) return;
       set({ busy: true, error: null });
       try {
         const result = selectionResultSchema.parse(await apiRequest("/selection", { method: "POST",
           headers: { "Content-Type": "application/json" }, body: JSON.stringify({ imageId: image.id, candidateIds: selectedIds }) }));
-        set({ mask: result.mask, isolation: null, phase: 1, refine: false, notice: "Selection confirmed. Isolate the subject to create a clean background." });
+        set({ mask: result.mask, isolation: null, phase: 1, notice: "Selection confirmed. Isolate the subject to create a clean background." });
       } catch (error) { set({ error: message(error) }); }
       finally { set({ busy: false }); }
     },

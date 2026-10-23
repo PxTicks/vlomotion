@@ -85,6 +85,20 @@ describe("session API and segmentation lifecycle", () => {
     expect([...decoded.pixels]).toEqual([255, 255, 0, 255]);
     expect((await app.request("/api/selection", post(cookie, { imageId: session.image!.id, candidateIds: [crypto.randomUUID()] }))).status).toBe(400);
   });
+  it("reuses identical masks across independent SAM jobs without duplicating subjects", async () => {
+    const { app, session, client, cookie, png } = await setup();
+    const submit = vi.spyOn(client, "submit").mockImplementation(async () => remoteJob([png, png]));
+    const request = { mode: "text", text: "dog", imageId: session.image!.id };
+    await app.request("/api/jobs/segment", post(cookie, request));
+    await session.job!.done;
+    const original = session.job!.snapshot.candidates;
+    expect(original).toHaveLength(1);
+    await app.request("/api/jobs/segment", post(cookie, request));
+    await session.job!.done;
+    expect(submit).toHaveBeenCalledTimes(2);
+    expect(session.job!.snapshot.candidates).toEqual(original);
+    expect(session.candidates.size).toBe(1);
+  });
   it("reserves one active job while submission is pending and cancels its eventual handle", async () => {
     const { app, session, client, cookie } = await setup();
     let resolveSubmit!: (job: Job) => void;

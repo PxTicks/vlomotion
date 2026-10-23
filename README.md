@@ -6,6 +6,12 @@ using the Comfy SDK and self-hosted ComfyUI. This is an early implementation.
 Currently implemented: npm workspaces, the themed app shell, photo upload with
 centre crop, text-based SAM 3.1 candidates, multiple selection, point refinement,
 mask union/confirmation, session-scoped files, job progress and cancellation.
+Selection accepts text searches and points immediately. Searches add suggestions;
+checkboxes include subjects, while the named editing target determines which mask
+points change. **Add subject** starts a separate point selection. **Apply** always
+submits points explicitly. Each subject keeps its own points when switching targets;
+delete and Undo manage the collection without starting inference. Dashed outlines
+show suggestions, blue shows included subjects, and yellow marks the editing target.
 The Isolate phase describes the confirmed subject locally with Qwen3-VL, removes
 it with Qwen Image 2.1, and previews the clean background. Retry with a new seed,
 edit the removal instruction, or hold the preview to compare with the original.
