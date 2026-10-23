@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Box, Button, CircularProgress, Stack, ToggleButton, ToggleButtonGroup, Typography } from "@mui/material";
+import { Box, Button, CircularProgress, Stack, Typography } from "@mui/material";
 import { styled } from "@mui/material/styles";
 import type { MaskCandidate, Point } from "@h3-motion/shared";
 import { useSelectionStore } from "./useSelectionStore";
@@ -43,16 +43,14 @@ export function SelectionCanvas() {
   const image = useSelectionStore(s => s.image);
   const candidates = useSelectionStore(s => s.candidates);
   const selectedIds = useSelectionStore(s => s.selectedIds);
-  const apply = useSelectionStore(s => s.applyRefinement);
-  const addSubject = useSelectionStore(s => s.addSubject);
-  const setPointTool = useSelectionStore(s => s.setPointTool);
-  const pointsPending = useSelectionStore(s => s.pointsPending);
+  const selectionView = useSelectionStore(s => s.selectionView);
+  const toggleCandidate = useSelectionStore(s => s.toggleCandidate);
+  const editing = selectionView === "edit" || selectionView === "add";
   const [displayScale, setDisplayScale] = useState(1);
-  const activeId = useSelectionStore(s => s.activeId);
+  const storedActiveId = useSelectionStore(s => s.activeId);
+  const activeId = selectionView === "edit" ? storedActiveId : null;
   const labels = useSelectionStore(s => s.labels);
-  const pointTool = useSelectionStore(s => s.pointTool);
   const hoveredId = useSelectionStore(s => s.hoveredId);
-  const editSubject = useSelectionStore(s => s.editSubject);
   const setHoveredId = useSelectionStore(s => s.setHoveredId);
   const [hideOverlays, setHideOverlays] = useState(false);
   const positive = useSelectionStore(s => s.positive);
@@ -153,8 +151,8 @@ export function SelectionCanvas() {
         aspectRatio: image ? `${image.width}/${image.height}` : aspectRatio.replace(":", "/"),
         maxWidth: aspectRatio === "9:16" ? 420 : "100%", mx: "auto", width: "100%" }}>
       {image ? <Surface ref={canvas} width={image.width} height={image.height}
-        role="img" aria-label="Photo with subject masks. Click to add points to the named editing target; right click to exclude."
-        style={{ cursor: busy ? "wait" : "crosshair" }}
+        role="img" aria-label={selectionView === "subjects" ? "Photo with subject masks. Click a subject to include or exclude it." : "Photo with subject masks. Click to add points; right click to exclude."}
+        style={{ cursor: busy ? "wait" : selectionView === "subjects" ? "pointer" : "crosshair" }}
         onMouseMove={event => {
           const point = imagePoint(event.clientX, event.clientY); if (!point) return;
           const hit = [...masks.current].reverse().find(mask => mask.pixels[(point.y * image.width + point.x) * 4] >= 128);
@@ -164,8 +162,12 @@ export function SelectionCanvas() {
         onClick={event => {
           if (busy || phase !== 0) return;
           const point = imagePoint(event.clientX, event.clientY); if (!point) return;
-          addPoint(point, pointTool === "exclude");
+          if (selectionView === "subjects") {
+            const hit = [...masks.current].reverse().find(mask => mask.pixels[(point.y * image.width + point.x) * 4] >= 128);
+            if (hit) toggleCandidate(hit.candidate.id);
+          } else addPoint(point, false);
         }} onContextMenu={event => {
+          if (selectionView === "subjects") return;
           event.preventDefault(); if (busy || phase !== 0) return;
           const point = imagePoint(event.clientX, event.clientY); if (point) addPoint(point, true);
         }} /> : <Stack sx={{ position: "absolute", inset: 0, p: 3 }} alignItems="center" justifyContent="center" spacing={2}>
@@ -176,19 +178,16 @@ export function SelectionCanvas() {
         <Typography variant="caption" color="text.secondary">JPEG, PNG or WebP · up to 20 MB</Typography>
       </Stack>}
       {image && !hideOverlays && <svg viewBox={`0 0 ${image.width} ${image.height}`} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none" }}>
-        {candidates.map((candidate, index) => <g key={candidate.id} role="button" aria-label={`Edit ${labels[candidate.id] ?? `Subject ${index + 1}`}`} tabIndex={busy || phase !== 0 ? -1 : 0}
-          style={{ pointerEvents: busy || phase !== 0 ? "none" : "all", cursor: "pointer" }}
-          onClick={() => editSubject(candidate.id)} onKeyDown={event => { if ((event.key === "Enter" || event.key === " ") && !busy && phase === 0) { event.preventDefault(); editSubject(candidate.id); } }}>
+        {candidates.map((candidate, index) => <g key={candidate.id} aria-hidden="true">
           <g transform={`translate(${Math.min(candidate.bounds.x, Math.max(0, image.width - 30 * displayScale))}, ${Math.max(0, candidate.bounds.y - 28 * displayScale)}) scale(${displayScale})`}>
-            <rect x={-7} y={-7} width={44} height={40} fill="transparent" />
             <rect width={30} height={26} rx={4} fill={candidate.id === activeId ? "#f2ff59" : "#19151f"} stroke="white" strokeWidth={2} />
             <text x={15} y={18} textAnchor="middle" fontSize={18} fill={candidate.id === activeId ? "#19151f" : "white"}>{index + 1}</text>
           </g>
           <title>{labels[candidate.id] ?? `Subject ${index + 1}`}</title>
         </g>)}
-        {positive.map((point, i) => <RefinementPoint key={`p${i}`} point={point} scale={displayScale} color="#f2ff59" label={`Remove include point ${i + 1}`}
+        {editing && positive.map((point, i) => <RefinementPoint key={`p${i}`} point={point} scale={displayScale} color="#f2ff59" label={`Remove include point ${i + 1}`}
           disabled={busy || phase !== 0} onRemove={() => removePoint(i, false)} />)}
-        {negative.map((point, i) => <RefinementPoint key={`n${i}`} point={point} scale={displayScale} color="#ff3b3b" label={`Remove exclude point ${i + 1}`}
+        {editing && negative.map((point, i) => <RefinementPoint key={`n${i}`} point={point} scale={displayScale} color="#ff3b3b" label={`Remove exclude point ${i + 1}`}
           disabled={busy || phase !== 0} onRemove={() => removePoint(i, true)} />)}
       </svg>}
       {busy && <Box sx={{ position: "absolute", top: 16, left: 16, bgcolor: "background.paper", borderRadius: 99, py: 1, px: 2, display: "flex", gap: 1, alignItems: "center" }}>
@@ -197,24 +196,12 @@ export function SelectionCanvas() {
     </Box>
     <input ref={fileInput} hidden type="file" accept="image/jpeg,image/png,image/webp" aria-label="Upload a photo"
       onChange={event => { const file = event.target.files?.[0]; event.target.value = ""; if (file) void upload(file); }} />
-    {image && <Stack spacing={1}>
-      <Stack direction="row" justifyContent="space-between" alignItems="center" gap={1}>
-        <Typography variant="body2" fontWeight={600}>{activeId ? `Editing ${labels[activeId] ?? "subject"}` : "New subject"}</Typography>
-        <Button size="small" disabled={busy || phase !== 0} onClick={addSubject}>+ New subject</Button>
-      </Stack>
-      {phase === 0 && <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
-        <ToggleButtonGroup exclusive size="small" value={pointTool} disabled={busy} onChange={(_, tool) => { if (tool) setPointTool(tool); }} aria-label="Canvas point type">
-          <ToggleButton value="include" aria-label="Include point">+ Include</ToggleButton><ToggleButton value="exclude" aria-label="Exclude point">− Exclude</ToggleButton>
-        </ToggleButtonGroup>
-        <Button variant="outlined" size="small" disabled={busy || !positive.length || !pointsPending} onClick={() => void apply()}>Apply</Button>
-      </Stack>}
-      <Stack direction="row" justifyContent="space-between" alignItems="center">
-        <Typography variant="caption" color="text.secondary">{image.width} × {image.height} · Right-click to exclude</Typography>
-        <Button size="small" disabled={busy} onClick={() => fileInput.current?.click()}>Replace photo</Button>
-      </Stack>
+    {image && <Stack direction="row" justifyContent="space-between" alignItems="center">
+      <Typography variant="caption" color="text.secondary">{image.width} × {image.height}{editing ? activeId ? ` · Editing ${labels[activeId] ?? "subject"}` : " · New subject" : ""}</Typography>
+      <Button size="small" disabled={busy} onClick={() => fileInput.current?.click()}>Replace photo</Button>
     </Stack>}
-    {image && <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
-      <Typography variant="caption" color="text.secondary">Yellow: editing · Blue: included · Dashed: suggestion</Typography>
+    {image && candidates.length > 0 && <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+      <Typography variant="caption" color="text.secondary">{activeId ? "Yellow: editing · " : ""}Blue: included · Dashed: suggestion</Typography>
       <Button size="small" onPointerDown={event => { event.currentTarget.setPointerCapture(event.pointerId); setHideOverlays(true); }} onPointerUp={() => setHideOverlays(false)} onPointerCancel={() => setHideOverlays(false)} onBlur={() => setHideOverlays(false)}
         onKeyDown={event => { if (event.key === " " || event.key === "Enter") { event.preventDefault(); setHideOverlays(true); } }} onKeyUp={() => setHideOverlays(false)}>Hold to view photo</Button>
     </Stack>}

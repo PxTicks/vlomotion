@@ -33,7 +33,7 @@ describe("selection transitions", () => {
     expect(useSelectionStore.getState()).toMatchObject({ activeId: null, candidates: [], selectedIds: [] });
   });
   it("replaces only the explicit editing target and keeps it active", async () => {
-    useSelectionStore.setState({ candidates: [first, second], selectedIds: [first.id, second.id], activeId: first.id });
+    useSelectionStore.setState({ candidates: [first, second], selectedIds: [first.id, second.id], selectionView: "edit", activeId: first.id });
     vi.mocked(watchJob).mockResolvedValue(result([refined]));
     useSelectionStore.getState().addPoint({ x: 4, y: 5 }, false);
     await useSelectionStore.getState().applyRefinement();
@@ -41,13 +41,14 @@ describe("selection transitions", () => {
     expect(useSelectionStore.getState().selectedIds).toEqual([second.id, refined.id]);
     const again = candidate("again");
     vi.mocked(watchJob).mockResolvedValue(result([again]));
+    useSelectionStore.getState().editSubject(refined.id);
     useSelectionStore.getState().addPoint({ x: 8, y: 9 }, true);
     await useSelectionStore.getState().applyRefinement();
     expect(useSelectionStore.getState().candidates).toEqual([again, second]);
     expect(useSelectionStore.getState().selectedIds).toEqual([second.id, again.id]);
   });
   it("collects multiple include/exclude points without submitting or locking the canvas", async () => {
-    useSelectionStore.setState({ activeId: first.id, candidates: [first], selectedIds: [first.id] });
+    useSelectionStore.setState({ selectionView: "edit", activeId: first.id, candidates: [first], selectedIds: [first.id] });
     const store = useSelectionStore.getState();
     store.addPoint({ x: 4, y: 5 }, false);
     store.addPoint({ x: 6, y: 7 }, false);
@@ -64,14 +65,14 @@ describe("selection transitions", () => {
     expect(submitSegment).toHaveBeenCalledTimes(1);
   });
   it("requires an include point but allows exclude points to be placed first", async () => {
-    useSelectionStore.setState({ activeId: first.id });
+    useSelectionStore.setState({ selectionView: "edit", activeId: first.id });
     useSelectionStore.getState().addPoint({ x: 8, y: 9 }, true);
     await useSelectionStore.getState().applyRefinement();
     expect(useSelectionStore.getState().negative).toEqual([{ x: 8, y: 9 }]);
     expect(submitSegment).not.toHaveBeenCalled();
   });
   it("removes individual include and exclude points without submitting refinement", () => {
-    useSelectionStore.setState({ activeId: first.id, candidates: [first], selectedIds: [first.id] });
+    useSelectionStore.setState({ selectionView: "edit", activeId: first.id, candidates: [first], selectedIds: [first.id] });
     const store = useSelectionStore.getState();
     store.addPoint({ x: 4, y: 5 }, false);
     store.addPoint({ x: 6, y: 7 }, false);
@@ -86,7 +87,7 @@ describe("selection transitions", () => {
   });
   it("marks removal of an applied point as pending and submits only the remaining points", async () => {
     const positive = [{ x: 4, y: 5 }, { x: 6, y: 7 }];
-    useSelectionStore.setState({ activeId: first.id, candidates: [first], selectedIds: [first.id], positive, pointsPending: false });
+    useSelectionStore.setState({ selectionView: "edit", activeId: first.id, candidates: [first], selectedIds: [first.id], positive, pointsPending: false });
     useSelectionStore.getState().removePoint(0, false);
     expect(useSelectionStore.getState().pointsPending).toBe(true);
     vi.mocked(watchJob).mockResolvedValue(result([refined]));
@@ -95,7 +96,7 @@ describe("selection transitions", () => {
   });
   it("ignores invalid point removals and prevents editing during refinement", () => {
     const positive = [{ x: 4, y: 5 }];
-    useSelectionStore.setState({ activeId: first.id, positive, pointsPending: false });
+    useSelectionStore.setState({ selectionView: "edit", activeId: first.id, positive, pointsPending: false });
     const store = useSelectionStore.getState();
     for (const index of [-1, 1, 0.5]) store.removePoint(index, false);
     useSelectionStore.setState({ busy: true });
@@ -104,7 +105,7 @@ describe("selection transitions", () => {
     expect(submitSegment).not.toHaveBeenCalled();
   });
   it("blocks confirmation until pending points are applied or cleared", async () => {
-    useSelectionStore.setState({ activeId: first.id, candidates: [first], selectedIds: [first.id] });
+    useSelectionStore.setState({ selectionView: "edit", activeId: first.id, candidates: [first], selectedIds: [first.id] });
     useSelectionStore.getState().addPoint({ x: 4, y: 5 }, false);
     await useSelectionStore.getState().confirm();
     expect(apiRequest).not.toHaveBeenCalled();
@@ -115,7 +116,7 @@ describe("selection transitions", () => {
     expect(apiRequest).toHaveBeenCalledOnce();
   });
   it.each(["failed", "cancelled", "empty"])("keeps points and the current candidate available after %s refinement", async status => {
-    useSelectionStore.setState({ activeId: first.id, candidates: [first, second], selectedIds: [first.id, second.id] });
+    useSelectionStore.setState({ selectionView: "edit", activeId: first.id, candidates: [first, second], selectedIds: [first.id, second.id] });
     useSelectionStore.getState().addPoint({ x: 4, y: 5 }, false);
     vi.mocked(watchJob).mockResolvedValue(status === "empty" ? result([])
       : { ...result([]), status: status as "failed" | "cancelled", error: "Refinement failed" });
@@ -124,7 +125,7 @@ describe("selection transitions", () => {
       candidates: [first, second], selectedIds: [first.id, second.id], positive: [{ x: 4, y: 5 }] });
   });
   it("preserves per-subject and new-subject drafts when switching targets or inclusion", () => {
-    useSelectionStore.setState({ candidates: [first, second], selectedIds: [first.id], activeId: first.id });
+    useSelectionStore.setState({ candidates: [first, second], selectedIds: [first.id], selectionView: "edit", activeId: first.id });
     const store = useSelectionStore.getState();
     store.addPoint({ x: 4, y: 5 }, false);
     store.toggleCandidate(second.id);
@@ -151,7 +152,7 @@ describe("selection transitions", () => {
     expect(useSelectionStore.getState()).toMatchObject({ candidates: [first, refined], activeId: refined.id, selectedIds: [first.id, refined.id] });
   });
   it("starts a separate point job for a new subject only after intentional Apply", async () => {
-    useSelectionStore.setState({ candidates: [first], selectedIds: [first.id], activeId: first.id });
+    useSelectionStore.setState({ candidates: [first], selectedIds: [first.id], selectionView: "edit", activeId: first.id });
     useSelectionStore.getState().addPoint({ x: 4, y: 5 }, false);
     useSelectionStore.getState().addSubject();
     useSelectionStore.getState().addPoint({ x: 80, y: 80 }, false);
@@ -159,23 +160,23 @@ describe("selection transitions", () => {
     vi.mocked(watchJob).mockResolvedValue(result([second]));
     await useSelectionStore.getState().applyRefinement();
     expect(submitSegment).toHaveBeenCalledExactlyOnceWith({ mode: "points", imageId: image.id, positive: [{ x: 80, y: 80 }], negative: [] });
-    expect(useSelectionStore.getState()).toMatchObject({ candidates: [first, second], selectedIds: [first.id, second.id], activeId: second.id });
+    expect(useSelectionStore.getState()).toMatchObject({ candidates: [first, second], selectedIds: [first.id, second.id], selectionView: "subjects", activeId: second.id });
     useSelectionStore.getState().editSubject(first.id);
     expect(useSelectionStore.getState().positive).toEqual([{ x: 4, y: 5 }]);
   });
   it("adds search suggestions without losing included subjects or pending points and deduplicates repeated results", async () => {
-    useSelectionStore.setState({ candidates: [first], selectedIds: [first.id], activeId: first.id });
+    useSelectionStore.setState({ candidates: [first], selectedIds: [first.id], selectionView: "edit", activeId: first.id });
     useSelectionStore.getState().addPoint({ x: 4, y: 5 }, false);
     vi.mocked(watchJob).mockResolvedValue(result([first, second]));
     await useSelectionStore.getState().segment();
-    expect(useSelectionStore.getState()).toMatchObject({ candidates: [first, second], selectedIds: [first.id], positive: [{ x: 4, y: 5 }], pointsPending: true });
+    expect(useSelectionStore.getState()).toMatchObject({ candidates: [first, second], selectedIds: [first.id], selectionView: "subjects", drafts: { [first.id]: { positive: [{ x: 4, y: 5 }], pointsPending: true } } });
     await useSelectionStore.getState().segment();
     expect(useSelectionStore.getState().candidates).toEqual([first, second]);
     useSelectionStore.getState().includeAll();
     expect(useSelectionStore.getState().selectedIds).toEqual([first.id, second.id]);
   });
   it("blocks confirmation for pending points on an inactive subject or the new-subject draft", async () => {
-    useSelectionStore.setState({ candidates: [first, second], selectedIds: [first.id], activeId: first.id });
+    useSelectionStore.setState({ candidates: [first, second], selectedIds: [first.id], selectionView: "edit", activeId: first.id });
     const store = useSelectionStore.getState();
     store.addPoint({ x: 4, y: 5 }, false);
     store.editSubject(second.id);
@@ -187,29 +188,107 @@ describe("selection transitions", () => {
     expect(apiRequest).not.toHaveBeenCalled();
   });
   it("deletes and restores a subject including its inclusion, editing target and points", () => {
-    useSelectionStore.setState({ candidates: [first, second], selectedIds: [first.id, second.id], activeId: second.id });
+    useSelectionStore.setState({ candidates: [first, second], selectedIds: [first.id, second.id], selectionView: "edit", activeId: second.id });
     const store = useSelectionStore.getState();
     store.addPoint({ x: 70, y: 70 }, false);
     store.deleteSubject(second.id);
     expect(useSelectionStore.getState()).toMatchObject({ candidates: [first], selectedIds: [first.id], activeId: null });
     store.undo();
-    expect(useSelectionStore.getState()).toMatchObject({ candidates: [first, second], selectedIds: [first.id, second.id], activeId: second.id, positive: [{ x: 70, y: 70 }], pointsPending: true });
+    expect(useSelectionStore.getState()).toMatchObject({ candidates: [first, second], selectedIds: [first.id, second.id], selectionView: "subjects", activeId: second.id, positive: [{ x: 70, y: 70 }], pointsPending: true });
   });
   it("undo restores the previous mask after applying a correction", async () => {
-    useSelectionStore.setState({ candidates: [first], selectedIds: [first.id], activeId: first.id });
+    useSelectionStore.setState({ candidates: [first], selectedIds: [first.id], selectionView: "edit", activeId: first.id });
     const store = useSelectionStore.getState();
     store.addPoint({ x: 4, y: 5 }, false);
     vi.mocked(watchJob).mockResolvedValue(result([refined]));
     await store.applyRefinement();
     store.undo();
-    expect(useSelectionStore.getState()).toMatchObject({ candidates: [first], activeId: first.id, selectedIds: [first.id], pointsPending: true });
+    expect(useSelectionStore.getState()).toMatchObject({ candidates: [first], selectionView: "subjects", activeId: first.id, selectedIds: [first.id], pointsPending: true });
   });
   it("editing an excluded subject does not silently include it", async () => {
-    useSelectionStore.setState({ candidates: [first, second], selectedIds: [first.id], activeId: second.id });
+    useSelectionStore.setState({ candidates: [first, second], selectedIds: [first.id], selectionView: "edit", activeId: second.id });
     useSelectionStore.getState().addPoint({ x: 70, y: 70 }, false);
     vi.mocked(watchJob).mockResolvedValue(result([refined]));
     await useSelectionStore.getState().applyRefinement();
     expect(useSelectionStore.getState().selectedIds).toEqual([first.id]);
+  });
+  it("reveals the point editor only after the first click and cancels back to the initial prompt", () => {
+    const store = useSelectionStore.getState();
+    expect(store.selectionView).toBe("find");
+    store.addPoint({ x: 10, y: 10 }, false);
+    expect(useSelectionStore.getState().selectionView).toBe("add");
+    store.cancelEditor();
+    expect(useSelectionStore.getState()).toMatchObject({ selectionView: "find", candidates: [], positive: [], pointsPending: false, drafts: {} });
+    expect(submitSegment).not.toHaveBeenCalled();
+  });
+  it("cancels a new subject without changing existing subjects or leaving hidden pending points", () => {
+    useSelectionStore.setState({ selectionView: "subjects", candidates: [first, second], selectedIds: [first.id] });
+    const store = useSelectionStore.getState();
+    store.addSubject();
+    expect(useSelectionStore.getState().selectionView).toBe("add");
+    store.addPoint({ x: 80, y: 80 }, false);
+    store.cancelEditor();
+    expect(useSelectionStore.getState()).toMatchObject({ selectionView: "subjects", candidates: [first, second], selectedIds: [first.id], positive: [], pointsPending: false, drafts: {}, history: [] });
+    expect(submitSegment).not.toHaveBeenCalled();
+  });
+  it("cancels mask editing and restores its saved points and inclusion", () => {
+    const draft = { positive: [{ x: 10, y: 10 }], negative: [], pointsPending: false };
+    useSelectionStore.setState({ selectionView: "subjects", candidates: [first], selectedIds: [first.id], drafts: { [first.id]: draft } });
+    const store = useSelectionStore.getState();
+    store.editSubject(first.id);
+    store.addPoint({ x: 20, y: 20 }, false);
+    store.cancelEditor();
+    expect(useSelectionStore.getState()).toMatchObject({ selectionView: "subjects", candidates: [first], selectedIds: [first.id], drafts: { [first.id]: draft }, history: [] });
+    store.editSubject(first.id);
+    expect(useSelectionStore.getState().positive).toEqual(draft.positive);
+  });
+  it("returns to the list after applying and Undo restores the mask from before entering the editor", async () => {
+    useSelectionStore.setState({ selectionView: "subjects", candidates: [first], selectedIds: [first.id] });
+    const store = useSelectionStore.getState();
+    store.editSubject(first.id);
+    store.addPoint({ x: 10, y: 10 }, false);
+    vi.mocked(watchJob).mockResolvedValue(result([refined]));
+    await store.applyRefinement();
+    expect(useSelectionStore.getState()).toMatchObject({ selectionView: "subjects", candidates: [refined], pointsPending: false });
+    store.editSubject(refined.id);
+    expect(useSelectionStore.getState().positive).toEqual([{ x: 10, y: 10 }]);
+    store.cancelEditor();
+    store.undo();
+    expect(useSelectionStore.getState()).toMatchObject({ selectionView: "subjects", candidates: [first], selectedIds: [first.id], drafts: {}, pointsPending: false });
+  });
+  it("adding through text returns to the list and discards the temporary new-subject points", async () => {
+    useSelectionStore.setState({ selectionView: "subjects", candidates: [first], selectedIds: [first.id] });
+    const store = useSelectionStore.getState();
+    store.addSubject(); store.setText("car"); store.addPoint({ x: 80, y: 80 }, false);
+    vi.mocked(watchJob).mockResolvedValue(result([second]));
+    await store.segment();
+    expect(useSelectionStore.getState()).toMatchObject({ selectionView: "subjects", candidates: [first, second], selectedIds: [first.id, second.id], drafts: {}, pointsPending: false });
+  });
+  it("returns to the existing list when an in-flight new-subject job is cancelled", async () => {
+    useSelectionStore.setState({ selectionView: "subjects", candidates: [first], selectedIds: [first.id] });
+    const store = useSelectionStore.getState();
+    store.addSubject(); store.addPoint({ x: 80, y: 80 }, false);
+    vi.mocked(watchJob).mockResolvedValue({ ...result([]), status: "cancelled" });
+    await store.applyRefinement();
+    expect(useSelectionStore.getState()).toMatchObject({ selectionView: "subjects", candidates: [first], selectedIds: [first.id], drafts: {}, pointsPending: false });
+  });
+  it("does not collect refinement points while browsing the subject list", () => {
+    useSelectionStore.setState({ selectionView: "subjects", candidates: [first], selectedIds: [first.id] });
+    useSelectionStore.getState().addPoint({ x: 10, y: 10 }, false);
+    expect(useSelectionStore.getState()).toMatchObject({ selectionView: "subjects", positive: [], pointsPending: false });
+    expect(submitSegment).not.toHaveBeenCalled();
+  });
+  it("undoes a point inside the editor while keeping Cancel available", () => {
+    useSelectionStore.setState({ selectionView: "subjects", candidates: [first], selectedIds: [first.id] });
+    const store = useSelectionStore.getState();
+    store.editSubject(first.id);
+    store.addPoint({ x: 10, y: 10 }, false);
+    store.addPoint({ x: 20, y: 20 }, true);
+    store.undo();
+    expect(useSelectionStore.getState()).toMatchObject({ selectionView: "edit", positive: [{ x: 10, y: 10 }], negative: [] });
+    expect(useSelectionStore.getState().editorStart).not.toBeNull();
+    store.cancelEditor();
+    expect(useSelectionStore.getState()).toMatchObject({ selectionView: "subjects", candidates: [first], selectedIds: [first.id], drafts: {}, history: [] });
   });
   it("invalidates confirmed masks when selection changes", () => {
     useSelectionStore.setState({ mask: image, phase: 1, candidates: [first], selectedIds: [first.id] });
