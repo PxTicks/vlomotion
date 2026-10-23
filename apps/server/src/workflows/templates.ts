@@ -13,14 +13,14 @@ export interface Binding { node: string; input: string; classType: string }
 export const SEGMENT_BINDINGS = {
   image: { node: "2", input: "image", classType: "LoadImage" },
   text: { node: "3", input: "text", classType: "CLIPTextEncode" },
-  positive: { node: "4", input: "positive_coords", classType: "SAM3_Detect" },
-  negative: { node: "4", input: "negative_coords", classType: "SAM3_Detect" },
+  positive: { node: "4", input: "positive_coords", classType: "vloSAM3RefineMask" },
+  negative: { node: "4", input: "negative_coords", classType: "vloSAM3RefineMask" },
 } satisfies Record<string, Binding>;
 export const REFINE_BINDINGS = {
   image: SEGMENT_BINDINGS.image,
   mask: { node: "7", input: "image", classType: "LoadImage" },
-  positive: { node: "4", input: "positive_coords", classType: "H3M_SAM3_Refine" },
-  negative: { node: "4", input: "negative_coords", classType: "H3M_SAM3_Refine" },
+  positive: SEGMENT_BINDINGS.positive,
+  negative: SEGMENT_BINDINGS.negative,
 } satisfies Record<string, Binding>;
 export const SEGMENT_OUTPUT = "6";
 

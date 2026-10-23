@@ -11,7 +11,10 @@ describe("workflow contracts", () => {
     assertBindings(points, [SEGMENT_BINDINGS.image, SEGMENT_BINDINGS.positive, SEGMENT_BINDINGS.negative]);
     expect(text[SEGMENT_OUTPUT].class_type).toBe("SaveImage");
     expect(points["4"].inputs).not.toHaveProperty("conditioning");
+    expect(points["4"].inputs).not.toHaveProperty("mask");
+    expect(points["4"].inputs).toMatchObject({ mask_selection: "reference", refine_iterations: 1, if_core_changed: "native" });
     expect(text["4"].inputs).not.toHaveProperty("positive_coords");
+    expect(text["4"].class_type).toBe("SAM3_Detect");
     expect(text["4"].inputs.individual_masks).toBe(true);
     expect(() => assertBindings({ ...text, "2": text["1"] }, [SEGMENT_BINDINGS.image])).toThrow("binding changed");
   });
@@ -29,13 +32,17 @@ describe("workflow contracts", () => {
     const request = { mode: "points" as const, imageId: crypto.randomUUID(), positive: [], negative: [{ x: 20, y: 30 }] };
     const workflow = await buildSegmentWorkflow(client, request, "/tmp/photo.png", { path: "/tmp/subject.png" });
     assertBindings(workflow.json as ApiGraph, Object.values(REFINE_BINDINGS));
-    expect(workflow.json["4"]).toMatchObject({ class_type: "H3M_SAM3_Refine", inputs: {
-      prior_mask: ["8", 0], positive_coords: "[]", negative_coords: '[{"x":20,"y":30}]', refine_iterations: 2,
+    expect(workflow.json["4"]).toMatchObject({ class_type: "vloSAM3RefineMask", inputs: {
+      mask: ["8", 0], positive_coords: "[]", negative_coords: '[{"x":20,"y":30}]',
+      mask_selection: "reference", refine_iterations: 1, if_core_changed: "native",
     } });
     expect(workflow.json["8"]).toMatchObject({ class_type: "ImageToMask", inputs: { image: ["7", 0], channel: "red" } });
     expect((workflow.json as ApiGraph)["7"].inputs.image).not.toBe("subject-mask.png");
     const fresh = await buildSegmentWorkflow(client, { mode: "points", imageId: request.imageId, positive: [{ x: 1, y: 1 }], negative: [] }, "/tmp/photo.png");
-    expect((fresh.json as ApiGraph)["4"].class_type).toBe("SAM3_Detect");
+    expect(fresh.json["4"]).toMatchObject({ class_type: "vloSAM3RefineMask", inputs: {
+      positive_coords: '[{"x":1,"y":1}]', negative_coords: "[]",
+    } });
+    expect((fresh.json as ApiGraph)["4"].inputs).not.toHaveProperty("mask");
     expect(fresh.json).not.toHaveProperty("7");
     expect((await loadTemplate("segment_refine"))["7"].inputs.image).toBe("subject-mask.png");
   });

@@ -114,7 +114,7 @@ describe("session API and segmentation lifecycle", () => {
     await session.job!.done;
     expect(session.job!.snapshot.status).toBe("completed");
     expect(asset).toHaveBeenLastCalledWith(target.path);
-    expect(submit.mock.lastCall![0].json["4"]).toMatchObject({ class_type: "H3M_SAM3_Refine", inputs: { prior_mask: ["8", 0], positive_coords: "[]", negative_coords: '[{"x":1,"y":0}]' } });
+    expect(submit.mock.lastCall![0].json["4"]).toMatchObject({ class_type: "vloSAM3RefineMask", inputs: { mask: ["8", 0], positive_coords: "[]", negative_coords: '[{"x":1,"y":0}]' } });
   });
   it("rejects unknown, foreign, and stale mask ids before submitting or clearing selection", async () => {
     const { app, store, session, client, cookie, png } = await setup();

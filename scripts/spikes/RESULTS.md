@@ -65,5 +65,29 @@ The S2 CLI also ran an exclude-only GPU request without `--positive`.
 On the synthetic missing-hand fixture, an include click selected the hand and
 retained 98.8% of the starting mask. A subsequent single hand-exclude click
 excluded the clicked pixel but retained only 56.0% of the preceding mask. These
-runs verify execution of the corrected path; full-mask preservation remains a
-model-quality limitation, even with multimask disabled.
+runs verify execution of that earlier path. The area change alone does not
+establish an incorrect exclusion; the intended edit needs visual assessment.
+
+## ComfyUI-vlo SAM3 migration — 2026-10-23
+
+Point creation and binary-mask editing now use `vloSAM3RefineMask`, with
+`mask_selection=reference`, `refine_iterations=1` and `if_core_changed=native`.
+Text discovery remains on core `SAM3_Detect`. The app-owned refinement node and
+its tensor tests were removed; decoder tests belong to ComfyUI-vlo.
+
+The production build, all 196 app tests and `npm run check-env` passed. Idle
+Windows ComfyUI was restarted to load the installed node pack. Four S2 requests
+through the real API proxy and SAM3.1 checkpoint each returned one binary
+640 × 480 mask: fresh points, a mask-conditioned include click, an exclude-only
+click, and a combined recipe with two include points and one exclude point.
+Pixel checks confirmed the requested include/exclude labels in each output.
+Visual inspection of the include edit showed the missing hand added while the
+rest of the figure remained selected. These synthetic fixture checks establish
+integration and basic correction behaviour, not segmentation quality on photos.
+
+Artifacts (ignored):
+
+- Fresh selection: `.data/spikes/s2-1792759316019/`
+- Include edit: `.data/spikes/s2-1792759336467/`
+- Exclude-only edit: `.data/spikes/s2-1792759343864/`
+- Combined recipe: `.data/spikes/s2-1792759377783/`

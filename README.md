@@ -136,7 +136,9 @@ is a later feature.
 
 Use a current ComfyUI with the core SAM 3.1, Qwen Image 2.1, TextGenerate and
 MiniMax H3 nodes. Install [ComfyUI-vlo](https://github.com/PxTicks/ComfyUI-vlo)
-for its Time-to-Move node (`vloTimeToMove`). Its H3 support needs ComfyUI's
+for its Time-to-Move (`vloTimeToMove`) and SAM refinement (`vloSAM3RefineMask`)
+nodes. Use a pack revision containing both nodes; `npm run check-env` checks
+their availability. Its H3 support needs ComfyUI's
 per-token mask support (upstream since August 2026). Selection requires the SAM
 checkpoint. Isolation also requires the Qwen diffusion model, Qwen3-VL encoder
 and Qwen VAE listed below; generation requires the four MiniMax H3 files. The
@@ -145,20 +147,18 @@ GPU. Set `H3M_SPECTRUM=1` to splice in the third-party
 [Spectrum H3](https://github.com/xmarre/ComfyUI-Spectrum-MiniMax-H3) speed-up;
 it is off by default; generation needs no other node pack.
 
-Mask editing also needs this repo's `H3M_SAM3_Refine` node. Copy
-`comfy_nodes/h3_motion` into your ComfyUI `custom_nodes` directory, then restart
-ComfyUI. It uses ComfyUI's existing SAM decoder and needs no extra Python packages.
-The saved binary subject mask is converted to signed mask scores, and both the
-mask and correction points condition every refinement pass. Refinement uses a
-single mask prediction and computes image features once per edit. The mask guides SAM;
-it does not guarantee that every previously selected pixel remains selected.
+Point selection and mask editing use ComfyUI-vlo's `vloSAM3RefineMask` with
+`mask_selection=reference` and one decoder pass. Existing subjects supply their
+saved binary mask alongside the full include/exclude point recipe. The node
+converts the mask to signed scores for conditioning; native logits are not saved
+between edits. Text discovery uses core `SAM3_Detect`.
 
-Run the node's tensor tests with ComfyUI's Python environment and an explicit
-checkout path (use native Windows paths when running Windows Python):
-
-```sh
-COMFYUI_PATH=/path/to/ComfyUI /path/to/ComfyUI/.venv/bin/python comfy_nodes/tests/test_refine.py
-```
+On verified ComfyUI versions, refinement uses multimask selection for one point
+and a stability fallback for multiple points. If ComfyUI's decoder internals
+change, `if_core_changed=native` uses its native segmentation method instead.
+The mask guides SAM; it does not guarantee that every previously selected pixel
+remains selected. Update ComfyUI-vlo and restart ComfyUI if the refinement node
+is missing. No app-specific custom nodes need installing.
 
 Start ComfyUI on `8188`, then install and run the
 [v2 proxy](https://github.com/Comfy-Org/comfy-api-proxy) manually if you prefer.

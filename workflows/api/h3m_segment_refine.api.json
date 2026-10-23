@@ -3,7 +3,7 @@
   "2": { "class_type": "LoadImage", "inputs": { "image": "original.png" } },
   "7": { "class_type": "LoadImage", "inputs": { "image": "subject-mask.png" } },
   "8": { "class_type": "ImageToMask", "inputs": { "image": ["7", 0], "channel": "red" } },
-  "4": { "class_type": "H3M_SAM3_Refine", "inputs": { "model": ["1", 0], "image": ["2", 0], "prior_mask": ["8", 0], "positive_coords": "[]", "negative_coords": "[]", "refine_iterations": 2 } },
+  "4": { "class_type": "vloSAM3RefineMask", "inputs": { "model": ["1", 0], "image": ["2", 0], "mask": ["8", 0], "positive_coords": "[]", "negative_coords": "[]", "mask_selection": "reference", "refine_iterations": 1, "if_core_changed": "native" } },
   "5": { "class_type": "MaskToImage", "inputs": { "mask": ["4", 0] } },
   "6": { "class_type": "SaveImage", "inputs": { "images": ["5", 0], "filename_prefix": "h3m/segment_refine" } }
 }
