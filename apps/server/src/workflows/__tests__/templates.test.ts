@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Comfy } from "@comfyorg/sdk";
-import { ANIMATE_BINDINGS, ANIMATE_MODEL, ANIMATE_OUTPUT, assertBindings, buildAnimateWorkflow, buildDescribeWorkflow, buildIsolateWorkflow, buildSegmentWorkflow, DESCRIBE_BINDINGS, DESCRIBE_OUTPUTS, ISOLATE_BINDINGS, ISOLATE_OUTPUT, isolationGeometry, loadTemplate, samText, SEGMENT_BINDINGS, SEGMENT_OUTPUT } from "../templates.js";
+import { ANIMATE_BINDINGS, ANIMATE_MODEL, ANIMATE_OUTPUT, assertBindings, buildAnimateWorkflow, buildDescribeWorkflow, buildIsolateWorkflow, buildSegmentWorkflow, DESCRIBE_BINDINGS, DESCRIBE_OUTPUTS, ISOLATE_BINDINGS, ISOLATE_OUTPUT, isolationGeometry, loadTemplate, samText, REFINE_BINDINGS, SEGMENT_BINDINGS, SEGMENT_OUTPUT } from "../templates.js";
 import type { ApiGraph } from "../templates.js";
 
 describe("workflow contracts", () => {
@@ -23,6 +23,21 @@ describe("workflow contracts", () => {
     expect(first.json["3"]).toMatchObject({ inputs: { text: "red car:4" } });
     expect(second.json["3"]).toMatchObject({ inputs: { text: "dog:4" } });
     expect((await loadTemplate("segment_text"))["2"].inputs.image).toBe("original.png");
+  });
+  it("loads the edited subject mask and points into the mask-conditioned decoder workflow", async () => {
+    const client = new Comfy();
+    const request = { mode: "points" as const, imageId: crypto.randomUUID(), positive: [], negative: [{ x: 20, y: 30 }] };
+    const workflow = await buildSegmentWorkflow(client, request, "/tmp/photo.png", { path: "/tmp/subject.png" });
+    assertBindings(workflow.json as ApiGraph, Object.values(REFINE_BINDINGS));
+    expect(workflow.json["4"]).toMatchObject({ class_type: "H3M_SAM3_Refine", inputs: {
+      prior_mask: ["8", 0], positive_coords: "[]", negative_coords: '[{"x":20,"y":30}]', refine_iterations: 2,
+    } });
+    expect(workflow.json["8"]).toMatchObject({ class_type: "ImageToMask", inputs: { image: ["7", 0], channel: "red" } });
+    expect((workflow.json as ApiGraph)["7"].inputs.image).not.toBe("subject-mask.png");
+    const fresh = await buildSegmentWorkflow(client, { mode: "points", imageId: request.imageId, positive: [{ x: 1, y: 1 }], negative: [] }, "/tmp/photo.png");
+    expect((fresh.json as ApiGraph)["4"].class_type).toBe("SAM3_Detect");
+    expect(fresh.json).not.toHaveProperty("7");
+    expect((await loadTemplate("segment_refine"))["7"].inputs.image).toBe("subject-mask.png");
   });
   it("does not let prompt syntax multiply SAM candidate counts", () => {
     expect(samText("dog:100,cat:500")).toBe("dog 100 cat 500:4");

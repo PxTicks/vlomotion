@@ -111,7 +111,15 @@ export function createApp(options: AppOptions = {}) {
     const request = segmentRequestSchema.parse(await c.req.json());
     if (!session.image || request.imageId !== session.image.id) throw new HTTPException(409, { message: "The photo has changed. Select the subject again." });
     if (isBusy(session)) throw new HTTPException(409, { message: "A job is already running in this session." });
+    let prior: { path: string } | undefined;
     if (request.mode === "points") {
+      if (request.candidateId) {
+        const candidate = session.candidates.get(request.candidateId);
+        if (!candidate || candidate.imageId !== session.image.id) {
+          throw new HTTPException(409, { message: "The subject mask no longer belongs to this photo. Find the subject again." });
+        }
+        prior = { path: candidate.path };
+      }
       const { width, height } = session.image;
       if ([...request.positive, ...request.negative].some(p => p.x >= width || p.y >= height)) {
         throw new HTTPException(400, { message: "Refinement points must be inside the photo." });
@@ -119,7 +127,7 @@ export function createApp(options: AppOptions = {}) {
     }
     session.selection = undefined;
     clearIsolation(session);
-    return c.json(startSegment(client, store, session, request).snapshot, 202);
+    return c.json(startSegment(client, store, session, request, prior).snapshot, 202);
   });
   app.post("/api/jobs/isolate", async c => {
     const session = c.get("session");

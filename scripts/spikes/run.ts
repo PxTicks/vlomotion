@@ -14,6 +14,7 @@ import { DATA_ROOT } from "../../apps/server/src/config.js";
 const { positionals, values } = parseArgs({ allowPositionals: true, options: {
   image: { type: "string" }, text: { type: "string", default: "dog" },
   positive: { type: "string" }, negative: { type: "string", default: "[]" },
+  "prior-mask": { type: "string" },
   "clip-type": { type: "string", default: "qwen_image" },
   reference: { type: "string" }, mask: { type: "string" }, frames: { type: "string" },
 } });
@@ -57,10 +58,10 @@ if (!["s1", "s2", "s3", "s5"].includes(spike ?? "")) {
     } else if (spike === "s2") {
       if (!values.image) throw new Error("S2 requires --image pointing to a real photo.");
       const points = z.array(pointSchema);
-      const request = segmentRequestSchema.parse(values.positive
-        ? { mode: "points", imageId: randomUUID(), positive: points.parse(JSON.parse(values.positive)), negative: points.parse(JSON.parse(values.negative!)) }
+      const request = segmentRequestSchema.parse(values.positive !== undefined || values["prior-mask"] !== undefined || values.negative !== "[]"
+        ? { mode: "points", imageId: randomUUID(), positive: points.parse(JSON.parse(values.positive ?? "[]")), negative: points.parse(JSON.parse(values.negative!)), ...(values["prior-mask"] ? { candidateId: randomUUID() } : {}) }
         : { mode: "text", imageId: randomUUID(), text: values.text });
-      const job = await execute(await buildSegmentWorkflow(client, request, resolve(values.image)));
+      const job = await execute(await buildSegmentWorkflow(client, request, resolve(values.image), values["prior-mask"] ? { path: resolve(values["prior-mask"]) } : undefined));
       console.info(`S2 ${request.mode}: ${job.getOutputs("6").length} mask files. Inspect overlays to judge segmentation quality.`);
     } else if (spike === "s5") {
       if (!values.reference || !values.mask || !values.frames) throw new Error("S5 requires --reference, --mask and --frames.");

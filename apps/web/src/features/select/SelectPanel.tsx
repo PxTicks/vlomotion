@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { Box, Button, Checkbox, IconButton, LinearProgress, Stack, TextField, Typography } from "@mui/material";
-import { hasPendingPoints, useSelectionStore } from "./useSelectionStore";
+import { canApplyRefinement, hasPendingPoints, useSelectionStore } from "./useSelectionStore";
 
 export function SelectPanel() {
   const s = useSelectionStore();
@@ -67,9 +67,10 @@ export function SelectPanel() {
       {(editing || adding) && <Stack spacing={1.5}>
         <Typography variant="caption" color="text.secondary">Left-click to include. Right-click to exclude. Click a point to remove it.</Typography>
         <Typography variant="caption" role="status">{s.positive.length} include · {s.negative.length} exclude{s.pointsPending ? " · Unapplied changes" : ""}</Typography>
-        <Button variant="contained" disabled={!s.image || s.busy || !s.positive.length || !s.pointsPending} onClick={() => void s.applyRefinement()}>{editing ? "Apply points" : "Apply new subject"}</Button>
+        <Button variant="contained" disabled={!canApplyRefinement(s)} onClick={() => void s.applyRefinement()}>{editing ? "Apply points" : "Apply new subject"}</Button>
         {(s.positive.length > 0 || s.negative.length > 0) && <Button disabled={s.busy} onClick={s.clearPoints}>Clear points</Button>}
-        {s.pointsPending && !s.positive.length && <Typography variant="caption">Add at least one include point to apply.</Typography>}
+        {s.pointsPending && !s.busy && !s.positive.length && s.negative.length > 0 && !canApplyRefinement(s) && <Typography variant="caption">Add at least one include point to define this subject.</Typography>}
+        {editing && s.pointsPending && !s.positive.length && !s.negative.length && <Typography variant="caption">{s.recipes[s.activeId ?? ""]?.base === null ? "Apply removes this subject, which was created from points." : "Apply restores this subject's starting mask."}</Typography>}
         <Button disabled={s.busy} onClick={s.cancelEditor}>Cancel</Button>
       </Stack>}
     </>}

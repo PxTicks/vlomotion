@@ -4,10 +4,15 @@ import { frameCountSchema } from "./media.js";
 
 export const pointSchema = z.object({ x: z.number().finite().nonnegative(), y: z.number().finite().nonnegative() });
 const idSchema = z.uuid();
+export function canApplyPointPrompt(hasPrior: boolean, positive: readonly unknown[], negative: readonly unknown[]): boolean {
+  return positive.length > 0 || (hasPrior && negative.length > 0);
+}
 export const segmentRequestSchema = z.discriminatedUnion("mode", [
   z.object({ mode: z.literal("text"), text: z.string().trim().min(1).max(160), imageId: idSchema }),
-  z.object({ mode: z.literal("points"), imageId: idSchema,
-    positive: z.array(pointSchema).min(1).max(64), negative: z.array(pointSchema).max(64) }),
+  z.object({ mode: z.literal("points"), imageId: idSchema, candidateId: idSchema.optional(),
+    positive: z.array(pointSchema).max(64), negative: z.array(pointSchema).max(64) })
+    .refine(request => canApplyPointPrompt(!!request.candidateId, request.positive, request.negative),
+      { message: "New subjects need an include point; mask edits need at least one include or exclude point." }),
 ]);
 export type SegmentRequest = z.infer<typeof segmentRequestSchema>;
 

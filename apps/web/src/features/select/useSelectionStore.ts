@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { selectionResultSchema } from "@h3-motion/shared";
+import { canApplyPointPrompt, selectionResultSchema } from "@h3-motion/shared";
 import type { AspectRatio, ImageAsset, IsolationResult, JobSnapshot, MaskCandidate, Point } from "@h3-motion/shared";
 import { jobSnapshotSchema } from "@h3-motion/shared";
 import { apiRequest, submitSegment, uploadImage, watchJob } from "../../api";
@@ -8,12 +8,13 @@ import { cropImage } from "./cropImage";
 /** Select, Isolate, Move, Generate. */
 export type Phase = 0 | 1 | 2 | 3;
 
+interface PointRecipe { base: MaskCandidate | null; positive: Point[]; negative: Point[] }
 interface PointDraft { positive: Point[]; negative: Point[]; pointsPending: boolean }
 type SelectionView = "find" | "subjects" | "add" | "edit";
 interface SelectionSnapshot extends PointDraft {
   selectionView: SelectionView;
   candidates: MaskCandidate[]; selectedIds: string[]; activeId: string | null;
-  labels: Record<string, string>; drafts: Record<string, PointDraft>; selectionText: string;
+  labels: Record<string, string>; drafts: Record<string, PointDraft>; recipes: Record<string, PointRecipe>; selectionText: string;
 }
 const NEW_SUBJECT = "new";
 const emptyPoints = (): PointDraft => ({ positive: [], negative: [], pointsPending: false });
@@ -26,7 +27,7 @@ interface SelectionState {
   cancelEditor: () => void;
   source: File | null; image: ImageAsset | null; aspectRatio: AspectRatio;
   text: string; selectionText: string; candidates: MaskCandidate[]; selectedIds: string[];
-  activeId: string | null; labels: Record<string, string>; drafts: Record<string, PointDraft>; history: SelectionSnapshot[];
+  activeId: string | null; labels: Record<string, string>; drafts: Record<string, PointDraft>; recipes: Record<string, PointRecipe>; history: SelectionSnapshot[];
   hoveredId: string | null; positive: Point[]; negative: Point[]; pointsPending: boolean;
   mask: ImageAsset | null; busy: boolean; job: JobSnapshot | null;
   error: string | null; notice: string | null; phase: Phase;
@@ -45,6 +46,21 @@ interface SelectionState {
   isolate: (instruction?: string) => Promise<void>; visitPhase: (phase: Phase) => void;
 }
 
+function pointRecipe(state: SelectionState, id: string): PointRecipe {
+  return state.recipes[id] ?? { base: state.candidates.find(candidate => candidate.id === id) ?? null, positive: [], negative: [] };
+}
+
+export function canApplyRefinement(state: SelectionState): boolean {
+  const { image, busy, phase, selectionView, activeId, positive, negative, pointsPending } = state;
+  if (!image || busy || phase !== 0 || !pointsPending) return false;
+  if (selectionView === "edit") {
+    if (!activeId || !state.candidates.some(candidate => candidate.id === activeId)) return false;
+    // An empty recipe restores its starting mask, or removes a subject created entirely from points.
+    return (!positive.length && !negative.length) || canApplyPointPrompt(!!pointRecipe(state, activeId).base, positive, negative);
+  }
+  return selectionView === "add" && canApplyPointPrompt(false, positive, negative);
+}
+
 const message = (error: unknown) => error instanceof Error ? error.message : "Something went wrong. Try again.";
 
 export function currentIsolation(state: Pick<SelectionState, "image" | "mask" | "isolation">): IsolationResult | null {
@@ -59,12 +75,16 @@ export function canRecoverIsolation(state: Pick<SelectionState, "image" | "mask"
 
 export const useSelectionStore = create<SelectionState>((set, get) => {
   function snapshot(): SelectionSnapshot {
-    const { selectionView, candidates, selectedIds, activeId, labels, drafts, positive, negative, pointsPending, selectionText } = get();
-    return { selectionView, candidates, selectedIds, activeId, labels, drafts, positive, negative, pointsPending, selectionText };
+    const { selectionView, candidates, selectedIds, activeId, labels, drafts, recipes, positive, negative, pointsPending, selectionText } = get();
+    return { selectionView, candidates, selectedIds, activeId, labels, drafts, recipes, positive, negative, pointsPending, selectionText };
   }
   function checkpoint() { set({ history: [...get().history.slice(-29), snapshot()] }); }
-  function updatePoints(draft: PointDraft) {
-    set({ ...draft, drafts: { ...get().drafts, [get().activeId ?? NEW_SUBJECT]: draft }, mask: null, isolation: null });
+  function updatePoints(draft: Pick<PointDraft, "positive" | "negative">) {
+    const state = get();
+    const id = state.selectionView === "edit" ? state.activeId : null;
+    const applied = id ? pointRecipe(state, id) : emptyPoints();
+    const next = { ...draft, pointsPending: JSON.stringify([draft.positive, draft.negative]) !== JSON.stringify([applied.positive, applied.negative]) };
+    set({ ...next, drafts: { ...state.drafts, [id ?? NEW_SUBJECT]: next }, mask: null, isolation: null });
   }
   function discardEditor() {
     const start = get().editorStart;
@@ -72,15 +92,43 @@ export const useSelectionStore = create<SelectionState>((set, get) => {
     set({ ...start.snapshot, history: start.history, editorStart: null, hoveredId: null,
       notice: null });
   }
+  function acceptPointResult(replacement: MaskCandidate | null, base: MaskCandidate | null, positive: Point[], negative: Point[], before: SelectionSnapshot) {
+    const state = get();
+    const targetId = state.selectionView === "edit" ? state.activeId : null;
+    const nextCandidates = state.candidates.filter(candidate => candidate.id !== replacement?.id || candidate.id === targetId);
+    const targetIndex = nextCandidates.findIndex(candidate => candidate.id === targetId);
+    if (targetIndex >= 0) nextCandidates.splice(targetIndex, 1, ...(replacement ? [replacement] : []));
+    else if (replacement) nextCandidates.push(replacement);
+    const drafts = { ...state.drafts }, recipes = { ...state.recipes }, labels = { ...state.labels };
+    const name = targetId ? labels[targetId] ?? "Subject" : `Subject ${state.candidates.length + 1}`;
+    delete drafts[targetId ?? NEW_SUBJECT];
+    if (targetId) { delete recipes[targetId]; delete labels[targetId]; }
+    const draft = { positive, negative, pointsPending: false };
+    if (replacement) {
+      drafts[replacement.id] = draft;
+      recipes[replacement.id] = { base, positive, negative };
+      labels[replacement.id] = name;
+    }
+    const included = targetId ? state.selectedIds.includes(targetId) : true;
+    const editor = state.editorStart;
+    set({ candidates: nextCandidates, selectionText: "", labels, drafts, recipes,
+      activeId: replacement?.id ?? null, ...draft, selectionView: nextCandidates.length ? "subjects" : "find", editorStart: null,
+      mask: null, isolation: null,
+      history: [...(editor?.history ?? state.history).slice(-29), editor?.snapshot ?? before],
+      selectedIds: [...new Set([...state.selectedIds.filter(id => id !== targetId), ...(included && replacement ? [replacement.id] : [])])], notice: null });
+  }
   async function run(mode: "text" | "points", positive: Point[] = [], negative: Point[] = []) {
-    const { image, text, busy, selectedIds, candidates, activeId, labels, drafts } = get();
+    const state = get();
+    const { image, text, busy, selectedIds, candidates, activeId, labels, drafts, recipes, selectionView } = state;
+    const targetId = selectionView === "edit" ? activeId : null;
+    const base = targetId ? pointRecipe(state, targetId).base : null;
     if (!image || busy) return;
     const before = snapshot();
     set({ busy: true, mask: null, isolation: null, phase: 0, error: null, notice: null, job: null });
     try {
-      // Each submission is an independent SAM job; a new subject never receives another subject's points.
+      // Rebuild from the starting mask and the complete recipe, never from an already corrected mask.
       const initial = await submitSegment(mode === "text" ? { mode, imageId: image.id, text }
-        : { mode, imageId: image.id, positive, negative });
+        : { mode, imageId: image.id, positive, negative, ...(base ? { candidateId: base.id } : {}) });
       const result = await watchJob(initial, job => set({ job }));
       if (result.status === "failed") throw new Error(result.error ?? result.message);
       if (result.status === "cancelled") {
@@ -93,38 +141,27 @@ export const useSelectionStore = create<SelectionState>((set, get) => {
         set({ notice: "No subject found. Try another name, or adjust your points and apply again." });
         return;
       }
-      const editor = get().editorStart;
-      set({ history: [...(editor?.history ?? get().history).slice(-29), editor?.snapshot ?? before] });
       if (mode === "text") {
+        const editor = get().editorStart;
+        set({ history: [...(editor?.history ?? get().history).slice(-29), editor?.snapshot ?? before] });
         const added = found.filter(candidate => !candidates.some(existing => existing.id === candidate.id));
         const nextLabels = { ...labels };
-        added.forEach((candidate, index) => { nextLabels[candidate.id] = text.trim() + (found.length > 1 ? ` ${index + 1}` : ""); });
+        const nextRecipes = { ...recipes };
+        added.forEach((candidate, index) => {
+          nextLabels[candidate.id] = text.trim() + (found.length > 1 ? ` ${index + 1}` : "");
+          nextRecipes[candidate.id] = { base: candidate, positive: [], negative: [] };
+        });
         const single = found.length === 1 ? found[0] : undefined;
         const nextActive = single?.id ?? null;
         const nextDrafts = { ...drafts };
         delete nextDrafts[NEW_SUBJECT];
         set({ selectionText: candidates.length ? "" : text.trim(), candidates: [...candidates, ...added],
           selectedIds: single ? [...new Set([...selectedIds, single.id])] : selectedIds,
-          labels: nextLabels, activeId: nextActive, drafts: nextDrafts, ...(nextDrafts[nextActive ?? NEW_SUBJECT] ?? emptyPoints()),
+          labels: nextLabels, recipes: nextRecipes, activeId: nextActive, drafts: nextDrafts, ...(nextDrafts[nextActive ?? NEW_SUBJECT] ?? emptyPoints()),
           selectionView: "subjects", editorStart: null,
           notice: null });
       } else {
-        const replacement = found[0];
-        const nextCandidates = candidates.filter(candidate => candidate.id !== replacement.id || candidate.id === activeId);
-        const targetIndex = nextCandidates.findIndex(candidate => candidate.id === activeId);
-        if (targetIndex >= 0) nextCandidates.splice(targetIndex, 1, replacement);
-        else nextCandidates.push(replacement);
-        const nextDrafts = { ...drafts };
-        delete nextDrafts[activeId ?? NEW_SUBJECT];
-        const draft = { positive, negative, pointsPending: false };
-        nextDrafts[replacement.id] = draft;
-        const nextLabels = { ...labels, [replacement.id]: activeId ? labels[activeId] ?? "Subject" : `Subject ${candidates.length + 1}` };
-        if (activeId && activeId !== replacement.id) delete nextLabels[activeId];
-        const included = activeId ? selectedIds.includes(activeId) : true;
-        set({ candidates: nextCandidates, selectionText: "", labels: nextLabels, drafts: nextDrafts,
-          activeId: replacement.id, ...draft, selectionView: "subjects", editorStart: null,
-          selectedIds: [...new Set([...selectedIds.filter(id => id !== activeId), ...(included ? [replacement.id] : [])])],
-          notice: null });
+        acceptPointResult(found[0], base, positive, negative, before);
       }
     } catch (error) { set({ error: message(error) }); }
     finally { set({ busy: false }); }
@@ -132,7 +169,7 @@ export const useSelectionStore = create<SelectionState>((set, get) => {
   return {
     selectionView: "find", editorStart: null,
     source: null, image: null, aspectRatio: "16:9", text: "", selectionText: "", candidates: [], selectedIds: [],
-    activeId: null, labels: {}, drafts: {}, history: [], hoveredId: null,
+    activeId: null, labels: {}, drafts: {}, recipes: {}, history: [], hoveredId: null,
     ...emptyPoints(), mask: null, isolation: null, busy: false, job: null, error: null, notice: null, phase: 0,
     setText: text => set({ text }),
     setHoveredId: hoveredId => set({ hoveredId }),
@@ -151,10 +188,10 @@ export const useSelectionStore = create<SelectionState>((set, get) => {
     deleteSubject: id => {
       if (get().busy || !get().candidates.some(candidate => candidate.id === id)) return;
       checkpoint();
-      const state = get(), drafts = { ...state.drafts }, labels = { ...state.labels };
-      delete drafts[id]; delete labels[id];
+      const state = get(), drafts = { ...state.drafts }, labels = { ...state.labels }, recipes = { ...state.recipes };
+      delete drafts[id]; delete labels[id]; delete recipes[id];
       set({ candidates: state.candidates.filter(candidate => candidate.id !== id), selectedIds: state.selectedIds.filter(value => value !== id),
-        drafts, labels, ...(state.activeId === id ? { activeId: null, ...(drafts[NEW_SUBJECT] ?? emptyPoints()) } : {}),
+        drafts, labels, recipes, ...(state.activeId === id ? { activeId: null, ...(drafts[NEW_SUBJECT] ?? emptyPoints()) } : {}),
         selectionView: state.candidates.length > 1 ? "subjects" : "find", editorStart: null, mask: null, isolation: null, phase: 0, selectionText: "", notice: "Subject deleted. Undo to restore it." });
     },
     includeAll: () => {
@@ -181,7 +218,7 @@ export const useSelectionStore = create<SelectionState>((set, get) => {
       try {
         const image = await uploadImage(await cropImage(source, ratio));
         set({ source, image, aspectRatio: ratio, selectionText: "", candidates: [], selectedIds: [], mask: null, isolation: null, job: null,
-          selectionView: "find", editorStart: null, ...emptyPoints(), activeId: null, labels: {}, drafts: {}, history: [], hoveredId: null, phase: 0, notice: null });
+          selectionView: "find", editorStart: null, ...emptyPoints(), activeId: null, labels: {}, drafts: {}, recipes: {}, history: [], hoveredId: null, phase: 0, notice: null });
       } catch (error) { set({ error: message(error) }); }
       finally { set({ busy: false }); }
     },
@@ -202,7 +239,7 @@ export const useSelectionStore = create<SelectionState>((set, get) => {
         set({ editorStart: { snapshot: snapshot(), history: get().history }, selectionView: "add" });
       }
       checkpoint();
-      updatePoints({ positive, negative, pointsPending: true });
+      updatePoints({ positive, negative });
       set({ notice: null });
     },
     removePoint: (index, isNegative) => {
@@ -212,21 +249,26 @@ export const useSelectionStore = create<SelectionState>((set, get) => {
       const remaining = points.filter((_, i) => i !== index);
       const nextPositive = isNegative ? positive : remaining;
       const nextNegative = isNegative ? remaining : negative;
-      const pointsPending = nextPositive.length + nextNegative.length > 0;
       checkpoint();
-      updatePoints({ positive: nextPositive, negative: nextNegative, pointsPending });
-      set({ notice: pointsPending ? "Point removed. Apply refinement when you’re ready." : "All points removed. Your current subject selection is unchanged." });
+      updatePoints({ positive: nextPositive, negative: nextNegative });
+      set({ notice: get().pointsPending ? "Point removed. Apply to recompute the mask." : "Point removed." });
     },
     applyRefinement: async () => {
-      const { image, busy, phase, positive, negative, pointsPending } = get();
-      if (!image || busy || phase !== 0 || !positive.length || !pointsPending) return;
+      const state = get();
+      if (!canApplyRefinement(state)) return;
+      const { activeId, positive, negative, selectionView } = state;
+      if (selectionView === "edit" && activeId && !positive.length && !negative.length) {
+        const base = pointRecipe(state, activeId).base;
+        acceptPointResult(base, base, [], [], snapshot());
+        return;
+      }
       await run("points", positive, negative);
     },
     clearPoints: () => {
       if (get().busy) return;
       checkpoint();
       updatePoints(emptyPoints());
-      set({ notice: "Points cleared. The applied mask is unchanged." });
+      set({ notice: get().pointsPending ? "Points cleared. Apply to recompute the mask." : "Points cleared." });
     },
     toggleCandidate: id => {
       if (get().busy) return;

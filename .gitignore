@@ -8,3 +8,5 @@ dist/
 .proxy-state/
 coverage/
 run.sh
+
+__pycache__/

@@ -52,3 +52,18 @@ The API templates were authored against ComfyUI node schemas; describe/isolate
 were executed on the real GPU. Standalone UI authoring copies of these trimmed
 graphs remain to be saved. Binding tests catch changes to node IDs and classes;
 they do not replace GPU execution or scene-quality review.
+
+## SAM3 refinement regression checks — 2026-10-23
+
+The custom `H3M_SAM3_Refine` node was updated in Windows ComfyUI and reloaded.
+Five tensor tests verify single-mask output, mask/point conditioning on every
+pass, one backbone execution, and the SAM3/SAM3.1 memory embeddings. The app's
+196 tests and production build pass. Browser checks cover P1 removal followed by
+P2, exact starting-mask restoration, point-created subject removal, and Undo.
+The S2 CLI also ran an exclude-only GPU request without `--positive`.
+
+On the synthetic missing-hand fixture, an include click selected the hand and
+retained 98.8% of the starting mask. A subsequent single hand-exclude click
+excluded the clicked pixel but retained only 56.0% of the preceding mask. These
+runs verify execution of the corrected path; full-mask preservation remains a
+model-quality limitation, even with multimask disabled.

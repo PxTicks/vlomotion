@@ -3,7 +3,7 @@ import { z } from "zod";
 import { DEFAULT_PROXY_URL, probeProxy, resolveComfyUi, serviceUrl } from "./lib/connection.js";
 
 const nodes = [
-  "CheckpointLoaderSimple", "CLIPTextEncode", "SAM3_Detect", "LoadImage", "MaskToImage", "SaveImage",
+  "CheckpointLoaderSimple", "CLIPTextEncode", "SAM3_Detect", "H3M_SAM3_Refine", "LoadImage", "MaskToImage", "SaveImage",
   "CLIPLoader", "TextGenerate", "SaveText", "UNETLoader", "VAELoader", "TextEncodeQwenImage21",
   "QwenImage21Cache", "GrowMask", "ImageBlur", "ImageToMask", "ImageCompositeMasked",
   "LoadVideo", "GetVideoComponents", "MiniMaxH3ImageToVideo", "vloTimeToMove", "CreateVideo", "SaveVideo",

@@ -99,6 +99,53 @@ describe("session API and segmentation lifecycle", () => {
     expect(session.job!.snapshot.candidates).toEqual(original);
     expect(session.candidates.size).toBe(1);
   });
+  it("conditions edits on the requested subject mask and accepts exclude-only corrections", async () => {
+    const { app, session, client, cookie, png } = await setup();
+    const secondMask = await encodeMask(Uint8Array.from([0, 255, 0, 0]), 2, 2);
+    const submit = vi.spyOn(client, "submit").mockResolvedValue(remoteJob([png, secondMask]));
+    await app.request("/api/jobs/segment", post(cookie, { mode: "text", text: "person", imageId: session.image!.id }));
+    await session.job!.done;
+    const target = [...session.candidates.values()][1];
+    const asset = vi.spyOn(client.assets, "fromFile");
+    submit.mockResolvedValue(remoteJob([secondMask]));
+    const response = await app.request("/api/jobs/segment", post(cookie, { mode: "points", imageId: session.image!.id,
+      candidateId: target.id, positive: [], negative: [{ x: 1, y: 0 }] }));
+    expect(response.status).toBe(202);
+    await session.job!.done;
+    expect(session.job!.snapshot.status).toBe("completed");
+    expect(asset).toHaveBeenLastCalledWith(target.path);
+    expect(submit.mock.lastCall![0].json["4"]).toMatchObject({ class_type: "H3M_SAM3_Refine", inputs: { prior_mask: ["8", 0], positive_coords: "[]", negative_coords: '[{"x":1,"y":0}]' } });
+  });
+  it("rejects unknown, foreign, and stale mask ids before submitting or clearing selection", async () => {
+    const { app, store, session, client, cookie, png } = await setup();
+    const submit = vi.spyOn(client, "submit");
+    const other = await setup();
+    const saved = await other.store.savePng(other.session, png);
+    other.session.candidates.set(saved.id, { ...saved, imageId: other.session.image!.id, bounds: { x: 0, y: 0, width: 2, height: 2 } });
+    const stale = await sessionTestMask();
+    session.selection = session.image;
+    for (const candidateId of [crypto.randomUUID(), saved.id, stale]) {
+      const response = await app.request("/api/jobs/segment", post(cookie, { mode: "points", imageId: session.image!.id,
+        candidateId, positive: [{ x: 0, y: 0 }], negative: [] }));
+      expect(response.status).toBe(409);
+      expect(session.selection).toBe(session.image);
+    }
+    expect(submit).not.toHaveBeenCalled();
+    async function sessionTestMask() {
+      const file = await store.savePng(session, png);
+      session.candidates.set(file.id, { ...file, imageId: crypto.randomUUID(), bounds: { x: 0, y: 0, width: 2, height: 2 } });
+      return file.id;
+    }
+  });
+  it("requires an include point for fresh subjects and at least one correction point for edits", async () => {
+    const { app, session, client, cookie } = await setup();
+    const submit = vi.spyOn(client, "submit");
+    for (const points of [{ positive: [], negative: [{ x: 0, y: 0 }] }, { candidateId: crypto.randomUUID(), positive: [], negative: [] }]) {
+      const response = await app.request("/api/jobs/segment", post(cookie, { mode: "points", imageId: session.image!.id, ...points }));
+      expect(response.status).toBe(400);
+    }
+    expect(submit).not.toHaveBeenCalled();
+  });
   it("reserves one active job while submission is pending and cancels its eventual handle", async () => {
     const { app, session, client, cookie } = await setup();
     let resolveSubmit!: (job: Job) => void;

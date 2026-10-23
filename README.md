@@ -11,7 +11,11 @@ Search results show the subject list, where checkboxes include subjects and penc
 buttons open their mask editor. **Add subject** temporarily opens the prompt and
 points for a separate selection. **Apply** always submits points explicitly and
 returns to the list on success; **Cancel** discards the temporary changes. Applied
-points stay with each subject. Delete and Ctrl+Z (Cmd+Z on Mac) manage the collection without inference. Dashed outlines
+points stay with each subject as its recipe. Mask edits recompute from the starting
+mask and the full current point list, so removing a point removes its effect.
+Applying an empty recipe restores a text-found mask or removes a point-created
+subject. Point-created subjects recompute from points without a prior mask. Delete
+and Ctrl+Z (Cmd+Z on Mac) manage the collection without inference. Dashed outlines
 show suggestions, blue shows included subjects, and yellow marks the editing target.
 The Isolate phase describes the confirmed subject locally with Qwen3-VL, removes
 it with Qwen Image 2.1, and previews the clean background. Retry with a new seed,
@@ -139,7 +143,22 @@ and Qwen VAE listed below; generation requires the four MiniMax H3 files. The
 animate workflow uses Comfy Kitchen INT8 attention, which needs an NVIDIA or AMD
 GPU. Set `H3M_SPECTRUM=1` to splice in the third-party
 [Spectrum H3](https://github.com/xmarre/ComfyUI-Spectrum-MiniMax-H3) speed-up;
-it is off by default so nothing beyond ComfyUI-vlo is required.
+it is off by default; generation needs no other node pack.
+
+Mask editing also needs this repo's `H3M_SAM3_Refine` node. Copy
+`comfy_nodes/h3_motion` into your ComfyUI `custom_nodes` directory, then restart
+ComfyUI. It uses ComfyUI's existing SAM decoder and needs no extra Python packages.
+The saved binary subject mask is converted to signed mask scores, and both the
+mask and correction points condition every refinement pass. Refinement uses a
+single mask prediction and computes image features once per edit. The mask guides SAM;
+it does not guarantee that every previously selected pixel remains selected.
+
+Run the node's tensor tests with ComfyUI's Python environment and an explicit
+checkout path (use native Windows paths when running Windows Python):
+
+```sh
+COMFYUI_PATH=/path/to/ComfyUI /path/to/ComfyUI/.venv/bin/python comfy_nodes/tests/test_refine.py
+```
 
 Start ComfyUI on `8188`, then install and run the
 [v2 proxy](https://github.com/Comfy-Org/comfy-api-proxy) manually if you prefer.
@@ -167,6 +186,10 @@ progress and cancellation; it does not use Router or partner nodes.
 npm run check-env
 npm run spike -- s1
 npm run spike -- s2 --image /path/to/photo.png --text dog
+# Refine an existing white-subject/black-background mask with points:
+npm run spike -- s2 --image /path/to/photo.png --prior-mask /path/to/mask.png --positive '[{"x":100,"y":100}]'
+# Exclude-only edits do not need --positive:
+npm run spike -- s2 --image /path/to/photo.png --prior-mask /path/to/mask.png --negative '[{"x":100,"y":100}]'
 npm run spike -- s3 --image /path/to/highlight.png
 npm run spike:isolate -- --fixture
 # Or test your own photo and white-subject/black-background mask:

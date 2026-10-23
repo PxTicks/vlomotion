@@ -2,12 +2,13 @@ import { createHash } from "node:crypto";
 import type { Comfy } from "@comfyorg/sdk";
 import type { MaskCandidate, SegmentRequest } from "@h3-motion/shared";
 import { buildSegmentWorkflow, SEGMENT_OUTPUT } from "../workflows/templates.js";
+import type { SegmentPrior } from "../workflows/templates.js";
 import { decodeMask, encodeMask } from "../media/masks.js";
 import type { Session, SessionStore } from "../sessions.js";
 import { createManagedJob, failJob, runWorkflow, throwIfCancelled } from "./runtime.js";
 import type { ManagedJob } from "./runtime.js";
 
-export function startSegment(client: Comfy, store: SessionStore, session: Session, request: SegmentRequest): ManagedJob {
+export function startSegment(client: Comfy, store: SessionStore, session: Session, request: SegmentRequest, prior?: SegmentPrior): ManagedJob {
   const image = session.image;
   if (!image || image.id !== request.imageId) throw new Error("Upload a photo before selecting a subject.");
   const managed = createManagedJob("Preparing subject selection…");
@@ -17,7 +18,7 @@ export function startSegment(client: Comfy, store: SessionStore, session: Sessio
 
   async function execute() {
     try {
-      const workflow = await buildSegmentWorkflow(client, request, image!.path);
+      const workflow = await buildSegmentWorkflow(client, request, image!.path, prior);
       const job = await runWorkflow(client, managed, workflow, { stage: "segment", message: "Finding your subject…" });
       const candidates: MaskCandidate[] = [];
       for (const output of job.getOutputs(SEGMENT_OUTPUT)) {

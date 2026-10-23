@@ -37,13 +37,14 @@ describe("selection transitions", () => {
     vi.mocked(watchJob).mockResolvedValue(result([refined]));
     useSelectionStore.getState().addPoint({ x: 4, y: 5 }, false);
     await useSelectionStore.getState().applyRefinement();
-    expect(submitSegment).toHaveBeenCalledWith({ mode: "points", imageId: image.id, positive: [{ x: 4, y: 5 }], negative: [] });
+    expect(submitSegment).toHaveBeenCalledWith({ mode: "points", imageId: image.id, candidateId: first.id, positive: [{ x: 4, y: 5 }], negative: [] });
     expect(useSelectionStore.getState().selectedIds).toEqual([second.id, refined.id]);
     const again = candidate("again");
     vi.mocked(watchJob).mockResolvedValue(result([again]));
     useSelectionStore.getState().editSubject(refined.id);
     useSelectionStore.getState().addPoint({ x: 8, y: 9 }, true);
     await useSelectionStore.getState().applyRefinement();
+    expect(submitSegment).toHaveBeenLastCalledWith({ mode: "points", imageId: image.id, candidateId: first.id, positive: [{ x: 4, y: 5 }], negative: [{ x: 8, y: 9 }] });
     expect(useSelectionStore.getState().candidates).toEqual([again, second]);
     expect(useSelectionStore.getState().selectedIds).toEqual([second.id, again.id]);
   });
@@ -58,14 +59,14 @@ describe("selection transitions", () => {
       positive: [{ x: 4, y: 5 }, { x: 6, y: 7 }], negative: [{ x: 8, y: 9 }] });
     vi.mocked(watchJob).mockResolvedValue(result([refined]));
     await store.applyRefinement();
-    expect(submitSegment).toHaveBeenCalledExactlyOnceWith({ mode: "points", imageId: image.id,
+    expect(submitSegment).toHaveBeenCalledExactlyOnceWith({ mode: "points", imageId: image.id, candidateId: first.id,
       positive: [{ x: 4, y: 5 }, { x: 6, y: 7 }], negative: [{ x: 8, y: 9 }] });
     expect(useSelectionStore.getState()).toMatchObject({ pointsPending: false, selectedIds: [refined.id] });
     await store.applyRefinement();
     expect(submitSegment).toHaveBeenCalledTimes(1);
   });
-  it("requires an include point but allows exclude points to be placed first", async () => {
-    useSelectionStore.setState({ selectionView: "edit", activeId: first.id });
+  it("requires an include point for a new subject but allows exclude points to be placed first", async () => {
+    useSelectionStore.setState({ selectionView: "add", activeId: null });
     useSelectionStore.getState().addPoint({ x: 8, y: 9 }, true);
     await useSelectionStore.getState().applyRefinement();
     expect(useSelectionStore.getState().negative).toEqual([{ x: 8, y: 9 }]);
@@ -92,7 +93,7 @@ describe("selection transitions", () => {
     expect(useSelectionStore.getState().pointsPending).toBe(true);
     vi.mocked(watchJob).mockResolvedValue(result([refined]));
     await useSelectionStore.getState().applyRefinement();
-    expect(submitSegment).toHaveBeenCalledExactlyOnceWith({ mode: "points", imageId: image.id, positive: [positive[1]], negative: [] });
+    expect(submitSegment).toHaveBeenCalledExactlyOnceWith({ mode: "points", imageId: image.id, candidateId: first.id, positive: [positive[1]], negative: [] });
   });
   it("ignores invalid point removals and prevents editing during refinement", () => {
     const positive = [{ x: 4, y: 5 }];
@@ -289,6 +290,75 @@ describe("selection transitions", () => {
     expect(useSelectionStore.getState().editorStart).not.toBeNull();
     store.cancelEditor();
     expect(useSelectionStore.getState()).toMatchObject({ selectionView: "subjects", candidates: [first], selectedIds: [first.id], drafts: {}, history: [] });
+  });
+  it("sends the explicit edit target's mask with exclude-only corrections", async () => {
+    useSelectionStore.setState({ selectionView: "subjects", candidates: [first, second], selectedIds: [first.id, second.id] });
+    useSelectionStore.getState().editSubject(second.id);
+    useSelectionStore.getState().addPoint({ x: 70, y: 70 }, true);
+    vi.mocked(watchJob).mockResolvedValue(result([refined]));
+    await useSelectionStore.getState().applyRefinement();
+    expect(submitSegment).toHaveBeenCalledExactlyOnceWith({ mode: "points", imageId: image.id, candidateId: second.id, positive: [], negative: [{ x: 70, y: 70 }] });
+    expect(useSelectionStore.getState().candidates).toEqual([first, refined]);
+  });
+  it("recomputes from the starting mask after an applied point is removed", async () => {
+    useSelectionStore.setState({ selectionView: "subjects", candidates: [first], selectedIds: [first.id] });
+    const store = useSelectionStore.getState();
+    store.editSubject(first.id); store.addPoint({ x: 4, y: 5 }, false);
+    vi.mocked(watchJob).mockResolvedValueOnce(result([refined]));
+    await store.applyRefinement();
+    store.editSubject(refined.id); store.removePoint(0, false); store.addPoint({ x: 20, y: 30 }, false);
+    vi.mocked(watchJob).mockResolvedValueOnce(result([second]));
+    await store.applyRefinement();
+    expect(submitSegment).toHaveBeenLastCalledWith({ mode: "points", imageId: image.id, candidateId: first.id, positive: [{ x: 20, y: 30 }], negative: [] });
+    expect(useSelectionStore.getState().recipes[second.id].base).toEqual(first);
+  });
+  it("removing the last applied point restores the exact starting mask on Apply", async () => {
+    useSelectionStore.setState({ selectionView: "subjects", candidates: [first], selectedIds: [first.id] });
+    const store = useSelectionStore.getState();
+    store.editSubject(first.id); store.addPoint({ x: 4, y: 5 }, false);
+    vi.mocked(watchJob).mockResolvedValueOnce(result([refined]));
+    await store.applyRefinement();
+    store.editSubject(refined.id); store.removePoint(0, false);
+    expect(useSelectionStore.getState().pointsPending).toBe(true);
+    await store.applyRefinement();
+    expect(submitSegment).toHaveBeenCalledTimes(1);
+    expect(useSelectionStore.getState()).toMatchObject({ candidates: [first], selectedIds: [first.id], pointsPending: false });
+    store.undo();
+    expect(useSelectionStore.getState().candidates).toEqual([refined]);
+    expect(useSelectionStore.getState().recipes[refined.id].base).toEqual(first);
+  });
+  it("rebuilds point-created subjects without a prior, and clearing their recipe removes them", async () => {
+    const store = useSelectionStore.getState();
+    store.addSubject(); store.addPoint({ x: 4, y: 5 }, false);
+    vi.mocked(watchJob).mockResolvedValueOnce(result([first]));
+    await store.applyRefinement();
+    store.editSubject(first.id); store.addPoint({ x: 20, y: 30 }, false);
+    vi.mocked(watchJob).mockResolvedValueOnce(result([refined]));
+    await store.applyRefinement();
+    expect(submitSegment).toHaveBeenLastCalledWith({ mode: "points", imageId: image.id, positive: [{ x: 4, y: 5 }, { x: 20, y: 30 }], negative: [] });
+    store.editSubject(refined.id); store.clearPoints();
+    expect(useSelectionStore.getState().pointsPending).toBe(true);
+    await store.applyRefinement();
+    expect(submitSegment).toHaveBeenCalledTimes(2);
+    expect(useSelectionStore.getState()).toMatchObject({ selectionView: "find", candidates: [], selectedIds: [] });
+    store.undo();
+    expect(useSelectionStore.getState().candidates).toEqual([refined]);
+    expect(useSelectionStore.getState().recipes[refined.id].base).toBeNull();
+  });
+  it("a stale activeId in Add mode never sends or replaces an old subject's mask", async () => {
+    useSelectionStore.setState({ selectionView: "add", candidates: [first], selectedIds: [first.id], activeId: first.id });
+    const store = useSelectionStore.getState();
+    store.addPoint({ x: 80, y: 80 }, false);
+    vi.mocked(watchJob).mockResolvedValueOnce(result([second]));
+    await store.applyRefinement();
+    expect(submitSegment).toHaveBeenCalledExactlyOnceWith({ mode: "points", imageId: image.id, positive: [{ x: 80, y: 80 }], negative: [] });
+    expect(useSelectionStore.getState().candidates).toEqual([first, second]);
+  });
+  it("does not treat an Add-mode exclude point as an edit because of a stale activeId", async () => {
+    useSelectionStore.setState({ selectionView: "add", candidates: [first], activeId: first.id });
+    useSelectionStore.getState().addPoint({ x: 80, y: 80 }, true);
+    await useSelectionStore.getState().applyRefinement();
+    expect(submitSegment).not.toHaveBeenCalled();
   });
   it("invalidates confirmed masks when selection changes", () => {
     useSelectionStore.setState({ mask: image, phase: 1, candidates: [first], selectedIds: [first.id] });

@@ -16,9 +16,15 @@ export const SEGMENT_BINDINGS = {
   positive: { node: "4", input: "positive_coords", classType: "SAM3_Detect" },
   negative: { node: "4", input: "negative_coords", classType: "SAM3_Detect" },
 } satisfies Record<string, Binding>;
+export const REFINE_BINDINGS = {
+  image: SEGMENT_BINDINGS.image,
+  mask: { node: "7", input: "image", classType: "LoadImage" },
+  positive: { node: "4", input: "positive_coords", classType: "H3M_SAM3_Refine" },
+  negative: { node: "4", input: "negative_coords", classType: "H3M_SAM3_Refine" },
+} satisfies Record<string, Binding>;
 export const SEGMENT_OUTPUT = "6";
 
-export async function loadTemplate(name: "segment_text" | "segment_points" | "describe" | "isolate" | "animate"): Promise<ApiGraph> {
+export async function loadTemplate(name: "segment_text" | "segment_points" | "segment_refine" | "describe" | "isolate" | "animate"): Promise<ApiGraph> {
   return graphSchema.parse(JSON.parse(await readFile(join(REPO_ROOT, "workflows/api", `h3m_${name}.api.json`), "utf8")));
 }
 
@@ -144,19 +150,23 @@ export function samText(text: string): string {
   return `${subject}:4`;
 }
 
-export async function buildSegmentWorkflow(client: Comfy, request: SegmentRequest, imagePath: string): Promise<Workflow> {
-  const template = await loadTemplate(request.mode === "text" ? "segment_text" : "segment_points");
-  const bindings = request.mode === "text"
-    ? [SEGMENT_BINDINGS.image, SEGMENT_BINDINGS.text]
-    : [SEGMENT_BINDINGS.image, SEGMENT_BINDINGS.positive, SEGMENT_BINDINGS.negative];
-  assertBindings(template, bindings);
+type SegmentWorkflowRequest = Extract<SegmentRequest, { mode: "text" }> | Omit<Extract<SegmentRequest, { mode: "points" }>, "candidateId">;
+export interface SegmentPrior { path: string }
+
+export async function buildSegmentWorkflow(client: Comfy, request: SegmentWorkflowRequest, imagePath: string, prior?: SegmentPrior): Promise<Workflow> {
+  const editing = request.mode === "points" && !!prior;
+  const template = await loadTemplate(request.mode === "text" ? "segment_text" : editing ? "segment_refine" : "segment_points");
+  const pointBindings = editing ? REFINE_BINDINGS : SEGMENT_BINDINGS;
+  assertBindings(template, request.mode === "text" ? [SEGMENT_BINDINGS.image, SEGMENT_BINDINGS.text]
+    : editing ? Object.values(REFINE_BINDINGS) : [SEGMENT_BINDINGS.image, SEGMENT_BINDINGS.positive, SEGMENT_BINDINGS.negative]);
   const workflow = client.workflows.fromJson(template);
-  const { image, text, positive, negative } = SEGMENT_BINDINGS;
+  const { image, text } = SEGMENT_BINDINGS;
   workflow.setInput(image.node, image.input, client.assets.fromFile(imagePath));
   if (request.mode === "text") workflow.setInput(text.node, text.input, samText(request.text));
   else {
-    workflow.setInput(positive.node, positive.input, JSON.stringify(request.positive));
-    workflow.setInput(negative.node, negative.input, JSON.stringify(request.negative));
+    workflow.setInput(pointBindings.positive.node, pointBindings.positive.input, JSON.stringify(request.positive));
+    workflow.setInput(pointBindings.negative.node, pointBindings.negative.input, JSON.stringify(request.negative));
+    if (request.mode === "points" && prior) workflow.setInput(REFINE_BINDINGS.mask.node, REFINE_BINDINGS.mask.input, client.assets.fromFile(prior.path));
   }
   return workflow;
 }
