@@ -106,9 +106,10 @@ or 243 frames at 24 fps), and keys sit on those frames. Shortcuts: Space plays,
 K adds a key, Delete removes the selected key, and arrow keys step frames.
 Retrying the background keeps the path; changing the selection resets it.
 
-**Continue** opens Generate. **Motion lock-in** (1–8, default 3) sets how many
-sampling steps hold the subject to your path: higher follows it more tightly but
-leaves H3 less room to blend the cut-out into the scene. **GENERATE** renders the
+**Continue** opens Generate. The workflow uses **25 sampling steps**.
+**Motion lock-in** offers **3, 6, 9, 12 and 15**, default **6**, setting the step
+at which the subject is released from your path. Higher values hold it longer but
+leave H3 less room to blend the cut-out into the scene. **GENERATE** renders the
 reference and mask videos in a Web Worker, encodes exactly 124, 175 or 243
 frames with mediabunny (H.264 MP4, or VP9 WebM where H.264 isn't available),
 uploads them with the start frame and runs the animate workflow. **Source |

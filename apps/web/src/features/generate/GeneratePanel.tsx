@@ -4,7 +4,7 @@ import { useSelectionStore } from "../select";
 import { useGenerationInputs } from "./inputs";
 import { useCurrentResult, useGenerateStore } from "./useGenerateStore";
 
-const LOCK_IN_HELP = "How long the subject is held to your path. Higher values follow the path more tightly, but leave the model less room to blend the cut-out into the scene. At 1, the path only seeds the motion.";
+const LOCK_IN_HELP = "How long the subject is held to your path. Higher values follow the path more tightly, but leave the model less room to blend the cut-out into the scene.";
 
 export function GeneratePanel() {
   const lockIn = useGenerateStore(s => s.lockIn);
@@ -36,7 +36,7 @@ export function GeneratePanel() {
         </Tooltip>
         <Typography variant="body2" sx={{ fontVariantNumeric: "tabular-nums" }}>{lockIn}</Typography>
       </Stack>
-      <Slider value={lockIn} min={LOCK_IN.min} max={LOCK_IN.max} step={1} marks disabled={busy} aria-label="Motion lock-in"
+      <Slider value={lockIn} min={LOCK_IN.min} max={LOCK_IN.max} step={LOCK_IN.step} marks disabled={busy} aria-label="Motion lock-in"
         onChange={(_, value) => setLockIn(Array.isArray(value) ? value[0] : value)} />
       <Stack direction="row" justifyContent="space-between" sx={{ mt: -1 }}>
         <Typography variant="caption" color="text.secondary">Loose</Typography>

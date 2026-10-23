@@ -40,7 +40,7 @@ export const isolationResultSchema = z.object({
   seed: z.number().int().nonnegative(),
 });
 export type IsolationResult = z.infer<typeof isolationResultSchema>;
-export const LOCK_IN = { min: 1, max: 8, default: 3 } as const;
+export const LOCK_IN = { min: 3, max: 15, step: 3, default: 6 } as const;
 const dimensionSchema = z.number().int().min(32).max(2048).multipleOf(32);
 const seedSchema = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
 /** Sent as the `request` field of a multipart upload alongside the reference, mask and start-frame files. */
@@ -48,7 +48,7 @@ export const animateRequestSchema = z.object({
   imageId: idSchema, maskId: idSchema, plateId: idSchema,
   width: dimensionSchema, height: dimensionSchema, frames: frameCountSchema,
   prompt: z.string().trim().min(1).max(4000),
-  lockIn: z.number().int().min(LOCK_IN.min).max(LOCK_IN.max),
+  lockIn: z.number().int().min(LOCK_IN.min).max(LOCK_IN.max).multipleOf(LOCK_IN.step),
   seed: seedSchema.optional(),
 });
 export type AnimateRequest = z.infer<typeof animateRequestSchema>;

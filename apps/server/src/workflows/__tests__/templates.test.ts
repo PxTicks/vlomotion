@@ -101,7 +101,8 @@ describe("workflow contracts", () => {
     expect(graph["11"].inputs).toMatchObject({ channel: "red" });
     expect(graph["12"]).toMatchObject({ class_type: "ThresholdMask", inputs: { value: 0.5 } });
     expect(graph["13"]).toMatchObject({ class_type: "GrowMask", inputs: { mask: ["12", 0], expand: -16, tapered_corners: true } });
-    expect(graph["16"].inputs).toMatchObject({ start_step: 1, mask: ["13", 0] });
+    expect(graph["16"].inputs).toMatchObject({ start_step: 1, end_step: 6, mask: ["13", 0] });
+    expect(graph["18"].inputs).toMatchObject({ scheduler: "simple", steps: 25 });
     expect(graph["21"].inputs.latent_image).toEqual(["14", 1]);
     // No resize, frame trimming, KJNodes or end-frame nodes: the app sends exact sizes and frame counts.
     expect(Object.values(graph).map(node => node.class_type)).not.toEqual(expect.arrayContaining(["ResizeImageMaskNode"]));
@@ -111,11 +112,11 @@ describe("workflow contracts", () => {
   });
   it("binds animate inputs and splices Spectrum only when asked", async () => {
     const options = { startPath: "/tmp/start.png", referencePath: "/tmp/reference.mp4", maskPath: "/tmp/mask.mp4",
-      size: { width: 1248, height: 704 }, frames: 175, prompt: "A dog runs.", lockIn: 5, seed: 9 };
+      size: { width: 1248, height: 704 }, frames: 175, prompt: "A dog runs.", lockIn: 15, seed: 9 };
     const plain = (await buildAnimateWorkflow(new Comfy(), options)).json as ApiGraph;
     expect(plain["14"].inputs).toMatchObject({ width: 1248, height: 704, length: 175, prompt: "A dog runs." });
     expect(plain[ANIMATE_BINDINGS.grow.node].inputs.expand).toBe(-16);
-    expect(plain["16"].inputs).toMatchObject({ end_step: 5, model: ["15", 0] });
+    expect(plain["16"].inputs).toMatchObject({ end_step: 15, model: ["15", 0] });
     expect(plain).not.toHaveProperty("spectrum");
     const fast = (await buildAnimateWorkflow(new Comfy(), { ...options, spectrum: true })).json as ApiGraph;
     expect(fast.spectrum).toMatchObject({ class_type: "SpectrumApplyMiniMaxH3", inputs: { model: ["15", 0], enabled: true } });

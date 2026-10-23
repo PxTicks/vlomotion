@@ -29,7 +29,7 @@ let controller: AbortController | null = null;
 export const useGenerateStore = create<GenerateState>((set, get) => ({
   lockIn: LOCK_IN.default, tier: 480, seed: "", prompt: null,
   status: "idle", progress: null, job: null, result: null, view: "source", error: null, notice: null,
-  setLockIn: lockIn => set({ lockIn: Math.min(LOCK_IN.max, Math.max(LOCK_IN.min, Math.round(lockIn))) }),
+  setLockIn: lockIn => set({ lockIn: Math.min(LOCK_IN.max, Math.max(LOCK_IN.min, Math.round(lockIn / LOCK_IN.step) * LOCK_IN.step)) }),
   setTier: tier => set({ tier }),
   setSeed: seed => set({ seed }),
   setPrompt: prompt => set({ prompt }),

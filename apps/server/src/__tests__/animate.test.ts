@@ -10,7 +10,7 @@ import type { AnimateRequest } from "@h3-motion/shared";
 import { createApp } from "../app.js";
 import { SessionStore } from "../sessions.js";
 import { encodeMask } from "../media/masks.js";
-import { ANIMATE_BINDINGS, ANIMATE_OUTPUT } from "../workflows/templates.js";
+import { ANIMATE_BINDINGS, ANIMATE_MODEL, ANIMATE_OUTPUT } from "../workflows/templates.js";
 import { stageProgress } from "../jobs/runtime.js";
 import type { ApiGraph } from "../workflows/templates.js";
 
@@ -32,7 +32,7 @@ async function setup() {
   session.isolation = { imageId: session.image.id, maskId: session.selection.id, plate: { id: plate.id, url: plate.url, width: 2, height: 2 },
     phrase: "the brown dog", caption: DEFAULT_CAPTION, descriptionSource: "model", instructionSource: "model", instruction: "Remove it.", seed: 1 };
   const request: AnimateRequest = { imageId: session.image.id, maskId: session.selection.id, plateId: plate.id,
-    width: 480, height: 480, frames: 124, prompt: "A dog runs.", lockIn: 3, seed: 7 };
+    width: 480, height: 480, frames: 124, prompt: "A dog runs.", lockIn: 6, seed: 7 };
   return { app, client, session, cookie, request };
 }
 
@@ -65,10 +65,11 @@ describe("animate job", () => {
     await session.job!.done;
     const json = submit.mock.calls[0][0].json as ApiGraph;
     expect(json[ANIMATE_BINDINGS.prompt.node].inputs).toMatchObject({ prompt: "A dog runs.", width: 480, height: 480, length: 124 });
-    expect(json[ANIMATE_BINDINGS.lockIn.node].inputs).toMatchObject({ start_step: 1, end_step: 3 });
+    expect(json[ANIMATE_BINDINGS.lockIn.node].inputs).toMatchObject({ start_step: 1, end_step: 6 });
+    expect(json[ANIMATE_MODEL.scheduler.node].inputs.steps).toBe(25);
     expect(json[ANIMATE_BINDINGS.seed.node].inputs.noise_seed).toBe(7);
     expect(json[ANIMATE_BINDINGS.grow.node].inputs.expand).toBe(-16);
-    expect(session.job!.snapshot).toMatchObject({ status: "completed", stage: "animate", animation: { seed: 7, frames: 124, lockIn: 3 } });
+    expect(session.job!.snapshot).toMatchObject({ status: "completed", stage: "animate", animation: { seed: 7, frames: 124, lockIn: 6 } });
     const { url } = session.animation!.video;
     const full = await app.request(url, { headers: { cookie } });
     expect(full.headers.get("content-type")).toBe("video/mp4");
@@ -77,6 +78,14 @@ describe("animate job", () => {
     expect(partial.status).toBe(206);
     expect(partial.headers.get("content-range")).toBe(`bytes 10-19/${video.length}`);
     expect(new Uint8Array(await partial.arrayBuffer())).toEqual(video.subarray(10, 20));
+  });
+  it("rejects lock-in values outside the slider's control points before submitting", async () => {
+    const { app, client, cookie, request } = await setup();
+    const submit = vi.spyOn(client, "submit");
+    for (const lockIn of [1, 8, 16]) {
+      expect((await upload(app, cookie, { ...request, lockIn })).status).toBe(400);
+    }
+    expect(submit).not.toHaveBeenCalled();
   });
   it("rejects videos without exactly the requested frames before submitting", async () => {
     const { app, client, cookie, request } = await setup();

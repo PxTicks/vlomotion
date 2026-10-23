@@ -18,7 +18,7 @@ const isolation: IsolationResult = { imageId: image.id, maskId: mask.id, plate: 
   phrase: "the red ball", caption: { ...DEFAULT_CAPTION, subject: "the red ball", motion_verb: "rolls" }, instruction: "Remove it.",
   descriptionSource: "model", instructionSource: "model", seed: 1 };
 const layers = { width: 1728, height: 960 } as unknown as SubjectLayers;
-const settings = { tier: 480 as const, lockIn: 3, prompt: null };
+const settings = { tier: 480 as const, lockIn: 6, prompt: null };
 const videos: MotionVideos = { reference: new Blob(), mask: new Blob(), start: new Blob(), container: "mp4" };
 const queued: JobSnapshot = { id: "73ec450b-4181-46f9-aa8b-fb07ff5e3b38", status: "queued", progress: null,
   message: "Preparing video generation…", candidates: [], error: null };
@@ -48,7 +48,7 @@ describe("generation inputs", () => {
   });
   it("changes its signature with anything that changes the video, and treats a blank prompt as automatic", () => {
     const base = resolveInputs(currentParts(settings))!;
-    expect(resolveInputs(currentParts({ ...settings, lockIn: 4 }))!.signature).not.toBe(base.signature);
+    expect(resolveInputs(currentParts({ ...settings, lockIn: 9 }))!.signature).not.toBe(base.signature);
     expect(resolveInputs(currentParts({ ...settings, prompt: "A ball rolls." }))!.prompt).toBe("A ball rolls.");
     expect(resolveInputs(currentParts({ ...settings, prompt: "   " }))!.signature).toBe(base.signature);
   });
@@ -59,6 +59,13 @@ describe("generation inputs", () => {
 });
 
 describe("generate guards", () => {
+  it("defaults lock-in to 6 and snaps changes to the five control points", () => {
+    expect(useGenerateStore.getState().lockIn).toBe(6);
+    for (const [input, expected] of [[0, 3], [3, 3], [5, 6], [8, 9], [12, 12], [17, 15]]) {
+      useGenerateStore.getState().setLockIn(input);
+      expect(useGenerateStore.getState().lockIn).toBe(expected);
+    }
+  });
   it("refuses a path without movement and an invalid seed before rendering", async () => {
     useMotionStore.setState({ motion: createMotion({ x: 400, y: 500 }) });
     await useGenerateStore.getState().generate();
