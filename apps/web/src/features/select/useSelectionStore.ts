@@ -227,7 +227,10 @@ export const useSelectionStore = create<SelectionState>((set, get) => {
       if (source) await get().upload(source, ratio);
       else set({ aspectRatio: ratio });
     },
-    segment: () => run("text"),
+    segment: () => {
+      const state = get();
+      return state.selectionView === "add" && state.pointsPending ? state.applyRefinement() : run("text");
+    },
     addPoint: (point, isNegative) => {
       const { image, busy, phase } = get();
       if (!image || busy || phase !== 0) return;

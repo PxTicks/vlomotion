@@ -25,6 +25,7 @@ describe("selection transitions", () => {
   it("shows multiple search matches as suggestions without automatically including them", async () => {
     vi.mocked(watchJob).mockResolvedValue(result([first, second]));
     await useSelectionStore.getState().segment();
+    expect(submitSegment).toHaveBeenCalledExactlyOnceWith({ mode: "text", imageId: image.id, text: "dog" });
     expect(useSelectionStore.getState()).toMatchObject({ candidates: [first, second], selectedIds: [], busy: false });
   });
   it("switches to points when no text candidates are returned", async () => {
@@ -257,13 +258,43 @@ describe("selection transitions", () => {
     store.undo();
     expect(useSelectionStore.getState()).toMatchObject({ selectionView: "subjects", candidates: [first], selectedIds: [first.id], drafts: {}, pointsPending: false });
   });
-  it("adding through text returns to the list and discards the temporary new-subject points", async () => {
+  it("finds a new subject from points even when text is entered, keeping existing subjects", async () => {
     useSelectionStore.setState({ selectionView: "subjects", candidates: [first], selectedIds: [first.id] });
     const store = useSelectionStore.getState();
     store.addSubject(); store.setText("car"); store.addPoint({ x: 80, y: 80 }, false);
     vi.mocked(watchJob).mockResolvedValue(result([second]));
     await store.segment();
-    expect(useSelectionStore.getState()).toMatchObject({ selectionView: "subjects", candidates: [first, second], selectedIds: [first.id, second.id], drafts: {}, pointsPending: false });
+    expect(submitSegment).toHaveBeenCalledExactlyOnceWith({ mode: "points", imageId: image.id,
+      positive: [{ x: 80, y: 80 }], negative: [] });
+    expect(useSelectionStore.getState()).toMatchObject({ selectionView: "subjects", candidates: [first, second], selectedIds: [first.id, second.id],
+      drafts: { [second.id]: { positive: [{ x: 80, y: 80 }], negative: [], pointsPending: false } }, pointsPending: false });
+  });
+  it("finds a subject from include and exclude points without any text", async () => {
+    const store = useSelectionStore.getState();
+    store.setText("");
+    store.addPoint({ x: 20, y: 30 }, false);
+    store.addPoint({ x: 80, y: 80 }, true);
+    vi.mocked(watchJob).mockResolvedValue(result([first]));
+    await store.segment();
+    expect(submitSegment).toHaveBeenCalledExactlyOnceWith({ mode: "points", imageId: image.id,
+      positive: [{ x: 20, y: 30 }], negative: [{ x: 80, y: 80 }] });
+    expect(useSelectionStore.getState()).toMatchObject({ selectionView: "subjects", candidates: [first], selectedIds: [first.id], pointsPending: false });
+  });
+  it("requires an include point instead of falling back to text when only exclude points are pending", async () => {
+    const store = useSelectionStore.getState();
+    store.addPoint({ x: 80, y: 80 }, true);
+    await store.segment();
+    expect(submitSegment).not.toHaveBeenCalled();
+    expect(useSelectionStore.getState()).toMatchObject({ selectionView: "add", candidates: [], pointsPending: true });
+  });
+  it("finds subjects by text again after pending points are cleared", async () => {
+    const store = useSelectionStore.getState();
+    store.addPoint({ x: 80, y: 80 }, false);
+    store.clearPoints();
+    vi.mocked(watchJob).mockResolvedValue(result([first]));
+    await store.segment();
+    expect(submitSegment).toHaveBeenCalledExactlyOnceWith({ mode: "text", imageId: image.id, text: "dog" });
+    expect(useSelectionStore.getState()).toMatchObject({ selectionView: "subjects", candidates: [first], selectedIds: [first.id], pointsPending: false });
   });
   it("returns to the existing list when an in-flight new-subject job is cancelled", async () => {
     useSelectionStore.setState({ selectionView: "subjects", candidates: [first], selectedIds: [first.id] });

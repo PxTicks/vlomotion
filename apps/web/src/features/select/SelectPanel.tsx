@@ -61,13 +61,13 @@ export function SelectPanel() {
       </Stack>
       {!editing && <Stack component="form" spacing={1.5} onSubmit={event => { event.preventDefault(); void s.segment(); }}>
         <TextField label="Find subjects" placeholder="e.g. red car" value={s.text} onChange={event => s.setText(event.target.value)}
-          disabled={!s.image || s.busy} inputProps={{ maxLength: 160 }} helperText="Search adds suggestions and keeps your existing subjects." fullWidth />
-        <Button type="submit" variant="outlined" disabled={!s.image || !s.text.trim() || s.busy}>Find subjects</Button>
+          disabled={!s.image || s.busy} inputProps={{ maxLength: 160 }} helperText="Use points when placed, or search by name. Existing subjects are kept." fullWidth />
+        <Button type="submit" variant="outlined" disabled={!s.image || s.busy || (s.pointsPending ? !canApplyRefinement(s) : !s.text.trim())}>Find subjects</Button>
       </Stack>}
       {(editing || adding) && <Stack spacing={1.5}>
         <Typography variant="caption" color="text.secondary">Left-click to include. Right-click to exclude. Click a point to remove it.</Typography>
         <Typography variant="caption" role="status">{s.positive.length} include · {s.negative.length} exclude{s.pointsPending ? " · Unapplied changes" : ""}</Typography>
-        <Button variant="contained" disabled={!canApplyRefinement(s)} onClick={() => void s.applyRefinement()}>{editing ? "Apply points" : "Apply new subject"}</Button>
+        {editing && <Button variant="contained" disabled={!canApplyRefinement(s)} onClick={() => void s.applyRefinement()}>Apply points</Button>}
         {(s.positive.length > 0 || s.negative.length > 0) && <Button disabled={s.busy} onClick={s.clearPoints}>Clear points</Button>}
         {s.pointsPending && !s.busy && !s.positive.length && s.negative.length > 0 && !canApplyRefinement(s) && <Typography variant="caption">Add at least one include point to define this subject.</Typography>}
         {editing && s.pointsPending && !s.positive.length && !s.negative.length && <Typography variant="caption">{s.recipes[s.activeId ?? ""]?.base === null ? "Apply removes this subject, which was created from points." : "Apply restores this subject's starting mask."}</Typography>}
