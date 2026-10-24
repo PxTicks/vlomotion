@@ -14,6 +14,7 @@ beforeEach(() => {
 describe("motion store", () => {
   it("anchors a new motion at the subject's centre", () => {
     expect(state().motion?.keys).toEqual([{ id: "start", frame: 0, x: 100, y: 200 }]);
+    expect(state().motion?.timing).toBe("smooth");
     expect(state().notice).toBeNull();
   });
   it("makes the first drag from the photo frame set the end position", () => {
@@ -64,21 +65,59 @@ describe("motion store", () => {
     state().setPlayhead(40);
     expect(state()).toMatchObject({ playing: false, playhead: 40 });
   });
-  it("records only when armed, without playing, and fits the take to the clip", () => {
-    expect(state().startRecording()).toBeNull();
-    state().setArmed(true);
+  it("records without arming, pauses playback, and fits the take to the clip", () => {
+    state().togglePlay();
     expect(state().startRecording()).toBe(0);
     expect(state().playing).toBe(false);
     state().setPlayhead(50);
     expect(state().playhead).toBe(0);
     state().finishRecording([{ time: 0, x: 100, y: 200 }, { time: 300, x: 300, y: 200 }, { time: 600, x: 300, y: 400 }]);
-    expect(state()).toMatchObject({ recording: false, armed: false, playing: false });
+    expect(state()).toMatchObject({ recording: false, playing: false });
     expect(state().motion?.keys.map(key => [key.frame, key.x, key.y])).toEqual([[0, 100, 200], [62, 300, 200], [123, 300, 400]]);
   });
   it("drops an unfinished take when the editor closes", () => {
-    state().setArmed(true); state().startRecording();
+    state().startRecording();
     state().leave();
-    expect(state()).toMatchObject({ recording: false, armed: false, playing: false });
+    expect(state()).toMatchObject({ recording: false, playing: false });
+  });
+  it("can record another drag after a take finishes, restarting from the end of the clip", () => {
+    state().startRecording();
+    state().finishRecording([{ time: 0, x: 100, y: 200 }, { time: 300, x: 300, y: 200 }]);
+    state().setPlayhead(123);
+    expect(state().startRecording()).toBe(0);
+    expect(state().startRecording()).toBeNull();
+    state().finishRecording([{ time: 0, x: 100, y: 200 }, { time: 300, x: 200, y: 400 }]);
+    expect(state().motion?.keys.map(key => [key.frame, key.x, key.y])).toEqual([[0, 100, 200], [123, 200, 400]]);
+  });
+  it("lets recorded keys be moved on the canvas and retimed without recording another path", () => {
+    state().startRecording();
+    state().finishRecording([{ time: 0, x: 100, y: 200 }, { time: 300, x: 300, y: 200 }, { time: 600, x: 300, y: 400 }]);
+    const key = state().motion!.keys[1];
+    state().selectKey(key.id);
+    state().moveKey(key.id, { x: 400, y: 250 });
+    state().retimeKey(key.id, 40);
+    expect(state().motion?.keys[1]).toMatchObject({ id: key.id, frame: 40, x: 400, y: 250 });
+    expect(state().motion?.keys[0]).toMatchObject({ frame: 0, x: 100, y: 200 });
+    expect(state()).toMatchObject({ recording: false, selectedKeyId: key.id, playhead: 40 });
+  });
+  it("clears the path and resets playback while preserving the subject and clip length", () => {
+    state().setFrames(243);
+    state().startRecording();
+    state().finishRecording([{ time: 0, x: 100, y: 200 }, { time: 300, x: 300, y: 400 }]);
+    state().selectKey(state().motion!.keys[1].id);
+    state().setPlayhead(100);
+    state().togglePlay();
+    state().clearPath();
+    expect(state()).toMatchObject({ subjectKey: "image:mask", bounds, size, playhead: 0, playing: false, recording: false, selectedKeyId: null, notice: null });
+    expect(state().motion).toEqual({ anchor: { x: 100, y: 200 }, frames: 243, timing: "smooth", keys: [{ id: "start", frame: 0, x: 100, y: 200 }] });
+    expect(state().startRecording()).toBe(0);
+  });
+  it("does not clear the path during an active recording", () => {
+    const motion = state().motion;
+    state().startRecording();
+    state().clearPath();
+    expect(state().recording).toBe(true);
+    expect(state().motion).toBe(motion);
   });
 });
 

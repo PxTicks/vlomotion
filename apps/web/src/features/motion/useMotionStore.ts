@@ -8,7 +8,7 @@ import type { SubjectLayers } from "./subjectLayers";
 
 interface MotionState {
   subjectKey: string | null; bounds: Rect | null; size: FrameSize | null; motion: SubjectMotion | null;
-  playhead: number; playing: boolean; armed: boolean; recording: boolean;
+  playhead: number; playing: boolean; recording: boolean;
   selectedKeyId: string | null; notice: string | null;
   /** Loaded subject images, keyed by the photo, mask and plate they came from. */
   layers: SubjectLayers | null; layersKey: string | null;
@@ -21,9 +21,9 @@ interface MotionState {
   placeSubject: (point: Point) => void; addKey: () => void;
   selectKey: (id: string | null) => void; moveKey: (id: string, point: Point) => void;
   retimeKey: (id: string, frame: number) => void; insertAtLength: (length: number) => string | null;
-  deleteSelected: () => void; evenSpeed: () => void;
+  deleteSelected: () => void; evenSpeed: () => void; clearPath: () => void;
   setFrames: (frames: FrameCount) => void; setTiming: (timing: MotionTiming) => void;
-  setArmed: (armed: boolean) => void; startRecording: () => number | null;
+  startRecording: () => number | null;
   /** Applies a take, timed to fill the clip from the playhead where it started. */
   finishRecording: (samples: TimedSample[]) => void;
 }
@@ -42,14 +42,14 @@ export const useMotionStore = create<MotionState>((set, get) => {
     if (next !== get().motion) set({ motion: next, notice: null, ...extra });
   }
   return {
-    subjectKey: null, bounds: null, size: null, motion: null, playhead: 0, playing: false, armed: false, recording: false,
+    subjectKey: null, bounds: null, size: null, motion: null, playhead: 0, playing: false, recording: false,
     selectedKeyId: null, notice: null, layers: null, layersKey: null,
     prepare: (subjectKey, bounds, size) => {
       const state = get();
       if (state.subjectKey === subjectKey) return;
       const anchor = { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 };
-      set({ subjectKey, bounds, size, motion: createMotion(anchor, state.motion?.frames, state.motion?.timing),
-        playhead: 0, playing: false, armed: false, recording: false, selectedKeyId: null,
+      set({ subjectKey, bounds, size, motion: createMotion(anchor, state.motion?.frames),
+        playhead: 0, playing: false, recording: false, selectedKeyId: null,
         notice: state.motion && state.motion.keys.length > 1 ? "Your subject changed, so its motion path was reset." : null });
     },
     setPlayhead: frame => {
@@ -62,7 +62,7 @@ export const useMotionStore = create<MotionState>((set, get) => {
       if (!motion || recording) return;
       set(playing ? { playing: false } : { playing: true, playhead: playhead >= lastFrame(motion) ? 0 : playhead });
     },
-    leave: () => set({ playing: false, recording: false, armed: false }),
+    leave: () => set({ playing: false, recording: false }),
     beginSubjectDrag: () => {
       const { motion, playhead } = get();
       if (!motion) return null;
@@ -122,6 +122,11 @@ export const useMotionStore = create<MotionState>((set, get) => {
       if (!motion) return;
       edit(evenSpeed(motion), { notice: "Keys re-spaced for an even speed along the path." });
     },
+    clearPath: () => {
+      const { motion, recording } = get();
+      if (!motion || recording) return;
+      set({ motion: createMotion(motion.anchor, motion.frames), playhead: 0, playing: false, selectedKeyId: null, notice: null });
+    },
     setFrames: frames => {
       const { motion, playhead } = get();
       if (!motion || motion.frames === frames) return;
@@ -131,10 +136,9 @@ export const useMotionStore = create<MotionState>((set, get) => {
         notice: compressed ? "Keys were compressed to fit the shorter clip." : null });
     },
     setTiming: timing => { const { motion } = get(); if (motion && motion.timing !== timing) edit({ ...motion, timing }); },
-    setArmed: armed => { if (!get().recording) set({ armed, playing: false }); },
     startRecording: () => {
-      const { motion, armed, playhead } = get();
-      if (!motion || !armed) return null;
+      const { motion, recording, playhead } = get();
+      if (!motion || recording) return null;
       const start = playhead >= lastFrame(motion) ? 0 : playhead;
       set({ recording: true, playing: false, playhead: start, selectedKeyId: null, notice: null });
       return start;
@@ -143,7 +147,7 @@ export const useMotionStore = create<MotionState>((set, get) => {
       const { motion, recording, playhead } = get();
       if (!motion || !recording) return;
       const next = applyRecording(motion, samples, playhead, newId);
-      set({ motion: next, recording: false, armed: false, playing: false,
+      set({ motion: next, recording: false, playing: false,
         notice: next === motion ? "Nothing was recorded. Press on the subject and drag it along its path." : "Recording applied. Drag ◆ keys to fine-tune it." });
     },
   };

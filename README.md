@@ -92,13 +92,11 @@ instructions are labelled **Custom removal instruction**, including when a VLM
 caption is cached. Manual runs without a model description don't populate that
 cache. Missing caption fields use defaults without blocking a valid removal phrase.
 
-**Continue** opens the Move phase. Drag the subject to where it should end up;
-the first drag sets a ◆ key at the end of the clip. Move the playhead and drag
-again to bend the path, click the path to insert a key, or drag a ◆ along the
-timeline to change the speed on either side of it. Two keys in one place make a
-hold, and the subject stays still after the last key. **Even speed** re-spaces
-keys for constant speed; **Smooth/Linear** sets how speed eases between keys.
-**● Rec** records a drag and simplifies it into keys. As in vlo, the take is
+**Continue** opens the Move phase. Drag the subject to record a path automatically.
+Drag a ◆ on the canvas to adjust its position, or on the timeline to adjust its
+timing. Click the path to insert a key. Motion uses smooth timing by default.
+**Clear path** restores the subject's starting position and removes the path,
+keeping the chosen clip length. Each recorded drag is simplified into keys and
 timed to fill the clip from the playhead to the end, however long the drag took;
 pauses and speed changes keep their proportions.
 The first frame is always the original photo. Clips are 5, 7 or 10 s (124, 175

@@ -12,14 +12,12 @@ export function MotionTimeline({ readOnly = false }: { readOnly?: boolean }) {
   const motion = useMotionStore(s => s.motion);
   const playhead = useMotionStore(s => s.playhead);
   const playing = useMotionStore(s => s.playing);
-  const armed = useMotionStore(s => s.armed);
   const recording = useMotionStore(s => s.recording);
   const selectedKeyId = useMotionStore(s => s.selectedKeyId);
   const togglePlay = useMotionStore(s => s.togglePlay);
   const setPlayhead = useMotionStore(s => s.setPlayhead);
   const addKey = useMotionStore(s => s.addKey);
   const setFrames = useMotionStore(s => s.setFrames);
-  const setArmed = useMotionStore(s => s.setArmed);
   const track = useRef<HTMLDivElement>(null);
   const drag = useRef<TrackDrag | null>(null);
   if (!motion) return null;
@@ -93,8 +91,6 @@ export function MotionTimeline({ readOnly = false }: { readOnly?: boolean }) {
         {formatSeconds(playhead)} / {formatSeconds(last)} · frame {playhead}
       </Typography>
       {!readOnly && <Stack direction="row" alignItems="center" gap={1}>
-        <ToggleButton value="record" size="small" selected={armed} disabled={recording} onChange={() => setArmed(!armed)}
-          aria-label="Record a drag" sx={{ px: 1.5, py: .5, borderRadius: 99, "&.Mui-selected": { color: "error.main" } }}>● Rec</ToggleButton>
         <ToggleButtonGroup exclusive size="small" value={motion.frames} disabled={recording} aria-label="Clip length"
           onChange={(_, value: unknown) => { const parsed = frameCountSchema.safeParse(value); if (parsed.success) setFrames(parsed.data); }}>
           {Object.entries(CLIP_FRAMES).map(([seconds, frames]) => <ToggleButton key={frames} value={frames} sx={{ px: 1.5, py: .5, borderRadius: 99 }}>{seconds} s</ToggleButton>)}

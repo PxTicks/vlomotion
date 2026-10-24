@@ -12,7 +12,7 @@ import { useMotionStore } from "./useMotionStore";
 
 const Surface = styled("canvas")({ display: "block", width: "100%", height: "100%" });
 type Drag = { pointerId: number; origin: Point; start: Point } & (
-  | { kind: "subject" } | { kind: "key"; id: string } | { kind: "record"; startTime: number });
+  | { kind: "key"; id: string } | { kind: "record"; startTime: number });
 type Hover = "key" | "subject" | "path" | null;
 
 
@@ -24,7 +24,6 @@ export function MotionCanvas({ readOnly = false }: { readOnly?: boolean }) {
   const subjectKey = useMotionStore(s => s.subjectKey);
   const playhead = useMotionStore(s => s.playhead);
   const playing = useMotionStore(s => s.playing);
-  const armed = useMotionStore(s => s.armed);
   const recording = useMotionStore(s => s.recording);
   const selectedKeyId = useMotionStore(s => s.selectedKeyId);
   const canvas = useRef<HTMLCanvasElement>(null);
@@ -72,11 +71,11 @@ export function MotionCanvas({ readOnly = false }: { readOnly?: boolean }) {
     return { x: (event.clientX - rect.left) / rect.width * layers!.width, y: (event.clientY - rect.top) / rect.height * layers!.height };
   }
 
-  /** On the subject, its own handles (the photo key and the key at the playhead) give way to dragging the subject. */
+  /** The photo key gives way to dragging the subject; other keys remain available for position edits. */
   function hitKey(point: Point, onSubject: boolean): string | null {
     const { keys } = curve!.motion;
     for (let i = keys.length - 1; i >= 0; i--) {
-      if (onSubject && (i === 0 || keys[i].frame === playhead)) continue;
+      if (onSubject && i === 0) continue;
       if (Math.hypot(point.x - keys[i].x, point.y - keys[i].y) <= 11 * scale) return keys[i].id;
     }
     return null;
@@ -100,27 +99,22 @@ export function MotionCanvas({ readOnly = false }: { readOnly?: boolean }) {
     const point = toImage(event), { pointerId } = event;
     const onSubject = hitsSubject(layers, point, curve.offsetAt(playhead));
     const keyId = hitKey(point, onSubject);
-    if (keyId && !store.armed) {
+    if (keyId) {
       const key = curve.motion.keys.find(k => k.id === keyId)!;
       store.selectKey(keyId); store.setPlayhead(key.frame);
       if (!isStartKey(curve.motion, keyId)) startDrag(event, { kind: "key", id: keyId, pointerId, origin: point, start: { x: key.x, y: key.y } });
       return;
     }
     if (onSubject) {
-      if (store.armed) {
-        const startFrame = store.startRecording();
-        if (startFrame === null) return;
-        const start = curve.positionAt(startFrame);
-        samples.current = [{ time: 0, ...start }];
-        setLive(start);
-        startDrag(event, { kind: "record", pointerId, origin: point, start, startTime: performance.now() });
-        return;
-      }
-      const start = store.beginSubjectDrag();
-      if (start) startDrag(event, { kind: "subject", pointerId, origin: point, start });
+      const startFrame = store.startRecording();
+      if (startFrame === null) return;
+      const start = curve.positionAt(startFrame);
+      samples.current = [{ time: 0, ...start }];
+      setLive(start);
+      startDrag(event, { kind: "record", pointerId, origin: point, start, startTime: performance.now() });
       return;
     }
-    if (!store.armed && curve.length > 0) {
+    if (curve.length > 0) {
       const near = curve.nearest(point);
       if (near.distance <= 8 * scale) {
         const id = store.insertAtLength(near.length);
@@ -140,7 +134,6 @@ export function MotionCanvas({ readOnly = false }: { readOnly?: boolean }) {
     const target = { x: current.start.x + point.x - current.origin.x, y: current.start.y + point.y - current.origin.y };
     const store = useMotionStore.getState();
     if (current.kind === "key") store.moveKey(current.id, target);
-    else if (current.kind === "subject") store.placeSubject(target);
     else {
       samples.current.push({ time: performance.now() - current.startTime, ...target });
       setLive(target);
@@ -160,7 +153,7 @@ export function MotionCanvas({ readOnly = false }: { readOnly?: boolean }) {
 
   if (!image) return null;
   const cursor = drag.current ? (drag.current.kind === "record" ? "crosshair" : "grabbing")
-    : hover === "key" && !armed ? "grab" : hover === "subject" ? (armed ? "crosshair" : "move") : hover === "path" && !armed ? "copy" : "default";
+    : hover === "key" ? "grab" : hover === "subject" ? "crosshair" : hover === "path" ? "copy" : "default";
   const selected = curve?.motion.keys.find(key => key.id === selectedKeyId);
   const showOverlay = ready && !playing && !recording && !readOnly;
   const size = 6 * scale;
@@ -169,7 +162,7 @@ export function MotionCanvas({ readOnly = false }: { readOnly?: boolean }) {
     mx: "auto", bgcolor: "#19151f", aspectRatio: `${image.width}/${image.height}` }}>
     {layers && <Surface ref={canvas} width={layers.width} height={layers.height} aria-hidden />}
     {layers && <svg ref={overlay} viewBox={`0 0 ${layers.width} ${layers.height}`} role={readOnly ? "img" : "application"}
-      aria-label={readOnly ? "Motion preview showing the frames that will be generated." : "Motion editor. Drag the subject to place it at the playhead time, drag diamond keys to move them, or click the path to add a key."}
+      aria-label={readOnly ? "Motion preview showing the frames that will be generated." : "Motion editor. Drag the subject to record a path, drag diamond keys to adjust positions, or click the path to add a key."}
       style={{ position: "absolute", inset: 0, width: "100%", height: "100%", touchAction: "none", cursor }}
       {...(readOnly ? {} : { onPointerDown, onPointerMove, onPointerUp, onPointerCancel: onPointerUp,
         onPointerLeave: () => { if (!drag.current) setHover(null); } })}>
@@ -193,9 +186,9 @@ export function MotionCanvas({ readOnly = false }: { readOnly?: boolean }) {
       <Typography variant="caption"><Box component="span" sx={{ color: "primary.main" }}>◆</Box> {formatSeconds(selected.frame)}
         {" · "}{signed(selected.x - curve.motion.anchor.x)}, {signed(selected.y - curve.motion.anchor.y)}</Typography>
     </Box>}
-    {ready && curve && !playing && !readOnly && (armed || curve.motion.keys.length === 1) && <Box sx={{ position: "absolute", bottom: 12, left: "50%", transform: "translateX(-50%)",
+    {ready && curve && !playing && !recording && !readOnly && curve.motion.keys.length === 1 && <Box sx={{ position: "absolute", bottom: 12, left: "50%", transform: "translateX(-50%)",
       pointerEvents: "none", bgcolor: "background.paper", borderRadius: 99, px: 2, py: .75, maxWidth: "calc(100% - 24px)" }}>
-      <Typography variant="caption">{armed ? "Drag the subject along its path. It will fill the rest of the clip." : "Drag the subject to where it should end up"}</Typography>
+      <Typography variant="caption">Drag to create a path.</Typography>
     </Box>}
     {recording && <Box sx={{ position: "absolute", top: 12, left: 12, bgcolor: "error.main", color: "#fff", borderRadius: 99, px: 1.5, py: .25 }}>
       <Typography variant="caption" sx={{ fontWeight: 600 }}>● REC</Typography>
