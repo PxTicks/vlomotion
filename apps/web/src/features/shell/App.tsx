@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { Alert, Box, Button, Chip, Container, Divider, Paper, Stack, Step, StepButton, Stepper, ToggleButton, ToggleButtonGroup, Typography } from "@mui/material";
-import { aspectRatioSchema, generationSize, healthSchema } from "@h3-motion/shared";
+import { Alert, Box, Button, Chip, Container, Paper, Stack, Step, StepButton, Stepper, ToggleButton, ToggleButtonGroup, Typography } from "@mui/material";
+import { aspectRatioSchema, healthSchema } from "@h3-motion/shared";
 import { apiRequest } from "../../api";
 import { currentIsolation, SelectPanel, SelectionCanvas, useSelectionStore } from "../select";
 import type { Phase } from "../select";
@@ -28,7 +28,6 @@ export function App() {
   const error = useSelectionStore(s => s.error);
   const notice = useSelectionStore(s => s.notice);
   const clearError = useSelectionStore(s => s.clearError);
-  const size = generationSize(ratio);
 
   useEffect(() => {
     let disposed = false;
@@ -67,11 +66,6 @@ export function App() {
           </ToggleButtonGroup>
         </Stack>
         {phase === 3 && isolation ? <GenerateStage /> : phase === 2 && isolation ? <MotionEditor /> : phase > 0 && isolation ? <IsolatePreview /> : <SelectionCanvas />}
-        <Divider sx={{ my: 2 }} />
-        <Stack direction="row" justifyContent="space-between" gap={2}>
-          <Typography variant="caption" color="text.secondary">Centre crop · 480p · {size.width} × {size.height}</Typography>
-          <Typography variant="caption" color="text.secondary">24 fps · 5 s / 7 s / 10 s</Typography>
-        </Stack>
       </Paper>
       <Paper sx={{ p: 3 }}>
         <Stepper activeStep={phase} alternativeLabel sx={{ mb: 4, mx: -2, ".MuiStepLabel-label": { fontSize: 12 } }}>
