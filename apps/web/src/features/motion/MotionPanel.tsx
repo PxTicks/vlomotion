@@ -51,7 +51,7 @@ export function MotionPanel() {
             <Button size="small" color="error" disabled={recording} onClick={deleteSelected}>Delete key</Button>
           </Stack>}
       </Stack>
-    </Paper> : <Typography variant="caption" color="text.secondary">Select a ◆ key on the canvas or timeline to edit it. Click the path to insert one.</Typography>}
+    </Paper> : null}
     <Button variant="outlined" disabled={recording || motion.keys.length < 2} onClick={clearPath}>Clear path</Button>
     {outside !== null && <Alert severity="warning">The subject is completely out of frame from {formatSeconds(outside)}. That's fine for an exit, but the video model can't see it there.</Alert>}
     {errors.map(error => <Alert key={error} severity="error">{error}</Alert>)}

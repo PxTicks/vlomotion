@@ -148,7 +148,7 @@ export const useMotionStore = create<MotionState>((set, get) => {
       if (!motion || !recording) return;
       const next = applyRecording(motion, samples, playhead, newId);
       set({ motion: next, recording: false, playing: false,
-        notice: next === motion ? "Nothing was recorded. Press on the subject and drag it along its path." : "Recording applied. Drag ◆ keys to fine-tune it." });
+        notice: next === motion ? "Nothing was recorded. Press on the subject and drag it along its path." : null });
     },
   };
 });
