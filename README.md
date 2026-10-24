@@ -93,6 +93,9 @@ caption is cached. Manual runs without a model description don't populate that
 cache. Missing caption fields use defaults without blocking a valid removal phrase.
 
 **Continue** opens the Move phase. Drag the subject to record a path automatically.
+Recording is available only while no path exists; use **Clear path** to record
+again. Dragging the subject along an existing path adjusts its position at the
+playhead without replacing the other keys.
 Drag a ◆ on the canvas to adjust its position, or on the timeline to adjust its
 timing. Click the path to insert a key. Motion uses smooth timing by default.
 **Clear path** restores the subject's starting position and removes the path,

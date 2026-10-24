@@ -12,7 +12,7 @@ import { useMotionStore } from "./useMotionStore";
 
 const Surface = styled("canvas")({ display: "block", width: "100%", height: "100%" });
 type Drag = { pointerId: number; origin: Point; start: Point } & (
-  | { kind: "key"; id: string } | { kind: "record"; startTime: number });
+  | { kind: "subject" } | { kind: "key"; id: string } | { kind: "record"; startTime: number });
 type Hover = "key" | "subject" | "path" | null;
 
 
@@ -106,6 +106,11 @@ export function MotionCanvas({ readOnly = false }: { readOnly?: boolean }) {
       return;
     }
     if (onSubject) {
+      if (store.motion && store.motion.keys.length > 1) {
+        const start = store.beginSubjectDrag();
+        if (start) startDrag(event, { kind: "subject", pointerId, origin: point, start });
+        return;
+      }
       const startFrame = store.startRecording();
       if (startFrame === null) return;
       const start = curve.positionAt(startFrame);
@@ -134,6 +139,7 @@ export function MotionCanvas({ readOnly = false }: { readOnly?: boolean }) {
     const target = { x: current.start.x + point.x - current.origin.x, y: current.start.y + point.y - current.origin.y };
     const store = useMotionStore.getState();
     if (current.kind === "key") store.moveKey(current.id, target);
+    else if (current.kind === "subject") store.placeSubject(target);
     else {
       samples.current.push({ time: performance.now() - current.startTime, ...target });
       setLive(target);
@@ -153,7 +159,7 @@ export function MotionCanvas({ readOnly = false }: { readOnly?: boolean }) {
 
   if (!image) return null;
   const cursor = drag.current ? (drag.current.kind === "record" ? "crosshair" : "grabbing")
-    : hover === "key" ? "grab" : hover === "subject" ? "crosshair" : hover === "path" ? "copy" : "default";
+    : hover === "key" ? "grab" : hover === "subject" ? (motion?.keys.length === 1 ? "crosshair" : "move") : hover === "path" ? "copy" : "default";
   const selected = curve?.motion.keys.find(key => key.id === selectedKeyId);
   const showOverlay = ready && !playing && !recording && !readOnly;
   const size = 6 * scale;
@@ -162,7 +168,7 @@ export function MotionCanvas({ readOnly = false }: { readOnly?: boolean }) {
     mx: "auto", bgcolor: "#19151f", aspectRatio: `${image.width}/${image.height}` }}>
     {layers && <Surface ref={canvas} width={layers.width} height={layers.height} aria-hidden />}
     {layers && <svg ref={overlay} viewBox={`0 0 ${layers.width} ${layers.height}`} role={readOnly ? "img" : "application"}
-      aria-label={readOnly ? "Motion preview showing the frames that will be generated." : "Motion editor. Drag the subject to record a path, drag diamond keys to adjust positions, or click the path to add a key."}
+      aria-label={readOnly ? "Motion preview showing the frames that will be generated." : "Motion editor. Drag the subject to create a path or adjust its position. Clear the path to record again. Drag diamond keys to adjust positions, or click the path to add a key."}
       style={{ position: "absolute", inset: 0, width: "100%", height: "100%", touchAction: "none", cursor }}
       {...(readOnly ? {} : { onPointerDown, onPointerMove, onPointerUp, onPointerCancel: onPointerUp,
         onPointerLeave: () => { if (!drag.current) setHover(null); } })}>

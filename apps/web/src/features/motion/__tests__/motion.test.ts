@@ -80,14 +80,33 @@ describe("motion store", () => {
     state().leave();
     expect(state()).toMatchObject({ recording: false, playing: false });
   });
-  it("can record another drag after a take finishes, restarting from the end of the clip", () => {
+  it.each([0, 60, 123])("protects an existing path from recording again at frame %s", frame => {
     state().startRecording();
-    state().finishRecording([{ time: 0, x: 100, y: 200 }, { time: 300, x: 300, y: 200 }]);
-    state().setPlayhead(123);
-    expect(state().startRecording()).toBe(0);
+    state().finishRecording([{ time: 0, x: 100, y: 200 }, { time: 300, x: 300, y: 200 }, { time: 600, x: 300, y: 400 }]);
+    state().setPlayhead(frame);
+    state().selectKey(state().motion!.keys[1].id);
+    const before = state();
     expect(state().startRecording()).toBeNull();
     state().finishRecording([{ time: 0, x: 100, y: 200 }, { time: 300, x: 200, y: 400 }]);
-    expect(state().motion?.keys.map(key => [key.frame, key.x, key.y])).toEqual([[0, 100, 200], [123, 200, 400]]);
+    expect(state()).toBe(before);
+  });
+  it.each([40, 62])("preserves other diamonds when the subject is dragged at frame %s", frame => {
+    state().startRecording();
+    state().finishRecording([{ time: 0, x: 100, y: 200 }, { time: 300, x: 300, y: 200 }, { time: 600, x: 300, y: 400 }]);
+    const originalKeys = state().motion!.keys;
+    state().setPlayhead(frame);
+    expect(state().beginSubjectDrag()).not.toBeNull();
+    state().placeSubject({ x: 400, y: 250 });
+    expect(state().recording).toBe(false);
+    expect(state().motion!.keys.filter(key => key.frame !== frame)).toEqual(originalKeys.filter(key => key.frame !== frame));
+    expect(state().motion!.keys.find(key => key.frame === frame)).toMatchObject({ x: 400, y: 250 });
+  });
+  it("can record again when a drag did not create a path", () => {
+    state().startRecording();
+    expect(state().startRecording()).toBeNull();
+    state().finishRecording([{ time: 0, x: 100, y: 200 }, { time: 300, x: 100, y: 200 }]);
+    expect(state().motion?.keys).toHaveLength(1);
+    expect(state().startRecording()).toBe(0);
   });
   it("lets recorded keys be moved on the canvas and retimed without recording another path", () => {
     state().startRecording();

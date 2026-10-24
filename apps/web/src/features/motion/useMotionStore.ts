@@ -138,7 +138,7 @@ export const useMotionStore = create<MotionState>((set, get) => {
     setTiming: timing => { const { motion } = get(); if (motion && motion.timing !== timing) edit({ ...motion, timing }); },
     startRecording: () => {
       const { motion, recording, playhead } = get();
-      if (!motion || recording) return null;
+      if (!motion || recording || motion.keys.length > 1) return null;
       const start = playhead >= lastFrame(motion) ? 0 : playhead;
       set({ recording: true, playing: false, playhead: start, selectedKeyId: null, notice: null });
       return start;
