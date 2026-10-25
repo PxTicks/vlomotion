@@ -1,4 +1,4 @@
-import type { Point, Rect } from "@h3-motion/shared";
+import type { Point, Rect, SubjectMotion } from "@h3-motion/shared";
 
 type Context2D = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
 type Drawable = CanvasImageSource & { width: number; height: number };
@@ -11,6 +11,8 @@ export interface RenderLayers {
   cutout: Drawable;
   /** The binary subject in white on transparent, for the TTM mask video. */
   matte: Drawable;
+  /** Independent cutouts in front-to-back order, used by the video renderer. */
+  subjects?: { layers: RenderLayers; motion: SubjectMotion }[];
 }
 
 export interface SubjectLayers extends RenderLayers {
@@ -68,9 +70,9 @@ function loadImage(url: string): Promise<HTMLImageElement> {
   });
 }
 
-export async function loadSubjectLayers(photoUrl: string, plateUrl: string, maskUrl: string): Promise<SubjectLayers> {
-  const [photo, plate, maskImage] = await Promise.all([loadImage(photoUrl), loadImage(plateUrl), loadImage(maskUrl)]);
-  const width = photo.naturalWidth, height = photo.naturalHeight;
+export async function loadSubjectLayers(photoUrl: string, plateUrl: string, maskUrl: string, shared?: Pick<SubjectLayers, "photo" | "plate">): Promise<SubjectLayers> {
+  const [photo, plate, maskImage] = await Promise.all([shared?.photo ?? loadImage(photoUrl), shared?.plate ?? loadImage(plateUrl), loadImage(maskUrl)]);
+  const width = photo.width, height = photo.height;
   const canvas = document.createElement("canvas");
   canvas.width = width; canvas.height = height;
   const context = canvas.getContext("2d", { willReadFrequently: true })!;
@@ -122,4 +124,25 @@ export function drawGhost(context: Context2D, layers: RenderLayers, offset: Poin
   context.globalAlpha = opacity;
   drawLayer(context, layers, layers.cutout, offset);
   context.restore();
+}
+
+export interface PositionedSubject { layers: RenderLayers; offset: Point }
+
+/** Subjects are listed front first; compositing draws the back layer first. */
+export function drawSceneReference(context: Context2D, layers: RenderLayers, subjects: PositionedSubject[], originalFrame = false) {
+  if (originalFrame) { drawLayer(context, layers, layers.photo, { x: 0, y: 0 }); return; }
+  drawLayer(context, layers, layers.plate, { x: 0, y: 0 });
+  for (let index = subjects.length - 1; index >= 0; index--) {
+    const subject = subjects[index];
+    drawLayer(context, subject.layers, subject.layers.cutout, subject.offset);
+  }
+}
+
+export function drawSceneMask(context: Context2D, subjects: PositionedSubject[]) {
+  context.fillStyle = "#000";
+  context.fillRect(0, 0, context.canvas.width, context.canvas.height);
+  for (let index = subjects.length - 1; index >= 0; index--) {
+    const subject = subjects[index];
+    drawLayer(context, subject.layers, subject.layers.matte, subject.offset);
+  }
 }

@@ -87,4 +87,21 @@ describe("motion rendering cancellation", () => {
     controller.abort();
     expect(worker.terminate).toHaveBeenCalledOnce();
   });
+  it("transfers every subject's cutout, matte and independent path to the encoder in layer order", async () => {
+    const copies: ImageBitmap[] = [];
+    vi.stubGlobal("createImageBitmap", vi.fn(async () => { const copy = bitmap(); copies.push(copy); return copy; }));
+    vi.stubGlobal("Worker", EncoderWorker);
+    const subjects = [{ layers, motion }, { layers, motion: createMotion({ x: 600, y: 240 }) }];
+    const controller = new AbortController();
+    const rendering = renderMotionVideos({ ...layers, subjects }, motion, size, vi.fn(), controller.signal);
+    await vi.waitFor(() => expect(EncoderWorker.instances).toHaveLength(1));
+    const [request, transferred] = EncoderWorker.instances[0].postMessage.mock.calls[0];
+    expect(request.layers.subjects.map((subject: { motion: unknown }) => subject.motion)).toEqual(subjects.map(subject => subject.motion));
+    expect(request.layers.subjects[0].layers.cutout).toBe(copies[4]);
+    expect(request.layers.subjects[1].layers.matte).toBe(copies[7]);
+    expect(transferred).toHaveLength(8);
+    controller.abort();
+    await expect(rendering).rejects.toMatchObject({ name: "AbortError" });
+    for (const copy of copies) expect(copy.close).toHaveBeenCalledOnce();
+  });
 });

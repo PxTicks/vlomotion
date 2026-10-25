@@ -33,6 +33,7 @@ function deferred<T>() {
 beforeEach(() => {
   vi.resetAllMocks();
   useGenerateStore.setState(useGenerateStore.getInitialState(), true);
+  useMotionStore.setState(useMotionStore.getInitialState(), true);
   useSelectionStore.setState({ image, mask, isolation, aspectRatio: "16:9", phase: 3 });
   const motion = upsertKey(createMotion({ x: 400, y: 500 }), 123, { x: 1400, y: 500 }, "end")!.motion;
   useMotionStore.setState({ motion, subjectKey: subjectKeyOf(image.id, mask.id), bounds: { x: 300, y: 400, width: 200, height: 200 },
@@ -49,16 +50,75 @@ describe("generation inputs", () => {
   it("changes its signature with anything that changes the video, and treats a blank prompt as automatic", () => {
     const base = resolveInputs(currentParts(settings))!;
     expect(resolveInputs(currentParts({ ...settings, lockIn: 9 }))!.signature).not.toBe(base.signature);
-    expect(resolveInputs(currentParts({ ...settings, prompt: "A ball rolls." }))!.prompt).toBe("A ball rolls.");
+    expect(resolveInputs(currentParts({ ...settings, prompt: "A ball rolls." }))!.promptFields.mainPrompt).toBe("A ball rolls.");
     expect(resolveInputs(currentParts({ ...settings, prompt: "   " }))!.signature).toBe(base.signature);
+  });
+  it("keeps main, sound effects and music edits independent and includes all three in the request", () => {
+    const base = resolveInputs(currentParts(settings))!;
+    const changed = resolveInputs(currentParts({ ...settings, prompt: "A ball rolls.", soundEffects: "Soft rolling sounds.", music: "Gentle piano." }))!;
+    expect(changed.promptFields).toEqual({ mainPrompt: "A ball rolls.", soundEffects: "Soft rolling sounds.", music: "Gentle piano." });
+    expect(changed.prompt).toContain("integrated_multimodal_description: [Shot 1] A ball rolls.");
+    expect(changed.prompt).toContain("overall_soundscape: Soft rolling sounds.");
+    expect(changed.prompt).toContain("non_diegetic_music: Gentle piano.");
+    expect(changed.signature).not.toBe(base.signature);
+    expect(resolveInputs(currentParts({ ...settings, soundEffects: "Soft rolling sounds." }))!.signature).not.toBe(base.signature);
+    expect(resolveInputs(currentParts({ ...settings, music: "Gentle piano." }))!.signature).not.toBe(base.signature);
+  });
+  it("uses the existing automatic soundscape by default and allows optional audio fields to be cleared", () => {
+    const base = resolveInputs(currentParts(settings))!;
+    expect(base.promptFields.soundEffects).toBe(DEFAULT_CAPTION.soundscape);
+    expect(base.promptFields.music).toBe("");
+    const silent = resolveInputs(currentParts({ ...settings, soundEffects: "", music: "" }))!;
+    expect(silent.promptFields.mainPrompt).toBe(base.promptFields.mainPrompt);
+    expect(silent.prompt).toContain("overall_soundscape: N/A");
+    expect(silent.prompt).toContain("non_diegetic_music: N/A");
   });
   it("waits for layers that belong to the current background", () => {
     useMotionStore.setState({ layersKey: "stale" });
     expect(resolveInputs(currentParts(settings))).toBeNull();
   });
+  it("includes every subject's motion and layer order, independent of which subject is active", () => {
+    const firstLayers = { ...layers, bounds: { x: 300, y: 400, width: 200, height: 200 } };
+    const secondLayers = { ...layers, bounds: { x: 900, y: 400, width: 200, height: 200 } };
+    const store = useMotionStore.getState();
+    store.prepareSubjects(subjectKeyOf(image.id, mask.id), layersKeyOf(image.url, mask.url, isolation.plate.url), "scene", layers,
+      [{ id: "first", name: "Red ball", layers: firstLayers }, { id: "second", name: "Blue ball", layers: secondLayers }]);
+    store.setPlayhead(123);
+    store.placeSubject({ x: 800, y: 500 });
+    const initial = resolveInputs(currentParts(settings))!;
+    expect(initial.layers.subjects).toHaveLength(2);
+    expect(initial.autoPrompt).toContain("Red ball moves");
+    expect(initial.autoPrompt).toContain("Blue ball stays still");
+    store.selectSubject("second");
+    expect(resolveInputs(currentParts(settings))!.signature).toBe(initial.signature);
+    store.placeSubject({ x: 100, y: 500 });
+    const changed = resolveInputs(currentParts(settings))!;
+    expect(changed.signature).not.toBe(initial.signature);
+    expect(changed.layers.subjects![1].motion).toBe(useMotionStore.getState().subjects[1].motion);
+    store.reorderSubject("second", -1);
+    const reordered = resolveInputs(currentParts(settings))!;
+    expect(reordered.signature).not.toBe(changed.signature);
+    expect(reordered.subjects.map(subject => subject.id)).toEqual(["second", "first"]);
+    expect(reordered.layers.subjects![0].layers).toBe(secondLayers);
+  });
 });
 
 describe("generate guards", () => {
+  it("uploads the composed main prompt and optional audio instructions", async () => {
+    const store = useGenerateStore.getState();
+    store.setPrompt("A red ball rolls past the camera.");
+    store.setSoundEffects("Soft rolling sounds.");
+    store.setMusic("Quiet piano music.");
+    vi.mocked(renderMotionVideos).mockResolvedValue(videos);
+    vi.mocked(apiRequest).mockResolvedValue(queued);
+    vi.mocked(watchJob).mockResolvedValue({ ...queued, status: "cancelled" });
+    await store.generate();
+    const form = vi.mocked(apiRequest).mock.calls[0][1]!.body as FormData;
+    const request = JSON.parse(form.get("request") as string);
+    expect(request.prompt).toContain("integrated_multimodal_description: [Shot 1] A red ball rolls past the camera.");
+    expect(request.prompt).toContain("overall_soundscape: Soft rolling sounds.");
+    expect(request.prompt).toContain("non_diegetic_music: Quiet piano music.");
+  });
   it("defaults lock-in to 6 and snaps changes to the five control points", () => {
     expect(useGenerateStore.getState().lockIn).toBe(6);
     for (const [input, expected] of [[0, 3], [3, 3], [5, 6], [8, 9], [12, 12], [17, 15]]) {

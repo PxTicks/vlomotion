@@ -11,14 +11,16 @@ export function GeneratePanel() {
   const tier = useGenerateStore(s => s.tier);
   const seed = useGenerateStore(s => s.seed);
   const prompt = useGenerateStore(s => s.prompt);
+  const soundEffects = useGenerateStore(s => s.soundEffects);
+  const music = useGenerateStore(s => s.music);
   const status = useGenerateStore(s => s.status);
   const progress = useGenerateStore(s => s.progress);
   const job = useGenerateStore(s => s.job);
   const error = useGenerateStore(s => s.error);
   const notice = useGenerateStore(s => s.notice);
-  const { setLockIn, setTier, setSeed, setPrompt, generate, cancel, clearError } = useGenerateStore.getState();
+  const { setLockIn, setTier, setSeed, setPrompt, setSoundEffects, setMusic, generate, cancel, clearError } = useGenerateStore.getState();
   const visitPhase = useSelectionStore(s => s.visitPhase);
-  const inputs = useGenerationInputs({ tier, lockIn, prompt });
+  const inputs = useGenerationInputs({ tier, lockIn, prompt, soundEffects, music });
   const result = useCurrentResult();
   const busy = status !== "idle";
   const statusText = status === "rendering" ? `Rendering motion frames… ${Math.round((progress ?? 0) * 100)}%`
@@ -29,6 +31,8 @@ export function GeneratePanel() {
       <Typography variant="h2">Bring it to life</Typography>
       <Typography variant="body2" color="text.secondary">MiniMax H3 animates the photo along your path, blending the moving subject into the scene and adding sound.</Typography>
     </Stack>
+    <TextField multiline minRows={6} label="Main prompt" value={prompt ?? inputs?.promptFields.mainPrompt ?? ""} disabled={busy || !inputs}
+      onChange={event => setPrompt(event.target.value)} slotProps={{ htmlInput: { maxLength: 3000 } }} />
     <Box>
       <Stack direction="row" justifyContent="space-between" alignItems="center">
         <Tooltip title={LOCK_IN_HELP} placement="top-start">
@@ -77,10 +81,10 @@ export function GeneratePanel() {
           </Stack>
           <TextField size="small" label="Seed" placeholder="Random" value={seed} disabled={busy} onChange={event => setSeed(event.target.value)}
             slotProps={{ htmlInput: { inputMode: "numeric" } }} helperText="Leave empty for a new random seed each time." />
-          <TextField multiline minRows={8} label="H3 prompt" value={prompt ?? inputs?.autoPrompt ?? ""} disabled={busy || !inputs}
-            onChange={event => setPrompt(event.target.value)} slotProps={{ htmlInput: { maxLength: 4000 } }}
-            helperText={prompt === null ? "Written from the subject description and your path." : "Edited. Your prompt is used as written."} />
-          {prompt !== null && <Button size="small" disabled={busy} onClick={() => setPrompt(null)} sx={{ alignSelf: "start" }}>Use the automatic prompt</Button>}
+          <TextField multiline minRows={3} label="Sound effects [Optional]" value={soundEffects ?? inputs?.promptFields.soundEffects ?? ""} disabled={busy || !inputs}
+            onChange={event => setSoundEffects(event.target.value)} slotProps={{ htmlInput: { maxLength: 500 } }} />
+          <TextField multiline minRows={3} label="Music [Optional]" value={music} disabled={busy || !inputs}
+            onChange={event => setMusic(event.target.value)} slotProps={{ htmlInput: { maxLength: 250 } }} />
         </Stack>
       </AccordionDetails>
     </Accordion>

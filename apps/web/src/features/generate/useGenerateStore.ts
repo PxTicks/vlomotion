@@ -12,11 +12,13 @@ export interface GeneratedVideo extends AnimationResult { signature: string }
 
 interface GenerateState {
   lockIn: number; tier: Tier; seed: string; prompt: string | null;
+  soundEffects: string | null; music: string;
   status: GenerateStatus; progress: number | null; job: JobSnapshot | null;
   result: GeneratedVideo | null; view: "source" | "result"; error: string | null; notice: string | null;
   setLockIn: (lockIn: number) => void; setTier: (tier: Tier) => void; setSeed: (seed: string) => void;
-  /** null returns to the automatic prompt. */
+  /** null follows the generated main prompt or sound effects. */
   setPrompt: (prompt: string | null) => void;
+  setSoundEffects: (soundEffects: string | null) => void; setMusic: (music: string) => void;
   setView: (view: "source" | "result") => void; clearError: () => void;
   /** Renders, uploads and generates. `newSeed` ignores the seed field, for Regenerate. */
   generate: (options?: { newSeed?: boolean }) => Promise<void>;
@@ -27,22 +29,25 @@ const message = (error: unknown) => error instanceof Error ? error.message : "So
 let controller: AbortController | null = null;
 
 export const useGenerateStore = create<GenerateState>((set, get) => ({
-  lockIn: LOCK_IN.default, tier: 480, seed: "", prompt: null,
+  lockIn: LOCK_IN.default, tier: 480, seed: "", prompt: null, soundEffects: null, music: "",
   status: "idle", progress: null, job: null, result: null, view: "source", error: null, notice: null,
   setLockIn: lockIn => set({ lockIn: Math.min(LOCK_IN.max, Math.max(LOCK_IN.min, Math.round(lockIn / LOCK_IN.step) * LOCK_IN.step)) }),
   setTier: tier => set({ tier }),
   setSeed: seed => set({ seed }),
   setPrompt: prompt => set({ prompt }),
+  setSoundEffects: soundEffects => set({ soundEffects }),
+  setMusic: music => set({ music }),
   setView: view => set({ view }),
   clearError: () => set({ error: null }),
   generate: async ({ newSeed = false } = {}) => {
-    const { status, tier, lockIn, prompt, seed: seedText } = get();
+    const { status, tier, lockIn, prompt, soundEffects, music, seed: seedText } = get();
     if (status !== "idle") return;
-    const inputs = resolveInputs(currentParts({ tier, lockIn, prompt }));
+    const inputs = resolveInputs(currentParts({ tier, lockIn, prompt, soundEffects, music }));
     if (!inputs) { set({ error: "Isolate the subject and give it a path before generating." }); return; }
-    const invalid = validateMotion(inputs.motion)[0];
+    const motions = inputs.subjects.length ? inputs.subjects.map(subject => subject.motion) : [inputs.motion];
+    const invalid = motions.flatMap(validateMotion)[0];
     if (invalid) { set({ error: invalid }); return; }
-    if (inputs.motion.keys.length < 2) { set({ error: "The subject doesn't move yet. Go back to Move and drag it along a path." }); return; }
+    if (motions.every(motion => motion.keys.length < 2)) { set({ error: "The subject doesn't move yet. Go back to Move and drag it along a path." }); return; }
     let seed: number | undefined;
     if (!newSeed && seedText.trim()) {
       seed = Number(seedText.trim());

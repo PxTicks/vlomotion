@@ -71,12 +71,27 @@ export function describeMotion(motion: SubjectMotion, size: FrameSize, verb = "m
 
 const clean = (text: string) => text.trim().replace(/[\s.,;:]+$/, "");
 
-/** The I2VA prompt format from MiniMax's H3 prompt guide (Base), with the path described by `describeMotion`. */
-export function buildH3Prompt(caption: Caption, motionPhrase: string): string {
+export interface H3PromptFields { mainPrompt: string; soundEffects: string; music: string }
+
+/** Editable parts of the prompt, without the model's section labels. */
+export function buildH3PromptFields(caption: Caption, motionPhrase: string): H3PromptFields {
+  return {
+    mainPrompt: `${clean(caption.style)}, ${clean(caption.subject)} in <Picture 1> ${clean(motionPhrase)}, ${clean(caption.scene)}. The camera stays still.`,
+    soundEffects: `${clean(caption.soundscape)}.`,
+    music: "",
+  };
+}
+
+/** Packages the editable text into the I2VA format expected by H3. */
+export function composeH3Prompt(fields: H3PromptFields): string {
   return [
     "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.",
-    `integrated_multimodal_description: [Shot 1] ${clean(caption.style)}, ${clean(caption.subject)} in <Picture 1> ${clean(motionPhrase)}, ${clean(caption.scene)}. The camera stays still.`,
-    `overall_soundscape: ${clean(caption.soundscape)}.`,
-    "non_diegetic_music: N/A",
+    `integrated_multimodal_description: [Shot 1] ${fields.mainPrompt.trim()}`,
+    `overall_soundscape: ${fields.soundEffects.trim() || "N/A"}`,
+    `non_diegetic_music: ${fields.music.trim() || "N/A"}`,
   ].join("\n\n");
+}
+
+export function buildH3Prompt(caption: Caption, motionPhrase: string): string {
+  return composeH3Prompt(buildH3PromptFields(caption, motionPhrase));
 }

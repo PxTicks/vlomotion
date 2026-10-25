@@ -92,10 +92,15 @@ instructions are labelled **Custom removal instruction**, including when a VLM
 caption is cached. Manual runs without a model description don't populate that
 cache. Missing caption fields use defaults without blocking a valid removal phrase.
 
-**Continue** opens the Move phase. Drag the subject to record a path automatically.
-Recording is available only while no path exists; use **Clear path** to record
-again. Dragging the subject along an existing path adjusts its position at the
-playhead without replacing the other keys.
+**Continue** opens the Move phase. Every included subject has its own path and
+colour. Click a subject on the canvas to activate it; overlapping subjects receive
+clicks from front to back. The **Subjects** menu also selects subjects, and its
+arrows change the layer order. The top row is in front. Paths, diamond keys and
+the active subject's timeline use that subject's colour.
+Drag the subject to record a path automatically. Recording is available only
+while that subject has no path; use **Clear path** to record again. This clears
+only the active subject's path. Dragging a subject along an existing path adjusts
+its position at the playhead without replacing its other keys.
 Drag a ◆ on the canvas to adjust its position, or on the timeline to adjust its
 timing. Click the path to insert a key. Motion uses smooth timing by default.
 **Clear path** restores the subject's starting position and removes the path,
@@ -105,7 +110,9 @@ pauses and speed changes keep their proportions.
 The first frame is always the original photo. Clips are 5, 7 or 10 s (124, 175
 or 243 frames at 24 fps), and keys sit on those frames. Shortcuts: Space plays,
 K adds a key, Delete removes the selected key, and arrow keys step frames.
-Retrying the background keeps the path; changing the selection resets it.
+Retrying the background keeps the paths and layer order. Unchanged subjects keep
+their paths when the selection changes; a new photo resets all paths. Preview and
+video rendering composite every subject using its own path and the chosen order.
 
 **Continue** opens Generate. The workflow uses **25 sampling steps**.
 **Motion lock-in** offers **3, 6, 9, 12 and 15**, default **6**, setting the step
@@ -115,9 +122,12 @@ reference and mask videos in a Web Worker, encodes exactly 124, 175 or 243
 frames with mediabunny (H.264 MP4, or VP9 WebM where H.264 isn't available),
 uploads them with the start frame and runs the animate workflow. **Source |
 Result** switches between the frames H3 receives and the generated video.
-**Advanced** holds the resolution (480p, or 720p at 1248 × 704 for 16:9), a
-fixed seed and the H3 prompt. The prompt follows MiniMax's I2VA format, built
-from the subject caption and a description of your path; edit it to override.
+**Main prompt** is always visible and starts with the generated subject and path
+description. Edit it to change the visual instructions. **Advanced** holds the
+resolution (480p, or 720p at 1248 × 704 for 16:9), fixed seed, **Sound effects
+[Optional]**, and **Music [Optional]**. Sound effects start with the suggested
+scene ambience; music starts blank. The H3 header and section labels are added
+when submitting the prompt, so they do not appear in the text boxes.
 **Regenerate** runs again with a new seed. A result is marked out of date when
 the motion or settings change afterwards.
 Cancellation or a failed retry keeps the last successful background.

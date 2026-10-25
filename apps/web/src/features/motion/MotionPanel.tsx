@@ -5,6 +5,8 @@ import { useSelectionStore } from "../select";
 import { formatSeconds, signed } from "./format";
 import { subjectKeyOf } from "./subjectLayers";
 import { useMotionStore } from "./useMotionStore";
+import { SUBJECT_COLORS } from "./useMotionStore";
+import { MotionSubjects } from "./MotionSubjects";
 
 export function MotionPanel() {
   const image = useSelectionStore(s => s.image);
@@ -12,6 +14,8 @@ export function MotionPanel() {
   const visitPhase = useSelectionStore(s => s.visitPhase);
   const subjectKey = useMotionStore(s => s.subjectKey);
   const motion = useMotionStore(s => s.motion);
+  const subjects = useMotionStore(s => s.subjects);
+  const activeSubjectId = useMotionStore(s => s.activeSubjectId);
   const bounds = useMotionStore(s => s.bounds);
   const size = useMotionStore(s => s.size);
   const selectedKeyId = useMotionStore(s => s.selectedKeyId);
@@ -32,16 +36,18 @@ export function MotionPanel() {
 
   const index = motion.keys.findIndex(key => key.id === selectedKeyId);
   const selected = motion.keys[index];
-  const errors = validateMotion(motion);
-  const moving = curve.length > 0;
+  const errors = subjects.length ? subjects.flatMap(subject => validateMotion(subject.motion).map(error => `${subject.name}: ${error}`)) : validateMotion(motion);
+  const moving = subjects.length ? subjects.some(subject => buildMotionCurve(subject.motion).length > 0) : curve.length > 0;
+  const color = subjects.find(subject => subject.id === activeSubjectId)?.color ?? SUBJECT_COLORS[0];
 
   return <Stack spacing={2.5}>
     {heading}
+    <MotionSubjects />
     {notice && <Typography role="status" variant="body2" color="text.secondary">{notice}</Typography>}
     {selected ? <Paper variant="outlined" sx={{ p: 2, bgcolor: "#2b2040" }}>
       <Stack spacing={1.5}>
         <Stack direction="row" justifyContent="space-between" alignItems="baseline">
-          <Typography variant="overline" sx={{ lineHeight: 1.4 }}><Box component="span" sx={{ color: "primary.main" }}>◆</Box> KEY {index + 1}</Typography>
+          <Typography variant="overline" sx={{ lineHeight: 1.4 }}><Box component="span" sx={{ color }}>◆</Box> KEY {index + 1}</Typography>
           <Typography variant="body2" sx={{ fontVariantNumeric: "tabular-nums" }}>{formatSeconds(selected.frame)} · {signed(selected.x - motion.anchor.x)}, {signed(selected.y - motion.anchor.y)}</Typography>
         </Stack>
         {isStartKey(motion, selected.id) ? <Typography variant="caption" color="text.secondary">The first key is your photo. It stays at 0 s in its original position.</Typography>

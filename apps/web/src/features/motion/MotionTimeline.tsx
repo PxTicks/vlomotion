@@ -3,13 +3,14 @@ import type { PointerEvent as ReactPointerEvent } from "react";
 import { Box, Button, IconButton, Stack, ToggleButton, ToggleButtonGroup, Typography } from "@mui/material";
 import { CLIP_FRAMES, FPS, frameCountSchema, isStartKey, lastFrame } from "@h3-motion/shared";
 import { formatSeconds } from "./format";
-import { useMotionStore } from "./useMotionStore";
+import { SUBJECT_COLORS, useMotionStore } from "./useMotionStore";
 
 type TrackDrag = { pointerId: number } & ({ kind: "scrub" } | { kind: "key"; id: string });
 
 /** Read-only, the timeline only plays and scrubs: keys are shown but can't be moved, added or recorded. */
 export function MotionTimeline({ readOnly = false }: { readOnly?: boolean }) {
   const motion = useMotionStore(s => s.motion);
+  const color = useMotionStore(s => s.subjects.find(subject => subject.id === s.activeSubjectId)?.color ?? SUBJECT_COLORS[0]);
   const playhead = useMotionStore(s => s.playhead);
   const playing = useMotionStore(s => s.playing);
   const recording = useMotionStore(s => s.recording);
@@ -80,8 +81,8 @@ export function MotionTimeline({ readOnly = false }: { readOnly?: boolean }) {
           const start = isStartKey(motion, key.id), active = key.id === selectedKeyId;
           return <Box key={key.id} data-key-id={key.id} title={`Key at ${formatSeconds(key.frame)}${start ? " (photo)" : ""}`}
             sx={{ position: "absolute", left: percent(key.frame), top: "50%", width: 14, height: 14, transform: "translate(-50%, -50%) rotate(45deg)",
-              bgcolor: active ? "primary.main" : start ? "#7e7c78" : "#211927", border: "2px solid", borderRadius: "2px",
-              borderColor: active ? "#f0efed" : start ? "#c2bfb9" : "primary.main", cursor: readOnly ? "inherit" : start ? "pointer" : "ew-resize" }} />;
+              bgcolor: active ? color : "#211927", border: "2px solid", borderRadius: "2px", opacity: start ? .65 : 1,
+              borderColor: active ? "#f0efed" : color, cursor: readOnly ? "inherit" : start ? "pointer" : "ew-resize" }} />;
         })}
       </Box>
       {!readOnly && <Button variant="outlined" size="small" onClick={addKey} disabled={recording || playhead === 0 || keyAtPlayhead} sx={{ minWidth: 0, px: 1.5 }}>◆ Key</Button>}

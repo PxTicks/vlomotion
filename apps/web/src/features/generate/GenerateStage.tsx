@@ -10,7 +10,9 @@ export function GenerateStage() {
   const tier = useGenerateStore(s => s.tier);
   const lockIn = useGenerateStore(s => s.lockIn);
   const prompt = useGenerateStore(s => s.prompt);
-  const inputs = useGenerationInputs({ tier, lockIn, prompt });
+  const soundEffects = useGenerateStore(s => s.soundEffects);
+  const music = useGenerateStore(s => s.music);
+  const inputs = useGenerationInputs({ tier, lockIn, prompt, soundEffects, music });
   const result = useCurrentResult();
   const showing = view === "result" && result ? "result" : "source";
   const stale = !!result && !!inputs && result.signature !== inputs.signature;

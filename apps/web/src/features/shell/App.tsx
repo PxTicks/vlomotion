@@ -23,7 +23,8 @@ export function App() {
   const mask = useSelectionStore(s => s.mask);
   const isolation = useSelectionStore(currentIsolation);
   const image = useSelectionStore(s => s.image);
-  const moved = useMotionStore(s => !!image && !!mask && s.subjectKey === subjectKeyOf(image.id, mask.id) && (s.motion?.keys.length ?? 0) > 1);
+  const moved = useMotionStore(s => !!image && !!mask && s.subjectKey === subjectKeyOf(image.id, mask.id)
+    && (s.subjects.length ? s.subjects.some(subject => subject.motion.keys.length > 1) : (s.motion?.keys.length ?? 0) > 1));
   const visitPhase = useSelectionStore(s => s.visitPhase);
   const error = useSelectionStore(s => s.error);
   const notice = useSelectionStore(s => s.notice);

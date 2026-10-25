@@ -4,3 +4,4 @@ export { drawMask, drawReference, layersKeyOf, subjectKeyOf } from "./subjectLay
 export type { RenderLayers, SubjectLayers } from "./subjectLayers";
 export { useSubjectLayers } from "./useSubjectLayers";
 export { useMotionStore } from "./useMotionStore";
+export type { MotionSubject } from "./useMotionStore";

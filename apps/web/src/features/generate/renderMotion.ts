@@ -16,14 +16,17 @@ export async function renderMotionVideos(layers: RenderLayers, motion: SubjectMo
     return await new Promise<MotionVideos>((resolve, reject) => {
       onAbort = () => reject(new DOMException("Rendering cancelled.", "AbortError"));
       signal.addEventListener("abort", onAbort, { once: true });
-      void Promise.all([layers.photo, layers.plate, layers.cutout, layers.matte].map(async image => {
+      const subjects = layers.subjects ?? [];
+      const images = [layers.photo, layers.plate, layers.cutout, layers.matte, ...subjects.flatMap(subject => [subject.layers.cutout, subject.layers.matte])];
+      void Promise.all(images.map(async image => {
         const bitmap = await createImageBitmap(image);
         // Copies may finish after cancellation or another copy's failure.
         if (disposed) bitmap.close();
         else bitmaps.push(bitmap);
         return bitmap;
-      })).then(([photo, plate, cutout, matte]) => {
+      })).then(copies => {
         if (disposed) return;
+        const [photo, plate, cutout, matte] = copies;
         signal.throwIfAborted();
         worker = new Worker(new URL("./encode.worker.ts", import.meta.url), { type: "module" });
         worker.onmessage = (event: MessageEvent<EncodeMessage>) => {
@@ -33,8 +36,10 @@ export async function renderMotionVideos(layers: RenderLayers, motion: SubjectMo
           else resolve(message);
         };
         worker.onerror = event => reject(new Error(event.message || "Could not encode the motion videos."));
-        const request: EncodeRequest = { layers: { width: layers.width, height: layers.height, photo, plate, cutout, matte }, motion, size };
-        worker.postMessage(request, [photo, plate, cutout, matte]);
+        const request: EncodeRequest = { layers: { width: layers.width, height: layers.height, photo, plate, cutout, matte,
+          ...(subjects.length ? { subjects: subjects.map((subject, index) => ({ motion: subject.motion,
+            layers: { width: subject.layers.width, height: subject.layers.height, photo, plate, cutout: copies[4 + index * 2], matte: copies[5 + index * 2] } })) } : {}) }, motion, size };
+        worker.postMessage(request, copies);
       }).catch(reject);
     });
   } finally {

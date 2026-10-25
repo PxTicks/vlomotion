@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_CAPTION } from "../description.js";
 import { createMotion, upsertKey } from "../motion.js";
 import type { SubjectMotion } from "../motion.js";
-import { buildH3Prompt, describeMotion } from "../prompt.js";
+import { buildH3Prompt, buildH3PromptFields, composeH3Prompt, describeMotion } from "../prompt.js";
 
 const size = { width: 1000, height: 500 };
 let counter = 0;
@@ -43,6 +43,26 @@ describe("motion description", () => {
 });
 
 describe("H3 prompt", () => {
+  it("provides separate editable fields without the model's section labels", () => {
+    const fields = buildH3PromptFields(DEFAULT_CAPTION, "moves to the right");
+    expect(fields.mainPrompt).toContain("the selected subject in <Picture 1> moves to the right");
+    expect(fields.mainPrompt).not.toContain("integrated_multimodal_description");
+    expect(fields.mainPrompt).not.toContain("For the target video");
+    expect(fields.mainPrompt).not.toContain("[Shot 1]");
+    expect(fields.mainPrompt).not.toContain("overall_soundscape");
+    expect(fields.mainPrompt).not.toContain("non_diegetic_music");
+    expect(fields.soundEffects).toBe(DEFAULT_CAPTION.soundscape);
+    expect(fields.music).toBe("");
+    expect(composeH3Prompt(fields)).toBe(buildH3Prompt(DEFAULT_CAPTION, "moves to the right"));
+  });
+  it("places optional audio in its own sections and treats blank fields as N/A", () => {
+    const fields = { mainPrompt: "A ball rolls.", soundEffects: "  Rolling on gravel.  ", music: "  Upbeat piano.  " };
+    const prompt = composeH3Prompt(fields);
+    expect(prompt).toContain("overall_soundscape: Rolling on gravel.");
+    expect(prompt).toContain("non_diegetic_music: Upbeat piano.");
+    expect(composeH3Prompt({ ...fields, soundEffects: " ", music: "" })).toContain("overall_soundscape: N/A\n\nnon_diegetic_music: N/A");
+    expect(composeH3Prompt({ mainPrompt: "a".repeat(3000), soundEffects: "b".repeat(500), music: "c".repeat(250) }).length).toBeLessThanOrEqual(4000);
+  });
   it("fills the I2VA template without doubled punctuation", () => {
     expect(buildH3Prompt({ ...DEFAULT_CAPTION, subject: "the brown dog", scene: "on a sunlit lawn.", soundscape: "Paws thud on grass." },
       "runs to the right across the frame")).toBe([
