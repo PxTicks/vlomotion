@@ -9,7 +9,7 @@ import { serveStatic } from "@hono/node-server/serve-static";
 import { ZodError } from "zod";
 import sharp from "sharp";
 import type { Comfy } from "@comfyorg/sdk";
-import { animateRequestSchema, aspectRatioSchema, generationSize, isolateRequestSchema, segmentRequestSchema, selectionRequestSchema } from "@h3-motion/shared";
+import { MAX_VIDEO_UPLOAD_BYTES, animateRequestSchema, aspectRatioSchema, generationSize, inpaintFrames, inpaintRequestSchema, inpaintSize, isolateRequestSchema, segmentRequestSchema, selectionRequestSchema } from "@h3-motion/shared";
 import type { AnimateRequest } from "@h3-motion/shared";
 import { comfy, checkComfyHealth } from "./comfy.js";
 import { REPO_ROOT } from "./config.js";
@@ -18,6 +18,7 @@ import type { Session } from "./sessions.js";
 import { startSegment } from "./jobs/segment.js";
 import { startIsolate } from "./jobs/isolate.js";
 import { startAnimate } from "./jobs/animate.js";
+import { startInpaint } from "./jobs/inpaint.js";
 import { cancelJob } from "./jobs/runtime.js";
 import { decodeMask, encodeMask } from "./media/masks.js";
 import { inspectVideo } from "./media/video.js";
@@ -27,7 +28,12 @@ interface AppOptions { store?: SessionStore; client?: Comfy; health?: () => Prom
 const GENERATION_SIZES = aspectRatioSchema.options.flatMap(ratio => ([480, 720] as const).map(tier => generationSize(ratio, tier)));
 const CONTENT_TYPES: Record<string, string> = { ".png": "image/png", ".mp4": "video/mp4", ".webm": "video/webm" };
 
-async function readVideoUpload(value: FormDataEntryValue | null, request: AnimateRequest, label: string) {
+function assertVideoUploadSize(form: FormData) {
+  const bytes = [...form.values()].reduce((total, value) => total + (value instanceof File ? value.size : 0), 0);
+  if (bytes > MAX_VIDEO_UPLOAD_BYTES) throw new HTTPException(413, { message: "Choose a video upload up to 200 MB." });
+}
+
+async function readVideoUpload(value: FormDataEntryValue | null, request: Pick<AnimateRequest, "width" | "height"> & { frames: number }, label: string) {
   if (!(value instanceof File)) throw new HTTPException(400, { message: `The ${label} video is missing.` });
   const bytes = new Uint8Array(await value.arrayBuffer());
   const info = await inspectVideo(bytes).catch(() => { throw new HTTPException(400, { message: `The ${label} video can't be read. Use MP4 or WebM.` }); });
@@ -44,9 +50,10 @@ export function createApp(options: AppOptions = {}) {
 
   const photoLimit = bodyLimit({ maxSize: 20 * 1024 * 1024,
     onError: c => c.json({ error: "Photo is too large. Choose an image under 20 MB." }, 413) });
-  const videoLimit = bodyLimit({ maxSize: 200 * 1024 * 1024,
-    onError: c => c.json({ error: "The motion videos are too large to upload." }, 413) });
-  app.use("/api/*", (c, next) => (c.req.path === "/api/jobs/animate" ? videoLimit : photoLimit)(c, next));
+  // Bound multipart framing separately from the combined file size.
+  const videoLimit = bodyLimit({ maxSize: MAX_VIDEO_UPLOAD_BYTES + 1024 * 1024,
+    onError: c => c.json({ error: "Choose a video upload up to 200 MB." }, 413) });
+  app.use("/api/*", (c, next) => (["/api/jobs/animate", "/api/jobs/inpaint", "/api/videos"].includes(c.req.path) ? videoLimit : photoLimit)(c, next));
   app.use("/api/*", async (c, next) => {
     c.header("Cache-Control", "no-store");
     c.header("X-Content-Type-Options", "nosniff");
@@ -87,9 +94,32 @@ export function createApp(options: AppOptions = {}) {
     const saved = await store.savePng(session, png);
     if (isBusy(session)) throw new HTTPException(409, { message: "A job started while the photo was uploading. Wait for it to finish or cancel it before replacing the photo." });
     session.image = { ...saved, width, height };
+    session.video = undefined; session.inpainting = undefined;
     session.candidates.clear(); session.selection = undefined; session.job = undefined;
     clearIsolation(session);
     return c.json({ id: saved.id, url: saved.url, width, height }, 201);
+  });
+  app.post("/api/videos", async c => {
+    const session = c.get("session");
+    if (isBusy(session)) throw new HTTPException(409, { message: "Cancel the active job before changing the video." });
+    const form = await c.req.formData();
+    const file = form.get("video");
+    if (!(file instanceof File)) throw new HTTPException(400, { message: "Choose a video to upload." });
+    assertVideoUploadSize(form);
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const info = await inspectVideo(bytes).catch(() => { throw new HTTPException(400, { message: "Use an MP4 or WebM video." }); });
+    if (!Number.isFinite(info.duration) || info.duration < 5 / 24 || info.frames < 5
+      || info.width / info.height < 0.25 || info.width / info.height > 4 || Math.max(info.width, info.height) > 7680) {
+      throw new HTTPException(400, { message: "Choose a readable video at least 0.21 seconds long, with an aspect ratio between 1:4 and 4:1." });
+    }
+    if (isBusy(session)) throw new HTTPException(409, { message: "A job is already running." });
+    const saved = await store.saveFile(session, bytes, info.container);
+    if (isBusy(session)) throw new HTTPException(409, { message: "A job started while uploading. Try again when it finishes." });
+    const video = { id: saved.id, url: saved.url, width: info.width, height: info.height, frames: info.frames, startTime: info.startTime, duration: info.duration };
+    session.video = { ...video, path: saved.path }; session.inpainting = undefined;
+    session.image = undefined; session.selection = undefined; session.candidates.clear(); session.job = undefined;
+    clearIsolation(session);
+    return c.json(video, 201);
   });
   app.get("/api/files/:id", async c => {
     const path = c.get("session").files.get(c.req.param("id"));
@@ -143,6 +173,7 @@ export function createApp(options: AppOptions = {}) {
     const session = c.get("session");
     if (isBusy(session)) throw new HTTPException(409, { message: "A job is already running in this session." });
     const form = await c.req.formData().catch(() => { throw new HTTPException(400, { message: "Send the motion videos as a multipart form." }); });
+    assertVideoUploadSize(form);
     const request = animateRequestSchema.parse(JSON.parse(String(form.get("request") ?? "")));
     const { image, selection, isolation } = session;
     if (!image || !selection || !isolation || image.id !== request.imageId || selection.id !== request.maskId || isolation.plate.id !== request.plateId) {
@@ -167,6 +198,44 @@ export function createApp(options: AppOptions = {}) {
     if (!unchanged()) throw new HTTPException(409, { message: "The subject changed while uploading. Generate again." });
     return c.json(startAnimate(client, store, session, request,
       { startPath: startFile.path, referencePath: referenceFile.path, maskPath: maskFile.path }).snapshot, 202);
+  });
+  app.post("/api/jobs/inpaint", async c => {
+    const session = c.get("session");
+    if (isBusy(session)) throw new HTTPException(409, { message: "A job is already running in this session." });
+    const form = await c.req.formData().catch(() => { throw new HTTPException(400, { message: "Send the videos as a multipart form." }); });
+    assertVideoUploadSize(form);
+    const request = inpaintRequestSchema.parse(JSON.parse(String(form.get("request") ?? "")));
+    const video = session.video;
+    if (!video || video.id !== request.videoId) throw new HTTPException(409, { message: "The source video changed. Upload it again." });
+    const size = inpaintSize(video.width, video.height);
+    if (request.width !== size.width || request.height !== size.height || request.frames !== inpaintFrames(video.duration)) {
+      throw new HTTPException(400, { message: "The prepared video doesn't match the source video." });
+    }
+    const source = await readVideoUpload(form.get("source"), request, "source");
+    const mask = await readVideoUpload(form.get("mask"), request, "mask");
+    let reference: Buffer | undefined;
+    const file = form.get("reference");
+    if (file !== null) {
+      if (!(file instanceof File) || file.size > 20 * 1024 * 1024) throw new HTTPException(400, { message: "Choose a reference image under 20 MB." });
+      reference = await sharp(new Uint8Array(await file.arrayBuffer()), { limitInputPixels: 16_000_000 })
+        .rotate().resize({ width: 2048, height: 2048, fit: "inside", withoutEnlargement: true }).removeAlpha().png().toBuffer()
+        .catch(() => { throw new HTTPException(400, { message: "The reference image can't be read." }); });
+    }
+    const unchanged = () => !isBusy(session) && session.video === video;
+    if (!unchanged()) throw new HTTPException(409, { message: "The video changed while uploading. Try again." });
+    const [sourceFile, maskFile, referenceFile] = await Promise.all([
+      store.saveFile(session, source.bytes, source.container), store.saveFile(session, mask.bytes, mask.container),
+      reference ? store.savePng(session, reference) : undefined,
+    ]);
+    if (!unchanged()) throw new HTTPException(409, { message: "The video changed while uploading. Try again." });
+    const signal = c.req.raw.signal;
+    if (signal.aborted) throw new HTTPException(400, { message: "Inpainting cancelled." });
+    const job = startInpaint(client, store, session, request,
+      { sourcePath: sourceFile.path, maskPath: maskFile.path, referencePath: referenceFile?.path });
+    const abort = () => { void cancelJob(job).catch(error => console.error("Could not cancel inpainting after upload was aborted", error)); };
+    signal.addEventListener("abort", abort, { once: true });
+    void job.done.then(() => signal.removeEventListener("abort", abort));
+    return c.json(job.snapshot, 202);
   });
   app.get("/api/jobs/:id", c => {
     const job = c.get("session").job;

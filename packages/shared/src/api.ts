@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { captionSchema } from "./description.js";
 import { frameCountSchema } from "./media.js";
+import { inpaintResultSchema } from "./inpaint.js";
 
 export const pointSchema = z.object({ x: z.number().finite().nonnegative(), y: z.number().finite().nonnegative() });
 const idSchema = z.uuid();
@@ -64,9 +65,10 @@ export const jobSnapshotSchema = z.object({
   status: z.enum(["queued", "running", "completed", "failed", "cancelled"]),
   message: z.string(), progress: z.number().min(0).max(1).nullable(),
   candidates: z.array(maskCandidateSchema), error: z.string().nullable(),
-  stage: z.enum(["segment", "describe", "isolate", "animate"]).optional(),
+  stage: z.enum(["segment", "describe", "isolate", "animate", "inpaint"]).optional(),
   isolation: isolationResultSchema.optional(),
   animation: animationResultSchema.optional(),
+  inpainting: inpaintResultSchema.optional(),
   imageId: idSchema.optional(), maskId: idSchema.optional(),
 });
 export type JobSnapshot = z.infer<typeof jobSnapshotSchema>;

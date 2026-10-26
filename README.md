@@ -3,6 +3,20 @@
 Lift a subject out of a photo and drag it into motion. A standalone React app
 using the Comfy SDK and self-hosted ComfyUI. This is an early implementation.
 
+Start by uploading an image or video. Images open the existing Select → Isolate →
+Move → Generate workflow. MP4/WebM videos open Draw mask → Animate → Generate:
+draw a rectangle or ellipse, scrub and move/resize it to add keyframes, then add a
+prompt and optional reference image (`<Picture 1>`). Mask position and size
+interpolate between keyframes. Video preparation uses a 480p strided canvas at
+24 fps and up to the first 243 frames, trimmed to H3's 17k+5 frame grid.
+
+Video inpainting uses the main masked-latent pass from `~/vlo`'s
+`vlo_minimax_h3_inpaint.json`, with the `minimax_h3_ref2va_pruned_int8_convrot.safetensors`
+model and `vloMaskToLatentMask` from ComfyUI-vlo. There is one sampling pass;
+the seam-correction pass is omitted. The app fills the masked source region with
+neutral gray before encoding and composites generated pixels into the source
+through the animated mask. The output includes generated audio.
+
 Currently implemented: npm workspaces, the themed app shell, photo upload with
 centre crop, text-based SAM 3.1 candidates, multiple selection, point refinement,
 mask union/confirmation, session-scoped files, job progress and cancellation.

@@ -2,8 +2,30 @@ import { describe, expect, it } from "vitest";
 import { Comfy } from "@comfyorg/sdk";
 import { ANIMATE_BINDINGS, ANIMATE_MODEL, ANIMATE_OUTPUT, assertBindings, buildAnimateWorkflow, buildDescribeWorkflow, buildIsolateWorkflow, buildSegmentWorkflow, DESCRIBE_BINDINGS, DESCRIBE_OUTPUTS, ISOLATE_BINDINGS, ISOLATE_OUTPUT, isolationGeometry, loadTemplate, samText, REFINE_BINDINGS, SEGMENT_BINDINGS, SEGMENT_OUTPUT } from "../templates.js";
 import type { ApiGraph } from "../templates.js";
+import { INPAINT_BINDINGS, INPAINT_OUTPUT, buildInpaintWorkflow } from "../templates.js";
 
 describe("workflow contracts", () => {
+  it("validates inpaint bindings and rejects changed node ids, classes and inputs", async () => {
+    const graph = await loadTemplate("inpaint");
+    assertBindings(graph, Object.values(INPAINT_BINDINGS));
+    expect(graph[INPAINT_OUTPUT].class_type).toBe("SaveVideo");
+    for (const binding of Object.values(INPAINT_BINDINGS)) {
+      const missingNode = structuredClone(graph);
+      delete missingNode[binding.node];
+      expect(() => assertBindings(missingNode, [binding])).toThrow("Workflow binding changed:");
+      const changedClass = structuredClone(graph);
+      changedClass[binding.node].class_type = "DifferentNode";
+      expect(() => assertBindings(changedClass, [binding])).toThrow("Workflow binding changed:");
+      const missingInput = structuredClone(graph);
+      delete missingInput[binding.node].inputs[binding.input];
+      expect(() => assertBindings(missingInput, [binding])).toThrow("Workflow binding changed:");
+    }
+    const workflow = await buildInpaintWorkflow(new Comfy(), { sourcePath: "/tmp/source.mp4", maskPath: "/tmp/mask.mp4",
+      size: { width: 480, height: 864 }, frames: 107, prompt: "A bird flies.", seed: 42 });
+    expect(workflow.json["11"]).toMatchObject({ inputs: { width: 480, height: 864 } });
+    expect(workflow.json["14"]).toMatchObject({ inputs: { width: 480, height: 864, length: 107, prompt: "A bird flies." } });
+    expect(workflow.json["23"]).toMatchObject({ inputs: { noise_seed: 42 } });
+  });
   it("binds text and points variants to the correct classes", async () => {
     const text = await loadTemplate("segment_text");
     const points = await loadTemplate("segment_points");
@@ -119,7 +141,7 @@ describe("workflow contracts", () => {
     expect(plain["16"].inputs).toMatchObject({ end_step: 15, model: ["15", 0] });
     expect(plain).not.toHaveProperty("spectrum");
     const fast = (await buildAnimateWorkflow(new Comfy(), { ...options, spectrum: true })).json as ApiGraph;
-    expect(fast.spectrum).toMatchObject({ class_type: "SpectrumApplyMiniMaxH3", inputs: { model: ["15", 0], enabled: true } });
+    expect(fast.spectrum).toMatchObject({ class_type: "SpectrumApplyMiniMaxH3", inputs: { model: ["15", 0], enabled: true, offline_smoothing_replay: false } });
     expect(fast["16"].inputs.model).toEqual(["spectrum", 0]);
     expect(fast["18"].inputs.model).toEqual(["spectrum", 0]);
     expect((await loadTemplate("animate"))["16"].inputs.model).toEqual(["15", 0]);

@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 export const FPS = 24;
+export const MAX_VIDEO_UPLOAD_BYTES = 200 * 1024 * 1024;
 export const CLIP_FRAMES = { 5: 124, 7: 175, 10: 243 } as const;
 export const aspectRatioSchema = z.enum(["16:9", "9:16", "1:1"]);
 export type AspectRatio = z.infer<typeof aspectRatioSchema>;

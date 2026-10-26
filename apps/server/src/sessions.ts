@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { AnimationResult, ImageAsset, IsolationResult, MaskCandidate, SubjectDescription } from "@h3-motion/shared";
+import type { AnimationResult, ImageAsset, InpaintResult, IsolationResult, MaskCandidate, SubjectDescription, VideoAsset } from "@h3-motion/shared";
 import { DATA_ROOT } from "./config.js";
 import type { ManagedJob } from "./jobs/runtime.js";
 
@@ -12,6 +12,8 @@ export interface Session {
   files: Map<string, string>;
   candidates: Map<string, StoredCandidate>;
   image?: StoredImage;
+  video?: VideoAsset & { path: string };
+  inpainting?: InpaintResult;
   selection?: StoredImage;
   description?: SubjectDescription & { imageId: string; maskId: string; userText: string };
   isolation?: IsolationResult;

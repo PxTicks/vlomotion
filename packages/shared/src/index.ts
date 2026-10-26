@@ -4,3 +4,4 @@ export * from "./description.js";
 export * from "./media.js";
 export * from "./motion.js";
 export * from "./prompt.js";
+export * from "./inpaint.js";

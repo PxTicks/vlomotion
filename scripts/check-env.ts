@@ -7,6 +7,7 @@ const nodes = [
   "CLIPLoader", "TextGenerate", "SaveText", "UNETLoader", "VAELoader", "TextEncodeQwenImage21",
   "QwenImage21Cache", "GrowMask", "ImageBlur", "ImageToMask", "ImageCompositeMasked",
   "LoadVideo", "GetVideoComponents", "MiniMaxH3ImageToVideo", "vloTimeToMove", "CreateVideo", "SaveVideo",
+  "MiniMaxH3ReferenceToVideo", "vloMaskToLatentMask", "SetLatentNoiseMask", "LTXVSeparateAVLatent", "LTXVConcatAVLatent",
 ];
 const models = [
   ["CheckpointLoaderSimple", "ckpt_name", "sam3.1_multiplex_fp16.safetensors"],
@@ -14,6 +15,7 @@ const models = [
   ["CLIPLoader", "clip_name", "qwen3vl_8b_int8_convrot.safetensors"],
   ["VAELoader", "vae_name", "qwen_image_2.1_vae_bf16.safetensors"],
   ["UNETLoader", "unet_name", "minimax_h3_fl2va_pruned_int8_convrot.safetensors"],
+  ["UNETLoader", "unet_name", "minimax_h3_ref2va_pruned_int8_convrot.safetensors"],
   ["CLIPLoader", "clip_name", "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"],
   ["VAELoader", "vae_name", "minimax_h3_video_vae_int8_convrot.safetensors"],
   ["VAELoader", "vae_name", "minimax_h3_audio_vae_fp32.safetensors"],

@@ -24,7 +24,7 @@ export const REFINE_BINDINGS = {
 } satisfies Record<string, Binding>;
 export const SEGMENT_OUTPUT = "6";
 
-export async function loadTemplate(name: "segment_text" | "segment_points" | "segment_refine" | "describe" | "isolate" | "animate"): Promise<ApiGraph> {
+export async function loadTemplate(name: "segment_text" | "segment_points" | "segment_refine" | "describe" | "isolate" | "animate" | "inpaint"): Promise<ApiGraph> {
   return graphSchema.parse(JSON.parse(await readFile(join(REPO_ROOT, "workflows/api", `h3m_${name}.api.json`), "utf8")));
 }
 
@@ -69,6 +69,38 @@ export const ANIMATE_MODEL = {
   scheduler: { node: "18", input: "model", classType: "BasicScheduler" },
 } satisfies Record<string, Binding>;
 export const ANIMATE_OUTPUT = "25";
+
+export const INPAINT_BINDINGS = {
+  source: { node: "5", input: "file", classType: "LoadVideo" },
+  mask: { node: "7", input: "file", classType: "LoadVideo" },
+  fillWidth: { node: "11", input: "width", classType: "EmptyImage" },
+  fillHeight: { node: "11", input: "height", classType: "EmptyImage" },
+  width: { node: "14", input: "width", classType: "MiniMaxH3ReferenceToVideo" },
+  height: { node: "14", input: "height", classType: "MiniMaxH3ReferenceToVideo" },
+  length: { node: "14", input: "length", classType: "MiniMaxH3ReferenceToVideo" },
+  prompt: { node: "14", input: "prompt", classType: "MiniMaxH3ReferenceToVideo" },
+  seed: { node: "23", input: "noise_seed", classType: "RandomNoise" },
+} satisfies Record<string, Binding>;
+export const INPAINT_OUTPUT = "29";
+export async function buildInpaintWorkflow(client: Comfy, options: {
+  sourcePath: string; maskPath: string; referencePath?: string; size: FrameSize; frames: number; prompt: string; seed: number;
+}): Promise<Workflow> {
+  const graph = await loadTemplate("inpaint");
+  assertBindings(graph, [...Object.values(INPAINT_BINDINGS), { node: INPAINT_OUTPUT, input: "video", classType: "SaveVideo" }]);
+  if (options.referencePath) {
+    graph.reference = { class_type: "LoadImage", inputs: { image: "reference.png" } };
+    graph[INPAINT_BINDINGS.prompt.node].inputs["ref_images.ref_image_1"] = ["reference", 0];
+  }
+  const workflow = client.workflows.fromJson(graph);
+  const values: Record<keyof typeof INPAINT_BINDINGS, unknown> = {
+    source: client.assets.fromFile(options.sourcePath), mask: client.assets.fromFile(options.maskPath),
+    fillWidth: options.size.width, fillHeight: options.size.height, width: options.size.width, height: options.size.height,
+    length: options.frames, prompt: options.prompt, seed: options.seed,
+  };
+  for (const [key, binding] of Object.entries(INPAINT_BINDINGS)) workflow.setInput(binding.node, binding.input, values[key as keyof typeof values]);
+  if (options.referencePath) workflow.setInput("reference", "image", client.assets.fromFile(options.referencePath));
+  return workflow;
+}
 
 export async function buildDescribeWorkflow(client: Comfy, highlightPath: string, userText: string): Promise<Workflow> {
   const graph = await loadTemplate("describe");
@@ -117,10 +149,10 @@ export async function buildAnimateWorkflow(client: Comfy, options: {
   const graph = await loadTemplate("animate");
   assertBindings(graph, [...Object.values(ANIMATE_BINDINGS), ...Object.values(ANIMATE_MODEL)]);
   if (options.spectrum) {
-    // vlo's Spectrum settings are the node's defaults; only storage and bootstrap are optional inputs.
+    // vlo's Spectrum settings are the node's defaults; offline smoothing replay is opted out of explicitly.
     graph.spectrum = { class_type: "SpectrumApplyMiniMaxH3", inputs: { model: [ANIMATE_MODEL.base.node, 0], enabled: true, blend_weight: 0.5,
       degree: 1, ridge_lambda: 0.1, window_size: 2, flex_window: 0.75, warmup_steps: 1, tail_actual_steps: 1, max_history: 8, debug: false,
-      history_storage: "system_ram", bootstrap_first_forecast: true } };
+      history_storage: "system_ram", bootstrap_first_forecast: true, offline_smoothing_replay: false } };
     graph[ANIMATE_MODEL.ttm.node].inputs.model = ["spectrum", 0];
     graph[ANIMATE_MODEL.scheduler.node].inputs.model = ["spectrum", 0];
   }

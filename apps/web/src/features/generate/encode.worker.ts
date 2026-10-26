@@ -1,9 +1,9 @@
-import { BufferTarget, CanvasSource, Mp4OutputFormat, Output, QUALITY_HIGH, QUALITY_VERY_HIGH, WebMOutputFormat, canEncodeVideo } from "mediabunny";
-import type { Quality, VideoCodec } from "mediabunny";
+import { QUALITY_HIGH, QUALITY_VERY_HIGH } from "mediabunny";
 import { FPS, buildMotionCurve } from "@h3-motion/shared";
 import type { FrameSize, SubjectMotion } from "@h3-motion/shared";
 import { drawMask, drawReference, drawSceneMask, drawSceneReference } from "../motion/subjectLayers";
 import type { RenderLayers } from "../motion/subjectLayers";
+import { createVideoTrack, pickCodec } from "../../media/encode";
 
 export interface EncodeRequest { layers: RenderLayers; motion: SubjectMotion; size: FrameSize }
 export type EncodeMessage =
@@ -13,28 +13,11 @@ export type EncodeMessage =
 
 const scope = globalThis as unknown as { postMessage(message: EncodeMessage): void; addEventListener(type: "message", listener: (event: MessageEvent<EncodeRequest>) => void): void };
 
-async function pickCodec(size: FrameSize): Promise<VideoCodec> {
-  for (const codec of ["avc", "vp9"] as const) {
-    if (await canEncodeVideo(codec, { ...size, quality: QUALITY_VERY_HIGH, frameRate: FPS })) return codec;
-  }
-  throw new Error("This browser can't encode video. Use a recent version of Chrome, Edge or Firefox.");
-}
-
 /** Renders every frame on the 24 fps grid into a reference video and a mask video, encoding exactly `frames` frames. */
 async function encode({ layers, motion, size }: EncodeRequest) {
   const codec = await pickCodec(size);
   const container = codec === "avc" ? "mp4" : "webm";
-  const track = (quality: Quality) => {
-    const canvas = new OffscreenCanvas(size.width, size.height);
-    const context = canvas.getContext("2d", { alpha: false })!;
-    context.imageSmoothingQuality = "high";
-    const output = new Output({ format: container === "mp4" ? new Mp4OutputFormat({ fastStart: "in-memory" }) : new WebMOutputFormat(), target: new BufferTarget() });
-    // vlo found that prefer-hardware fails closed on some machines.
-    const source = new CanvasSource(canvas, { codec, quality, hardwareAcceleration: "no-preference" });
-    output.addVideoTrack(source, { frameRate: FPS });
-    return { canvas, context, output, source };
-  };
-  const reference = track(QUALITY_VERY_HIGH), mask = track(QUALITY_HIGH);
+  const reference = createVideoTrack(size, codec, QUALITY_VERY_HIGH), mask = createVideoTrack(size, codec, QUALITY_HIGH);
   await Promise.all([reference.output.start(), mask.output.start()]);
   const curve = buildMotionCurve(motion);
   const subjects = layers.subjects?.map(subject => ({ ...subject, curve: buildMotionCurve(subject.motion) }));
