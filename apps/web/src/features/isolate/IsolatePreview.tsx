@@ -62,7 +62,6 @@ export function IsolatePreview({ mediaAction }: { mediaAction?: ReactNode }) {
     </Box>
     {mediaAction}
     </Box>
-    <Typography variant="caption" color="text.secondary" textAlign="center">Hover or drag to compare · Use arrow keys when focused.</Typography>
     {(failedUrl === image.url || failedUrl === result.plate.url) && <Alert severity="error">Could not load the comparison preview. Try isolating the subject again.</Alert>}
   </Stack>;
 }

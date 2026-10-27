@@ -315,7 +315,7 @@ export const useSelectionStore = create<SelectionState>((set, get) => {
         if (result.status === "cancelled") { set({ notice: "Isolation cancelled. Your last background is unchanged." }); return; }
         if (!result.isolation) throw new Error("Background removal completed without a result. Try again.");
         if (result.isolation.imageId !== image.id || result.isolation.maskId !== mask.id) throw new Error("Selection changed. Confirm it and isolate again.");
-        set({ isolation: result.isolation, notice: result.message });
+        set({ isolation: result.isolation, notice: null });
       } catch (error) { set({ error: message(error) }); }
       finally { set({ busy: false }); }
     },

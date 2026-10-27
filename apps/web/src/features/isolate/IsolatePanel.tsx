@@ -38,7 +38,7 @@ export function IsolatePanel() {
       const prompt = instruction.trim();
       void isolate(!result || prompt === result.instruction ? undefined : prompt);
     }}>
-      {result ? "Try prompt again" : "Isolate subject"}
+      {result ? "Regenerate" : "Isolate subject"}
     </Button>
     {!result && recovery && <Typography variant="caption" color="text.secondary">Isolation failed. Retry to generate a removal prompt from the highlighted subject.</Typography>}
     {result && <Button variant="contained" size="large" disabled={busy} onClick={() => visitPhase(2)}>Continue →</Button>}
