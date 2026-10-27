@@ -1,13 +1,13 @@
 import { useMemo } from "react";
-import { buildH3PromptFields, composeH3Prompt, describeMotion, generationSize } from "@h3-motion/shared";
-import type { AspectRatio, FrameSize, H3PromptFields, ImageAsset, IsolationResult, Rect, SubjectMotion } from "@h3-motion/shared";
+import { buildH3PromptFields, composeH3Prompt, describeMotion, videoGeometry } from "@h3-motion/shared";
+import type { VideoTier, FrameSize, H3PromptFields, ImageAsset, IsolationResult, Rect, SubjectMotion } from "@h3-motion/shared";
 import { currentIsolation, useSelectionStore } from "../select";
 import { layersKeyOf, subjectKeyOf, useMotionStore } from "../motion";
 import type { MotionSubject, SubjectLayers } from "../motion";
 
-export type Tier = 480 | 720;
+export type Tier = VideoTier;
 interface Parts {
-  image: ImageAsset | null; mask: ImageAsset | null; isolation: IsolationResult | null; aspectRatio: AspectRatio;
+  image: ImageAsset | null; mask: ImageAsset | null; isolation: IsolationResult | null;
   motion: SubjectMotion | null; subjectKey: string | null; bounds: Rect | null;
   layers: SubjectLayers | null; layersKey: string | null; tier: Tier; lockIn: number; prompt: string | null;
   subjects: MotionSubject[];
@@ -28,7 +28,7 @@ export function resolveInputs(parts: Parts): GenerationInputs | null {
   const motion = subjects[0]?.motion ?? parts.motion;
   if (!image || !mask || !isolation || !motion || !layers || parts.subjectKey !== subjectKeyOf(image.id, mask.id)
     || parts.layersKey !== layersKeyOf(image.url, mask.url, isolation.plate.url)) return null;
-  const size = generationSize(parts.aspectRatio, parts.tier);
+  const size = videoGeometry(image, parts.tier).output;
   const caption = isolation.caption;
   const automatic = subjects.length > 1
     ? buildH3PromptFields({ ...caption, subject: "the subjects" }, `move independently: ${subjects.map(subject =>
@@ -46,7 +46,7 @@ export function resolveInputs(parts: Parts): GenerationInputs | null {
 
 export function currentParts(settings: PromptSettings): Parts {
   const selection = useSelectionStore.getState(), motion = useMotionStore.getState();
-  return { image: selection.image, mask: selection.mask, isolation: currentIsolation(selection), aspectRatio: selection.aspectRatio,
+  return { image: selection.image, mask: selection.mask, isolation: currentIsolation(selection),
     motion: motion.motion, subjects: motion.subjects, subjectKey: motion.subjectKey, bounds: motion.bounds, layers: motion.layers, layersKey: motion.layersKey, ...settings };
 }
 
@@ -54,7 +54,6 @@ export function useGenerationInputs(settings: PromptSettings): GenerationInputs 
   const image = useSelectionStore(s => s.image);
   const mask = useSelectionStore(s => s.mask);
   const isolation = useSelectionStore(currentIsolation);
-  const aspectRatio = useSelectionStore(s => s.aspectRatio);
   const motion = useMotionStore(s => s.motion);
   const subjects = useMotionStore(s => s.subjects);
   const subjectKey = useMotionStore(s => s.subjectKey);
@@ -62,6 +61,6 @@ export function useGenerationInputs(settings: PromptSettings): GenerationInputs 
   const layers = useMotionStore(s => s.layers);
   const layersKey = useMotionStore(s => s.layersKey);
   const { tier, lockIn, prompt, soundEffects, music } = settings;
-  return useMemo(() => resolveInputs({ image, mask, isolation, aspectRatio, motion, subjects, subjectKey, bounds, layers, layersKey, tier, lockIn, prompt, soundEffects, music }),
-    [image, mask, isolation, aspectRatio, motion, subjects, subjectKey, bounds, layers, layersKey, tier, lockIn, prompt, soundEffects, music]);
+  return useMemo(() => resolveInputs({ image, mask, isolation, motion, subjects, subjectKey, bounds, layers, layersKey, tier, lockIn, prompt, soundEffects, music }),
+    [image, mask, isolation, motion, subjects, subjectKey, bounds, layers, layersKey, tier, lockIn, prompt, soundEffects, music]);
 }

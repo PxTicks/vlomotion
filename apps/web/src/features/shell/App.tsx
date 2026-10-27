@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { Alert, Box, Button, Chip, Container, Paper, Stack, Step, StepButton, Stepper, ToggleButton, ToggleButtonGroup, Typography } from "@mui/material";
-import { aspectRatioSchema, healthSchema } from "@h3-motion/shared";
+import { Alert, Box, Button, Chip, Container, Paper, Stack, Step, StepButton, Stepper, Typography } from "@mui/material";
+import { healthSchema } from "@h3-motion/shared";
 import { apiRequest } from "../../api";
 import { currentIsolation, SelectPanel, SelectionCanvas, useSelectionStore } from "../select";
 import type { Phase } from "../select";
@@ -22,8 +22,6 @@ export function App() {
   const [ready, setReady] = useState(false);
   const [startupError, setStartupError] = useState<string | null>(null);
   const [comfyAvailable, setComfyAvailable] = useState<boolean | null>(null);
-  const ratio = useSelectionStore(s => s.aspectRatio);
-  const changeRatio = useSelectionStore(s => s.changeAspectRatio);
   const generating = useGenerateStore(s => s.status !== "idle");
   const inpaintBusy = useInpaintStore(s => s.status !== "idle" || s.uploading);
   const inpaintError = useInpaintStore(s => s.error);
@@ -43,7 +41,7 @@ export function App() {
   function removeUpload() {
     if (busy) return;
     if (workflow === "image") {
-      useSelectionStore.setState({ ...useSelectionStore.getInitialState(), aspectRatio: ratio }, true);
+      useSelectionStore.setState(useSelectionStore.getInitialState(), true);
       useMotionStore.setState(useMotionStore.getInitialState(), true);
       useGenerateStore.setState(useGenerateStore.getInitialState(), true);
     } else if (workflow === "video") {
@@ -93,10 +91,6 @@ export function App() {
         {workflow === "video" ? <InpaintEditor onRemove={removeUpload} /> : <>
         <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1} sx={{ mb: 2 }}>
           <Typography variant="overline" color="text.secondary">{phase === 3 && isolation ? "OUTPUT" : phase === 2 && isolation ? "MOTION PREVIEW" : phase > 0 && isolation ? "BACKGROUND PREVIEW" : "SOURCE PHOTO"}</Typography>
-          <ToggleButtonGroup exclusive size="small" value={ratio} disabled={busy} aria-label="Working aspect ratio"
-            onChange={(_, value: unknown) => { const parsed = aspectRatioSchema.safeParse(value); if (parsed.success) void changeRatio(parsed.data); }}>
-            {["16:9", "9:16", "1:1"].map(value => <ToggleButton key={value} value={value} sx={{ px: 1.5, py: .5, borderRadius: 99 }}>{value}</ToggleButton>)}
-          </ToggleButtonGroup>
         </Stack>
         {phase === 3 && isolation ? <GenerateStage mediaAction={imageRemoveButton} /> : phase === 2 && isolation ? <MotionEditor mediaAction={imageRemoveButton} />
           : phase > 0 && isolation ? <IsolatePreview mediaAction={imageRemoveButton} /> : <SelectionCanvas mediaAction={imageRemoveButton} />}

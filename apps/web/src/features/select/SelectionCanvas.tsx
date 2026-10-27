@@ -61,7 +61,6 @@ export function SelectionCanvas({ mediaAction }: { mediaAction?: ReactNode }) {
   const addPoint = useSelectionStore(s => s.addPoint);
   const removePoint = useSelectionStore(s => s.removePoint);
   const phase = useSelectionStore(s => s.phase);
-  const aspectRatio = useSelectionStore(s => s.aspectRatio);
   const canvas = useRef<HTMLCanvasElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const masks = useRef<MaskPixels[]>([]);
@@ -149,8 +148,8 @@ export function SelectionCanvas({ mediaAction }: { mediaAction?: ReactNode }) {
         const file = event.dataTransfer.files[0]; if (file && !busy) void upload(file);
       }} sx={{ position: "relative", borderRadius: 1, overflow: "hidden", bgcolor: "#19151f",
         border: "1px solid", borderColor: dragging ? "primary.main" : "divider",
-        aspectRatio: image ? `${image.width}/${image.height}` : aspectRatio.replace(":", "/"),
-        maxWidth: aspectRatio === "9:16" ? 420 : "100%", mx: "auto", width: "100%" }}>
+        aspectRatio: image ? `${image.width}/${image.height}` : "16/9",
+        maxWidth: image && image.height > image.width ? 420 : "100%", mx: "auto", width: "100%" }}>
       {image ? <Surface ref={canvas} width={image.width} height={image.height}
         role="img" aria-label={selectionView === "subjects" ? "Photo with subject masks. Click a subject to include or exclude it." : "Photo with subject masks. Click to add points; right click to exclude."}
         style={{ cursor: busy ? "wait" : selectionView === "subjects" ? "pointer" : "crosshair" }}

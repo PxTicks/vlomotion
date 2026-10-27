@@ -9,7 +9,7 @@ import { serveStatic } from "@hono/node-server/serve-static";
 import { ZodError } from "zod";
 import sharp from "sharp";
 import type { Comfy } from "@comfyorg/sdk";
-import { MAX_VIDEO_UPLOAD_BYTES, animateRequestSchema, aspectRatioSchema, generationSize, inpaintFrames, inpaintRequestSchema, inpaintSize, isolateRequestSchema, segmentRequestSchema, selectionRequestSchema } from "@h3-motion/shared";
+import { MAX_VIDEO_UPLOAD_BYTES, VIDEO_TIERS, animateRequestSchema, videoGeometry, inpaintFrames, inpaintRequestSchema, inpaintSize, isolateRequestSchema, segmentRequestSchema, selectionRequestSchema } from "@h3-motion/shared";
 import type { AnimateRequest } from "@h3-motion/shared";
 import { comfy, checkComfyHealth } from "./comfy.js";
 import { REPO_ROOT } from "./config.js";
@@ -25,7 +25,6 @@ import { inspectVideo } from "./media/video.js";
 
 type AppEnvironment = { Variables: { session: Session } };
 interface AppOptions { store?: SessionStore; client?: Comfy; health?: () => Promise<boolean> }
-const GENERATION_SIZES = aspectRatioSchema.options.flatMap(ratio => ([480, 720] as const).map(tier => generationSize(ratio, tier)));
 const CONTENT_TYPES: Record<string, string> = { ".png": "image/png", ".mp4": "video/mp4", ".webm": "video/webm" };
 
 function assertVideoUploadSize(form: FormData) {
@@ -179,8 +178,10 @@ export function createApp(options: AppOptions = {}) {
     if (!image || !selection || !isolation || image.id !== request.imageId || selection.id !== request.maskId || isolation.plate.id !== request.plateId) {
       throw new HTTPException(409, { message: "The subject or background changed. Isolate it again before generating." });
     }
-    if (!GENERATION_SIZES.some(size => size.width === request.width && size.height === request.height)
-      || Math.abs(request.width / request.height / (image.width / image.height) - 1) > 0.02) {
+    if (!VIDEO_TIERS.some(tier => {
+      const size = videoGeometry(image, tier).output;
+      return size.width === request.width && size.height === request.height;
+    })) {
       throw new HTTPException(400, { message: "The video size doesn't match the photo's aspect ratio. Reload and try again." });
     }
     const reference = await readVideoUpload(form.get("reference"), request, "reference");

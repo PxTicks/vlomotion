@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { captionSchema } from "./description.js";
-import { frameCountSchema } from "./media.js";
+import { frameCountSchema, videoDimensionSchema } from "./media.js";
 import { inpaintResultSchema } from "./inpaint.js";
 
 export const pointSchema = z.object({ x: z.number().finite().nonnegative(), y: z.number().finite().nonnegative() });
@@ -42,7 +42,7 @@ export const isolationResultSchema = z.object({
 });
 export type IsolationResult = z.infer<typeof isolationResultSchema>;
 export const LOCK_IN = { min: 3, max: 15, step: 3, default: 6 } as const;
-const dimensionSchema = z.number().int().min(32).max(2048).multipleOf(32);
+const dimensionSchema = videoDimensionSchema;
 const seedSchema = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
 /** Sent as the `request` field of a multipart upload alongside the reference, mask and start-frame files. */
 export const animateRequestSchema = z.object({

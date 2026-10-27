@@ -5,7 +5,7 @@ import { DEFAULT_PROXY_URL, probeProxy, resolveComfyUi, serviceUrl } from "./lib
 const nodes = [
   "CheckpointLoaderSimple", "CLIPTextEncode", "SAM3_Detect", "vloSAM3RefineMask", "LoadImage", "MaskToImage", "SaveImage",
   "CLIPLoader", "TextGenerate", "SaveText", "UNETLoader", "VAELoader", "TextEncodeQwenImage21",
-  "QwenImage21Cache", "GrowMask", "ImageBlur", "ImageToMask", "ImageCompositeMasked",
+  "QwenImage21Cache", "GrowMask", "ImageBlur", "ImageToMask", "ImageCompositeMasked", "ImageScale",
   "LoadVideo", "GetVideoComponents", "MiniMaxH3ImageToVideo", "vloTimeToMove", "CreateVideo", "SaveVideo",
   "MiniMaxH3ReferenceToVideo", "vloMaskToLatentMask", "SetLatentNoiseMask", "LTXVSeparateAVLatent", "LTXVConcatAVLatent",
 ];

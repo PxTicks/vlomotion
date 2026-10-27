@@ -14,9 +14,9 @@ describe("inpainting geometry", () => {
     expect(clampMask({ x: -0.5, y: 2, width: 0.2, height: 0.3 })).toEqual({ x: 0, y: 0.7, width: 0.2, height: 0.3 });
     expect(clampMask({ x: 0.5, y: 0.5, width: 2, height: 0 })).toEqual({ x: 0, y: 0.5, width: 1, height: 0.01 });
   });
-  it("fits the source to 480p on the strided canvas", () => {
-    expect(inpaintSize(1920, 1080)).toEqual({ width: 864, height: 480 });
-    expect(inpaintSize(1080, 1920)).toEqual({ width: 480, height: 864 });
+  it("prepares source and mask at the delivered ratio before ComfyUI stretches them", () => {
+    expect(inpaintSize(1920, 1080)).toEqual({ width: 854, height: 480 });
+    expect(inpaintSize(1080, 1920)).toEqual({ width: 480, height: 854 });
     expect(inpaintSize(400, 400)).toEqual({ width: 480, height: 480 });
   });
   it("uses a complete 17k+5 frame sequence without extending the source", () => {

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { FPS, findBestStridedDimensions } from "./media.js";
+import { FPS, videoDimensionSchema, videoGeometry } from "./media.js";
 
 export const maskShapeSchema = z.enum(["rectangle", "ellipse"]);
 export type MaskShape = z.infer<typeof maskShapeSchema>;
@@ -14,8 +14,7 @@ export const videoAssetSchema = z.object({
 export type VideoAsset = z.infer<typeof videoAssetSchema>;
 
 export function inpaintSize(width: number, height: number) {
-  const scale = 480 / Math.min(width, height);
-  return findBestStridedDimensions(width * scale, height * scale, 32, 0);
+  return videoGeometry({ width, height }).output;
 }
 export function inpaintFrames(duration: number) {
   const available = Math.min(243, Math.floor(duration * FPS + 0.001));
@@ -35,8 +34,7 @@ export function clampMask(box: MaskBox): MaskBox {
   return { x: Math.max(0, Math.min(1 - width, box.x)), y: Math.max(0, Math.min(1 - height, box.y)), width, height };
 }
 export const inpaintRequestSchema = z.object({
-  videoId: z.uuid(), width: z.number().int().min(32).max(2048).multipleOf(32),
-  height: z.number().int().min(32).max(2048).multipleOf(32), frames: inpaintFramesSchema,
+  videoId: z.uuid(), width: videoDimensionSchema, height: videoDimensionSchema, frames: inpaintFramesSchema,
   prompt: z.string().trim().min(1).max(4000), seed: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional(),
 });
 export type InpaintRequest = z.infer<typeof inpaintRequestSchema>;

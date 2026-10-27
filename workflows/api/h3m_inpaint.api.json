@@ -80,7 +80,7 @@
     "class_type": "VAEEncode",
     "inputs": {
       "pixels": [
-        "6",
+        "30",
         0
       ],
       "vae": [
@@ -145,7 +145,7 @@
         0
       ],
       "masks": [
-        "10",
+        "33",
         0
       ],
       "pooling_method": "max",
@@ -272,7 +272,7 @@
         0
       ],
       "source": [
-        "25",
+        "34",
         0
       ],
       "mask": [
@@ -309,6 +309,65 @@
       "format": "mp4",
       "format.codec": "h264",
       "format.codec.encoding": "auto"
+    }
+  },
+  "30": {
+    "class_type": "ImageScale",
+    "inputs": {
+      "image": [
+        "6",
+        0
+      ],
+      "upscale_method": "area",
+      "width": 864,
+      "height": 480,
+      "crop": "disabled"
+    }
+  },
+  "31": {
+    "class_type": "ImageScale",
+    "inputs": {
+      "image": [
+        "8",
+        0
+      ],
+      "upscale_method": "nearest-exact",
+      "width": 864,
+      "height": 480,
+      "crop": "disabled"
+    }
+  },
+  "32": {
+    "class_type": "ImageToMask",
+    "inputs": {
+      "image": [
+        "31",
+        0
+      ],
+      "channel": "red"
+    }
+  },
+  "33": {
+    "class_type": "ThresholdMask",
+    "inputs": {
+      "mask": [
+        "32",
+        0
+      ],
+      "value": 0.5
+    }
+  },
+  "34": {
+    "class_type": "ImageScale",
+    "inputs": {
+      "image": [
+        "25",
+        0
+      ],
+      "upscale_method": "bicubic",
+      "width": 864,
+      "height": 480,
+      "crop": "disabled"
     }
   }
 }

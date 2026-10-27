@@ -1,6 +1,7 @@
 import { randomInt } from "node:crypto";
 import type { Comfy } from "@comfyorg/sdk";
 import type { InpaintRequest, InpaintResult } from "@h3-motion/shared";
+import { videoGeometry } from "@h3-motion/shared";
 import { inspectVideo } from "../media/video.js";
 import type { Session, SessionStore } from "../sessions.js";
 import { buildInpaintWorkflow, INPAINT_OUTPUT } from "../workflows/templates.js";
@@ -15,7 +16,8 @@ export function startInpaint(client: Comfy, store: SessionStore, session: Sessio
   managed.done = (async () => {
     try {
       const seed = request.seed ?? randomInt(0, 2 ** 48 - 1);
-      const workflow = await buildInpaintWorkflow(client, { ...inputs, ...request, size: request, seed });
+      const modelSize = videoGeometry(video!).generation;
+      const workflow = await buildInpaintWorkflow(client, { ...inputs, ...request, size: request, modelSize, seed });
       const job = await runWorkflow(client, managed, workflow, { stage: "inpaint", message: "Inpainting with MiniMax H3…", to: 0.95 });
       const output = job.getOutputs(INPAINT_OUTPUT)[0];
       if (!output) throw new Error("Inpainting completed without a video. Try again.");

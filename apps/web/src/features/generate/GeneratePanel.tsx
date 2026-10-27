@@ -1,5 +1,5 @@
 import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, LinearProgress, Slider, Stack, TextField, ToggleButton, ToggleButtonGroup, Tooltip, Typography } from "@mui/material";
-import { FPS, LOCK_IN } from "@h3-motion/shared";
+import { FPS, LOCK_IN, VIDEO_TIERS } from "@h3-motion/shared";
 import { useSelectionStore } from "../select";
 import { useGenerationInputs } from "./inputs";
 import { useCurrentResult, useGenerateStore } from "./useGenerateStore";
@@ -74,9 +74,8 @@ export function GeneratePanel() {
           <Stack spacing={1}>
             <Typography variant="caption" color="text.secondary">Resolution{inputs ? ` · ${inputs.size.width} × ${inputs.size.height}` : ""}</Typography>
             <ToggleButtonGroup exclusive size="small" value={tier} disabled={busy} aria-label="Resolution"
-              onChange={(_, value: unknown) => { if (value === 480 || value === 720) setTier(value); }}>
-              <ToggleButton value={480} sx={{ px: 1.5, py: .5, borderRadius: 99 }}>480p</ToggleButton>
-              <ToggleButton value={720} sx={{ px: 1.5, py: .5, borderRadius: 99 }}>720p</ToggleButton>
+              onChange={(_, value: unknown) => { const next = VIDEO_TIERS.find(option => option === value); if (next) setTier(next); }}>
+              {VIDEO_TIERS.map(value => <ToggleButton key={value} value={value} sx={{ px: 1.5, py: .5, borderRadius: 99 }}>{value}p</ToggleButton>)}
             </ToggleButtonGroup>
           </Stack>
           <TextField size="small" label="Seed" placeholder="Random" value={seed} disabled={busy} onChange={event => setSeed(event.target.value)}

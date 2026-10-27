@@ -1,6 +1,7 @@
 import { randomInt } from "node:crypto";
 import type { Comfy } from "@comfyorg/sdk";
 import type { AnimateRequest, AnimationResult } from "@h3-motion/shared";
+import { videoGeometry } from "@h3-motion/shared";
 import { SPECTRUM_ENABLED } from "../config.js";
 import { inspectVideo } from "../media/video.js";
 import { ANIMATE_OUTPUT, buildAnimateWorkflow } from "../workflows/templates.js";
@@ -27,7 +28,8 @@ export function startAnimate(client: Comfy, store: SessionStore, session: Sessio
     try {
       const seed = request.seed ?? randomInt(0, 2 ** 48 - 1);
       const size = { width: request.width, height: request.height };
-      const workflow = await buildAnimateWorkflow(client, { ...inputs, size, frames: request.frames, prompt: request.prompt,
+      const modelSize = videoGeometry(image!, Math.min(size.width, size.height)).generation;
+      const workflow = await buildAnimateWorkflow(client, { ...inputs, size, modelSize, frames: request.frames, prompt: request.prompt,
         lockIn: request.lockIn, seed, spectrum: options.spectrum ?? SPECTRUM_ENABLED });
       const job = await runWorkflow(client, managed, workflow, { stage: "animate", message: "Animating with MiniMax H3…", from: 0, to: 0.95 });
       const output = job.getOutputs(ANIMATE_OUTPUT)[0];

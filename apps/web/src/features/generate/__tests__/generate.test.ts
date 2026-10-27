@@ -34,7 +34,7 @@ beforeEach(() => {
   vi.resetAllMocks();
   useGenerateStore.setState(useGenerateStore.getInitialState(), true);
   useMotionStore.setState(useMotionStore.getInitialState(), true);
-  useSelectionStore.setState({ image, mask, isolation, aspectRatio: "16:9", phase: 3 });
+  useSelectionStore.setState({ image, mask, isolation, phase: 3 });
   const motion = upsertKey(createMotion({ x: 400, y: 500 }), 123, { x: 1400, y: 500 }, "end")!.motion;
   useMotionStore.setState({ motion, subjectKey: subjectKeyOf(image.id, mask.id), bounds: { x: 300, y: 400, width: 200, height: 200 },
     layers, layersKey: layersKeyOf(image.url, mask.url, isolation.plate.url) });
@@ -45,7 +45,7 @@ describe("generation inputs", () => {
     const inputs = resolveInputs(currentParts(settings))!;
     expect(inputs.size).toEqual({ width: 864, height: 480 });
     expect(inputs.prompt).toContain("the red ball in <Picture 1> rolls to the right across the frame");
-    expect(resolveInputs(currentParts({ ...settings, tier: 720 }))!.size).toEqual({ width: 1248, height: 704 });
+    expect(resolveInputs(currentParts({ ...settings, tier: 768 }))!.size).toEqual({ width: 1382, height: 768 });
   });
   it("changes its signature with anything that changes the video, and treats a blank prompt as automatic", () => {
     const base = resolveInputs(currentParts(settings))!;

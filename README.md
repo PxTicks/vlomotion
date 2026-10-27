@@ -7,15 +7,17 @@ Start by uploading an image or video. Images open the existing Select → Isolat
 Move → Generate workflow. MP4/WebM videos open Draw mask → Animate → Generate:
 draw a rectangle or ellipse, scrub and move/resize it to add keyframes, then add a
 prompt and optional reference image (`<Picture 1>`). Mask position and size
-interpolate between keyframes. Video preparation uses a 480p strided canvas at
-24 fps and up to the first 243 frames, trimmed to H3's 17k+5 frame grid.
+interpolate between keyframes. Video preparation keeps the source ratio at a
+480p short edge, at 24 fps and up to the first 243 frames, trimmed to H3's 17k+5
+frame grid. ComfyUI stretches source and mask onto a nearby model-valid canvas,
+then restores the output ratio before saving.
 
 Video inpainting uses the main masked-latent pass from `~/vlo`'s
 `vlo_minimax_h3_inpaint.json`, with the `minimax_h3_ref2va_pruned_int8_convrot.safetensors`
 model and `vloMaskToLatentMask` from ComfyUI-vlo. There is one sampling pass;
-the seam-correction pass is omitted. Original source pixels go straight into the
-VAE encoder without a prefill step. Generated pixels are composited into the source
-through the animated mask. The output includes generated audio.
+the seam-correction pass is omitted. Source pixels are resized onto the model
+canvas and VAE encoded without a prefill step. Generated pixels are resized back
+and composited into the source through the animated mask. The output includes generated audio.
 
 Compared with vlo's reference-based inpainting workflow, this shares the ref2va
 model, source-video VAE encoding, a joint video/audio latent, `vloMaskToLatentMask`,
@@ -35,8 +37,8 @@ Sampling still uses full denoise. Using the source directly keeps its pixels dur
 VAE encoding, but the model regenerates the masked region; it does not guarantee
 that the original content inside the mask survives.
 
-Currently implemented: npm workspaces, the themed app shell, photo upload with
-centre crop, text-based SAM 3.1 candidates, multiple selection, point refinement,
+Currently implemented: npm workspaces, the themed app shell, photo upload that
+keeps the full image and its native ratio, text-based SAM 3.1 candidates, multiple selection, point refinement,
 mask union/confirmation, session-scoped files, job progress and cancellation.
 Selection starts with a prompt; clicking the photo reveals the point editor.
 Search results show the subject list, where checkboxes include subjects and pencil
@@ -105,9 +107,11 @@ ComfyUI discovery and proxy health checks as the automatic launcher.
 
 Open http://127.0.0.1:5180. Vite forwards `/api` to the Hono server on `8790`.
 The photo canvas works while ComfyUI is offline; selecting a subject needs the
-GPU services below. Images are centre-cropped to the working ratio and a working
-size of twice the generation dimensions. Changing the crop or selection clears
-the confirmed mask and background. After confirming, choose **Isolate subject**.
+GPU services below. Images keep their native ratio, with no aspect-ratio picker
+or crop. Large photos are downscaled to a working short edge of at most 960 px
+and a long edge of at most 2560 px; smaller photos are not enlarged. Replacing
+the photo or changing the selection clears the confirmed mask and background.
+After confirming, choose **Isolate subject**.
 Retries reuse the subject description; editing the instruction reruns only removal.
 The instruction editor becomes available after isolation and shows the exact
 prompt used for that confirmed mask. If isolation fails, **Write removal instruction**
@@ -156,7 +160,7 @@ uploads them with the start frame and runs the animate workflow. **Source |
 Result** switches between the frames H3 receives and the generated video.
 **Main prompt** is always visible and starts with the generated subject and path
 description. Edit it to change the visual instructions. **Advanced** holds the
-resolution (480p, or 720p at 1248 × 704 for 16:9), fixed seed, **Sound effects
+resolution (480p or 768p, measured on the output's short edge), fixed seed, **Sound effects
 [Optional]**, and **Music [Optional]**. Sound effects start with the suggested
 scene ambience; music starts blank. The H3 header and section labels are added
 when submitting the prompt, so they do not appear in the text boxes.
@@ -294,8 +298,22 @@ still. The preview draws each frame from the background plate plus the feathered
 cut-out at its offset; at rest it draws the original photo. Generation draws
 the same frames at the output size, plus a mask video with the subject in white,
 and the server checks each upload's size and frame count before submitting.
-The animate graph is vlo's H3 + TTM graph without its resize, frame-trimming,
-end-frame and inversion nodes: the app sends exact sizes and frame counts.
+Generation uses MiniMax H3's canonical canvas, the rule in SGLang's
+`adapt_shape_v1` and ComfyUI's `adapt_canvas`: the short edge at the selected
+resolution, the area capped at 768 × 1344, then each side rounded to 32 pixels.
+16:9 generates at 864 × 480 or 1344 × 768, matching MiniMax's 768p reference
+outputs; 21:9 at 768p generates at 1536 × 672. MiniMax only publishes 768p
+results, so 480p is outside its verified configuration.
+As in vlo, driven core `ImageScale` nodes stretch the start image, reference
+video and mask onto that canvas with cropping disabled, and another resize
+restores the source ratio at the selected short edge after decoding, before
+video encoding. The delivered size is rounded up to even dimensions for
+H.264/yuv420p: a 16:9 input at 768p is delivered at 1366 × 768. Ratios wider
+than 7:4 are generated below the selected short edge and upscaled on delivery.
+The browser does not decode and re-encode the generated output. The animate graph omits vlo's
+frame-trimming, end-frame and inversion nodes: the app sends exact frame counts.
+Inpainting follows the same sizing pipeline, restoring the generated pixels
+before compositing them with the original prepared source and mask at delivery size.
 Before TTM, ComfyUI erodes the binary white subject mask by a fixed 16 image
 pixels using negative `GrowMask` expansion, then TTM downsamples it to the latent
 grid. The inset matches H3's 16× spatial VAE compression at every resolution,
@@ -303,8 +321,8 @@ leaving the subject's edges flexible and reducing background leakage into the he
 
 ## License and acknowledgements
 
-[AGPL-3.0](LICENSE), matching the vlo source workflows and dimension-search
-logic carried into this project. Dependencies and model weights retain their
+[AGPL-3.0](LICENSE), matching the vlo source workflows carried into this
+project. Dependencies and model weights retain their
 own licenses. The app is independent and is not an official Comfy product.
 
 SDK integration follows the

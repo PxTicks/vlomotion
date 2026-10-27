@@ -1,10 +1,41 @@
 import { describe, expect, it } from "vitest";
 import { Comfy } from "@comfyorg/sdk";
+import { videoGeometry } from "@h3-motion/shared";
 import { ANIMATE_BINDINGS, ANIMATE_MODEL, ANIMATE_OUTPUT, assertBindings, buildAnimateWorkflow, buildDescribeWorkflow, buildIsolateWorkflow, buildSegmentWorkflow, DESCRIBE_BINDINGS, DESCRIBE_OUTPUTS, ISOLATE_BINDINGS, ISOLATE_OUTPUT, isolationGeometry, loadTemplate, samText, REFINE_BINDINGS, SEGMENT_BINDINGS, SEGMENT_OUTPUT } from "../templates.js";
 import type { ApiGraph } from "../templates.js";
 import { INPAINT_BINDINGS, INPAINT_OUTPUT, buildInpaintWorkflow } from "../templates.js";
 
 describe("workflow contracts", () => {
+  it("stretches all animation inputs onto one model canvas and restores the delivered ratio before encoding", async () => {
+    const { output: size, generation: modelSize } = videoGeometry({ width: 1000, height: 701 });
+    const graph = (await buildAnimateWorkflow(new Comfy(), { startPath: "/tmp/start.png", referencePath: "/tmp/reference.mp4",
+      maskPath: "/tmp/mask.mp4", size, modelSize, frames: 124, prompt: "A bird flies.", lockIn: 6, seed: 42 })).json as ApiGraph;
+    expect(graph["14"].inputs).toMatchObject({ ...modelSize, first_frame: ["26", 0] });
+    for (const [node, image] of [["26", "5"], ["27", "8"], ["28", "9"]]) {
+      expect(graph[node]).toMatchObject({ class_type: "ImageScale", inputs: { ...modelSize, image: [image, 0], crop: "disabled" } });
+    }
+    expect(graph["10"].inputs.pixels).toEqual(["27", 0]);
+    expect(graph["11"].inputs.image).toEqual(["28", 0]);
+    expect(graph["29"]).toMatchObject({ class_type: "ImageScale", inputs: { ...size, image: ["22", 0], crop: "disabled" } });
+    expect(graph["24"].inputs).toMatchObject({ images: ["29", 0], audio: ["23", 0] });
+    expect(graph[ANIMATE_OUTPUT].inputs.video).toEqual(["24", 0]);
+  });
+  it("restores inpainted pixels before compositing into the source at its original ratio", async () => {
+    const { output: size, generation: modelSize } = videoGeometry({ width: 701, height: 1000 });
+    const graph = (await buildInpaintWorkflow(new Comfy(), { sourcePath: "/tmp/source.mp4", maskPath: "/tmp/mask.mp4",
+      size, modelSize, frames: 124, prompt: "A bird flies.", seed: 42 })).json as ApiGraph;
+    expect(graph["14"].inputs).toMatchObject(modelSize);
+    expect(graph["30"]).toMatchObject({ class_type: "ImageScale", inputs: { ...modelSize, image: ["6", 0], crop: "disabled" } });
+    expect(graph["31"]).toMatchObject({ class_type: "ImageScale", inputs: { ...modelSize, image: ["8", 0], crop: "disabled", upscale_method: "nearest-exact" } });
+    expect(graph["13"].inputs.pixels).toEqual(["30", 0]);
+    expect(graph["32"].inputs.image).toEqual(["31", 0]);
+    expect(graph["33"].inputs.mask).toEqual(["32", 0]);
+    expect(graph["17"].inputs.masks).toEqual(["33", 0]);
+    expect(graph["34"]).toMatchObject({ class_type: "ImageScale", inputs: { ...size, image: ["25", 0], crop: "disabled" } });
+    expect(graph["27"].inputs).toMatchObject({ destination: ["6", 0], source: ["34", 0], mask: ["10", 0], resize_source: false });
+    expect(graph["28"].inputs.images).toEqual(["27", 0]);
+    expect(graph[INPAINT_OUTPUT].inputs.video).toEqual(["28", 0]);
+  });
   it("validates inpaint bindings and rejects changed node ids, classes and inputs", async () => {
     const graph = await loadTemplate("inpaint");
     assertBindings(graph, Object.values(INPAINT_BINDINGS));
@@ -21,21 +52,21 @@ describe("workflow contracts", () => {
       expect(() => assertBindings(missingInput, [binding])).toThrow("Workflow binding changed:");
     }
     const workflow = await buildInpaintWorkflow(new Comfy(), { sourcePath: "/tmp/source.mp4", maskPath: "/tmp/mask.mp4",
-      size: { width: 480, height: 864 }, frames: 107, prompt: "A bird flies.", seed: 42 });
-    expect(workflow.json["13"]).toMatchObject({ inputs: { pixels: ["6", 0] } });
+      size: { width: 480, height: 864 }, modelSize: { width: 480, height: 864 }, frames: 107, prompt: "A bird flies.", seed: 42 });
+    expect(workflow.json["13"]).toMatchObject({ inputs: { pixels: ["30", 0] } });
     expect(Object.values(workflow.json as ApiGraph).some(node => node.class_type === "EmptyImage")).toBe(false);
     expect(workflow.json["14"]).toMatchObject({ inputs: { width: 480, height: 864, length: 107, prompt: "A bird flies." } });
     expect(workflow.json["23"]).toMatchObject({ inputs: { noise_seed: 42 } });
   });
   it("encodes original source pixels and composites only after generation", async () => {
     const workflow = await buildInpaintWorkflow(new Comfy(), { sourcePath: "/tmp/source.mp4", maskPath: "/tmp/mask.mp4",
-      size: { width: 480, height: 864 }, frames: 107, prompt: "A bird flies.", seed: 42 });
+      size: { width: 480, height: 864 }, modelSize: { width: 480, height: 864 }, frames: 107, prompt: "A bird flies.", seed: 42 });
     const graph = workflow.json as ApiGraph;
-    expect(graph["13"].inputs.pixels).toEqual(["6", 0]);
+    expect(graph["13"].inputs.pixels).toEqual(["30", 0]);
     expect(Object.values(graph).some(node => node.class_type === "EmptyImage")).toBe(false);
     expect(Object.values(graph).filter(node => node.class_type === "ImageCompositeMasked")).toHaveLength(1);
-    expect(graph["27"].inputs).toMatchObject({ destination: ["6", 0], source: ["25", 0], mask: ["10", 0] });
-    expect((await loadTemplate("inpaint"))["13"].inputs.pixels).toEqual(["6", 0]);
+    expect(graph["27"].inputs).toMatchObject({ destination: ["6", 0], source: ["34", 0], mask: ["10", 0] });
+    expect((await loadTemplate("inpaint"))["13"].inputs.pixels).toEqual(["30", 0]);
     for (const node of Object.values(graph)) {
       for (const value of Object.values(node.inputs)) if (Array.isArray(value)) expect(graph).toHaveProperty(String(value[0]));
     }
@@ -133,22 +164,23 @@ describe("workflow contracts", () => {
     const graph = await loadTemplate("animate");
     assertBindings(graph, [...Object.values(ANIMATE_BINDINGS), ...Object.values(ANIMATE_MODEL)]);
     expect(graph[ANIMATE_OUTPUT]).toMatchObject({ class_type: "SaveVideo", inputs: { format: "mp4" } });
-    expect(graph["14"].inputs.first_frame).toEqual([ANIMATE_BINDINGS.start.node, 0]);
+    expect(graph["14"].inputs.first_frame).toEqual(["26", 0]);
+    expect(graph["26"].inputs.image).toEqual([ANIMATE_BINDINGS.start.node, 0]);
     expect(graph["11"].inputs).toMatchObject({ channel: "red" });
     expect(graph["12"]).toMatchObject({ class_type: "ThresholdMask", inputs: { value: 0.5 } });
     expect(graph["13"]).toMatchObject({ class_type: "GrowMask", inputs: { mask: ["12", 0], expand: -16, tapered_corners: true } });
     expect(graph["16"].inputs).toMatchObject({ start_step: 1, end_step: 6, mask: ["13", 0] });
     expect(graph["18"].inputs).toMatchObject({ scheduler: "simple", steps: 25 });
     expect(graph["21"].inputs.latent_image).toEqual(["14", 1]);
-    // No resize, frame trimming, KJNodes or end-frame nodes: the app sends exact sizes and frame counts.
-    expect(Object.values(graph).map(node => node.class_type)).not.toEqual(expect.arrayContaining(["ResizeImageMaskNode"]));
+    // Core resize nodes preserve the whole frame; frame counts still come from the app.
+    expect(Object.values(graph).filter(node => node.class_type === "ImageScale")).toHaveLength(4);
     for (const node of Object.values(graph)) {
       for (const value of Object.values(node.inputs)) if (Array.isArray(value)) expect(graph).toHaveProperty(String(value[0]));
     }
   });
   it("binds animate inputs and splices Spectrum only when asked", async () => {
     const options = { startPath: "/tmp/start.png", referencePath: "/tmp/reference.mp4", maskPath: "/tmp/mask.mp4",
-      size: { width: 1248, height: 704 }, frames: 175, prompt: "A dog runs.", lockIn: 15, seed: 9 };
+      size: { width: 1248, height: 704 }, modelSize: { width: 1248, height: 704 }, frames: 175, prompt: "A dog runs.", lockIn: 15, seed: 9 };
     const plain = (await buildAnimateWorkflow(new Comfy(), options)).json as ApiGraph;
     expect(plain["14"].inputs).toMatchObject({ width: 1248, height: 704, length: 175, prompt: "A dog runs." });
     expect(plain[ANIMATE_BINDINGS.grow.node].inputs.expand).toBe(-16);

@@ -1,9 +1,9 @@
 import { create } from "zustand";
 import { canApplyPointPrompt, selectionResultSchema } from "@h3-motion/shared";
-import type { AspectRatio, ImageAsset, IsolationResult, JobSnapshot, MaskCandidate, Point } from "@h3-motion/shared";
+import type { ImageAsset, IsolationResult, JobSnapshot, MaskCandidate, Point } from "@h3-motion/shared";
 import { jobSnapshotSchema } from "@h3-motion/shared";
 import { apiRequest, submitSegment, uploadImage, watchJob } from "../../api";
-import { cropImage } from "./cropImage";
+import { prepareImage } from "./prepareImage";
 
 /** Select, Isolate, Move, Generate. */
 export type Phase = 0 | 1 | 2 | 3;
@@ -25,7 +25,7 @@ interface SelectionState {
   selectionView: SelectionView;
   editorStart: { snapshot: SelectionSnapshot; history: SelectionSnapshot[] } | null;
   cancelEditor: () => void;
-  source: File | null; image: ImageAsset | null; aspectRatio: AspectRatio;
+  source: File | null; image: ImageAsset | null;
   text: string; selectionText: string; candidates: MaskCandidate[]; selectedIds: string[];
   activeId: string | null; labels: Record<string, string>; drafts: Record<string, PointDraft>; recipes: Record<string, PointRecipe>; history: SelectionSnapshot[];
   hoveredId: string | null; positive: Point[]; negative: Point[]; pointsPending: boolean;
@@ -36,8 +36,7 @@ interface SelectionState {
   addSubject: () => void; editSubject: (id: string) => void; deleteSubject: (id: string) => void;
   includeAll: () => void; undo: () => void;
   setHoveredId: (id: string | null) => void;
-  upload: (file: File, ratio?: AspectRatio) => Promise<void>;
-  changeAspectRatio: (ratio: AspectRatio) => Promise<void>;
+  upload: (file: File) => Promise<void>;
   segment: () => Promise<void>; addPoint: (point: Point, negative: boolean) => void;
   removePoint: (index: number, negative: boolean) => void;
   applyRefinement: () => Promise<void>; clearPoints: () => void;
@@ -168,7 +167,7 @@ export const useSelectionStore = create<SelectionState>((set, get) => {
   }
   return {
     selectionView: "find", editorStart: null,
-    source: null, image: null, aspectRatio: "16:9", text: "", selectionText: "", candidates: [], selectedIds: [],
+    source: null, image: null, text: "", selectionText: "", candidates: [], selectedIds: [],
     activeId: null, labels: {}, drafts: {}, recipes: {}, history: [], hoveredId: null,
     ...emptyPoints(), mask: null, isolation: null, busy: false, job: null, error: null, notice: null, phase: 0,
     setText: text => set({ text }),
@@ -212,20 +211,15 @@ export const useSelectionStore = create<SelectionState>((set, get) => {
       set({ ...previous, history: history.slice(0, -1), mask: null, isolation: null, phase: 0, hoveredId: null, editorStart: null, selectionView: previous.candidates.length ? "subjects" : "find", notice: "Last selection change undone." });
     },
     clearError: () => set({ error: null }),
-    upload: async (source, ratio = get().aspectRatio) => {
+    upload: async source => {
       if (get().busy) return;
       set({ busy: true, error: null, notice: null });
       try {
-        const image = await uploadImage(await cropImage(source, ratio));
-        set({ source, image, aspectRatio: ratio, selectionText: "", candidates: [], selectedIds: [], mask: null, isolation: null, job: null,
+        const image = await uploadImage(await prepareImage(source));
+        set({ source, image, selectionText: "", candidates: [], selectedIds: [], mask: null, isolation: null, job: null,
           selectionView: "find", editorStart: null, ...emptyPoints(), activeId: null, labels: {}, drafts: {}, recipes: {}, history: [], hoveredId: null, phase: 0, notice: null });
       } catch (error) { set({ error: message(error) }); }
       finally { set({ busy: false }); }
-    },
-    changeAspectRatio: async ratio => {
-      const source = get().source;
-      if (source) await get().upload(source, ratio);
-      else set({ aspectRatio: ratio });
     },
     segment: () => {
       const state = get();

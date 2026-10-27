@@ -56,6 +56,19 @@ function remote(video: Uint8Array): Job {
 }
 
 describe("animate job", () => {
+  it("accepts an arbitrary photo ratio, generates on a strided canvas and delivers the restored dimensions", async () => {
+    const { app, client, session, cookie, request } = await setup();
+    session.image = { ...session.image!, width: 1000, height: 701 };
+    const video = new Uint8Array(await readFile(new URL("./fixtures/black-686x480-124.mp4", import.meta.url)));
+    const submit = vi.spyOn(client, "submit").mockResolvedValue(remote(video));
+    const start = await sharp({ create: { width: 686, height: 480, channels: 3, background: "#000" } }).png().toBuffer();
+    expect((await upload(app, cookie, { ...request, width: 686 }, { reference: video, mask: video, start })).status).toBe(202);
+    await session.job!.done;
+    const graph = submit.mock.calls[0][0].json as ApiGraph;
+    expect(graph["14"].inputs).toMatchObject({ width: 672, height: 480 });
+    expect(graph["29"].inputs).toMatchObject({ width: 686, height: 480, crop: "disabled" });
+    expect(session.job!.snapshot).toMatchObject({ status: "completed", animation: { width: 686, height: 480 } });
+  });
   it("submits the uploads with the request's settings and serves the generated video with byte ranges", async () => {
     const { app, client, session, cookie, request } = await setup();
     const video = new Uint8Array(await fixture(124));

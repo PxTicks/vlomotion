@@ -128,6 +128,16 @@ describe("scene compositing", () => {
     drawSceneReference(drawing as unknown as CanvasRenderingContext2D, first, [{ layers: second, offset: { x: 0, y: 0 } }], true);
     expect(drawing.drawImage.mock.calls).toEqual([[first.photo, 0, 0, 200, 100]]);
   });
+  it("keeps the full photo and mask aligned when the output ratio is rounded for encoding", () => {
+    const source = { ...first, width: 1000, height: 701 };
+    const drawing = context();
+    drawing.canvas = { width: 686, height: 480 };
+    drawSceneReference(drawing as unknown as CanvasRenderingContext2D, source, [], true);
+    expect(drawing.drawImage.mock.calls).toEqual([[source.photo, 0, 0, 686, 480]]);
+    drawing.drawImage.mockClear();
+    drawSceneMask(drawing as unknown as CanvasRenderingContext2D, [{ layers: source, offset: { x: 100, y: 70.1 } }]);
+    expect(drawing.drawImage.mock.calls).toEqual([[source.matte, 68.6, 48, 686, 480]]);
+  });
   it("combines independently shifted mattes for the mask video", () => {
     const drawing = context();
     drawSceneMask(drawing as unknown as CanvasRenderingContext2D, [{ layers: first, offset: { x: 10, y: 5 } }, { layers: second, offset: { x: -20, y: 15 } }]);

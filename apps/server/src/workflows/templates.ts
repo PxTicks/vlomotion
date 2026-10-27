@@ -81,11 +81,23 @@ export const INPAINT_BINDINGS = {
   seed: { node: "23", input: "noise_seed", classType: "RandomNoise" },
 } satisfies Record<string, Binding>;
 export const INPAINT_OUTPUT = "29";
+
+/** Drive core resize nodes around inference; every input stretches onto one canvas without cropping. */
+function setVideoGeometry(graph: ApiGraph, inputs: string[], output: string, modelSize: FrameSize, outputSize: FrameSize) {
+  for (const id of [...inputs, output]) {
+    assertBindings(graph, ["image", "width", "height", "crop"].map(input => ({ node: id, input, classType: "ImageScale" })));
+    graph[id].inputs.width = id === output ? outputSize.width : modelSize.width;
+    graph[id].inputs.height = id === output ? outputSize.height : modelSize.height;
+    graph[id].inputs.crop = "disabled";
+  }
+}
+
 export async function buildInpaintWorkflow(client: Comfy, options: {
-  sourcePath: string; maskPath: string; referencePath?: string; size: FrameSize; frames: number; prompt: string; seed: number;
+  sourcePath: string; maskPath: string; referencePath?: string; size: FrameSize; modelSize: FrameSize; frames: number; prompt: string; seed: number;
 }): Promise<Workflow> {
   const graph = await loadTemplate("inpaint");
   assertBindings(graph, [...Object.values(INPAINT_BINDINGS), { node: INPAINT_OUTPUT, input: "video", classType: "SaveVideo" }]);
+  setVideoGeometry(graph, ["30", "31"], "34", options.modelSize, options.size);
   if (options.referencePath) {
     graph.reference = { class_type: "LoadImage", inputs: { image: "reference.png" } };
     graph[INPAINT_BINDINGS.prompt.node].inputs["ref_images.ref_image_1"] = ["reference", 0];
@@ -93,7 +105,7 @@ export async function buildInpaintWorkflow(client: Comfy, options: {
   const workflow = client.workflows.fromJson(graph);
   const values: Record<keyof typeof INPAINT_BINDINGS, unknown> = {
     source: client.assets.fromFile(options.sourcePath), mask: client.assets.fromFile(options.maskPath),
-    encode: ["6", 0], width: options.size.width, height: options.size.height,
+    encode: ["30", 0], width: options.modelSize.width, height: options.modelSize.height,
     length: options.frames, prompt: options.prompt, seed: options.seed,
   };
   for (const [key, binding] of Object.entries(INPAINT_BINDINGS)) workflow.setInput(binding.node, binding.input, values[key as keyof typeof values]);
@@ -142,11 +154,12 @@ export async function buildIsolateWorkflow(client: Comfy, options: {
 export const ANIMATION_MASK_EXPAND = -16;
 
 export async function buildAnimateWorkflow(client: Comfy, options: {
-  startPath: string; referencePath: string; maskPath: string; size: FrameSize; frames: number;
+  startPath: string; referencePath: string; maskPath: string; size: FrameSize; modelSize: FrameSize; frames: number;
   prompt: string; lockIn: number; seed: number; spectrum?: boolean;
 }): Promise<Workflow> {
   const graph = await loadTemplate("animate");
   assertBindings(graph, [...Object.values(ANIMATE_BINDINGS), ...Object.values(ANIMATE_MODEL)]);
+  setVideoGeometry(graph, ["26", "27", "28"], "29", options.modelSize, options.size);
   if (options.spectrum) {
     // vlo's Spectrum settings are the node's defaults; offline smoothing replay is opted out of explicitly.
     graph.spectrum = { class_type: "SpectrumApplyMiniMaxH3", inputs: { model: [ANIMATE_MODEL.base.node, 0], enabled: true, blend_weight: 0.5,
@@ -159,7 +172,7 @@ export async function buildAnimateWorkflow(client: Comfy, options: {
   const values: Record<keyof typeof ANIMATE_BINDINGS, unknown> = {
     start: client.assets.fromFile(options.startPath), reference: client.assets.fromFile(options.referencePath),
     mask: client.assets.fromFile(options.maskPath), grow: ANIMATION_MASK_EXPAND, prompt: options.prompt,
-    width: options.size.width, height: options.size.height, length: options.frames, lockIn: options.lockIn, seed: options.seed,
+    width: options.modelSize.width, height: options.modelSize.height, length: options.frames, lockIn: options.lockIn, seed: options.seed,
   };
   for (const [key, binding] of Object.entries(ANIMATE_BINDINGS)) workflow.setInput(binding.node, binding.input, values[key as keyof typeof values]);
   return workflow;

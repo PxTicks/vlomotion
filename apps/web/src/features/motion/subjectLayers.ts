@@ -95,12 +95,10 @@ export async function loadSubjectLayers(photoUrl: string, plateUrl: string, mask
   return { width, height, photo, plate, cutout: canvas, matte, mask, bounds };
 }
 
-/** Draws a full-frame layer shifted by `offset` working pixels, scaled uniformly to cover the canvas and centred. */
+/** Map the whole working image into the output canvas, including its even-pixel encoder rounding. */
 function drawLayer(context: Context2D, layers: RenderLayers, image: Drawable, offset: Point) {
   const { width, height } = context.canvas;
-  const scale = Math.max(width / layers.width, height / layers.height);
-  const x = (width - layers.width * scale) / 2, y = (height - layers.height * scale) / 2;
-  context.drawImage(image, x + offset.x * scale, y + offset.y * scale, layers.width * scale, layers.height * scale);
+  context.drawImage(image, offset.x * width / layers.width, offset.y * height / layers.height, width, height);
 }
 
 /**

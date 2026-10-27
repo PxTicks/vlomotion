@@ -14,19 +14,19 @@ import type { ApiGraph } from "../workflows/templates.js";
 const roots: string[] = [];
 afterEach(async () => { vi.restoreAllMocks(); await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))); });
 const fixture = (frames = 124) => readFile(new URL(`./fixtures/black-480-${frames}.mp4`, import.meta.url));
-async function setup() {
+async function setup(arbitraryRatio = false) {
   const root = await mkdtemp(join(tmpdir(), "h3m-inpaint-")); roots.push(root);
   const store = new SessionStore(root), client = new Comfy();
   const app = createApp({ store, client, health: async () => true });
   const sessionResponse = await app.request("/api/sessions", { method: "POST" });
   const cookie = sessionResponse.headers.get("set-cookie")!.split(";")[0];
-  const bytes = new Uint8Array(await fixture());
+  const bytes = new Uint8Array(arbitraryRatio ? await readFile(new URL("./fixtures/black-686x480-124.mp4", import.meta.url)) : await fixture());
   const form = new FormData(); form.set("video", new File([bytes], "clip.mp4", { type: "video/mp4" }));
   const response = await app.request("/api/videos", { method: "POST", headers: { cookie }, body: form });
   expect(response.status).toBe(201);
   const video = await response.json();
   const session = [...store.sessions.values()][0];
-  const request = { videoId: video.id, width: 480, height: 480, frames: 124, prompt: "A red balloon follows the moving area.", seed: 7 };
+  const request = { videoId: video.id, width: video.width, height: video.height, frames: 124, prompt: "A red balloon follows the moving area.", seed: 7 };
   const remote = { status: "succeeded", result: vi.fn(async () => undefined), cancel: vi.fn(async () => undefined),
     async *events() { yield { kind: "progress", value: 0.5, step: 10, steps: 20 }; },
     getOutputs: vi.fn((id: string) => id === INPAINT_OUTPUT ? [{ toBytes: async () => bytes }] : []),
@@ -43,6 +43,24 @@ async function setup() {
 }
 
 describe("video inpainting", () => {
+  it("delivers an arbitrary input ratio after stretching only the model inputs", async () => {
+    const { session, upload, submit } = await setup(true);
+    expect((await upload()).status).toBe(202);
+    await session.job!.done;
+    const graph = submit.mock.calls[0][0].json as ApiGraph;
+    expect(graph["14"].inputs).toMatchObject({ width: 672, height: 480 });
+    expect(graph["34"].inputs).toMatchObject({ width: 686, height: 480, crop: "disabled" });
+    expect(session.job!.snapshot).toMatchObject({ status: "completed", inpainting: { width: 686, height: 480 } });
+  });
+  it("rejects a result that was not restored to the delivered dimensions", async () => {
+    const { session, upload, submit, remote } = await setup(true);
+    const square = new Uint8Array(await fixture());
+    submit.mockResolvedValue({ ...remote, getOutputs: () => [{ toBytes: async () => square }] } as unknown as Job);
+    expect((await upload()).status).toBe(202);
+    await session.job!.done;
+    expect(session.job!.snapshot).toMatchObject({ status: "failed", error: "The inpainted video has unexpected dimensions or frame count." });
+    expect(session.inpainting).toBeUndefined();
+  });
   it("uploads video metadata and runs one masked-latent sampling pass without a reference", async () => {
     const { session, request, upload, submit, app, cookie } = await setup();
     expect(session.video).toMatchObject({ width: 480, height: 480, frames: 124, duration: expect.closeTo(124 / 24) });
@@ -52,12 +70,12 @@ describe("video inpainting", () => {
     expect(Object.values(graph).filter(n => n.class_type === "SamplerCustomAdvanced")).toHaveLength(1);
     expect(graph["1"].inputs.unet_name).toBe("minimax_h3_ref2va_pruned_int8_convrot.safetensors");
     expect(graph["14"].inputs).toMatchObject({ width: 480, height: 480, length: 124, prompt: request.prompt });
-    expect(graph["13"].inputs.pixels).toEqual(["6", 0]);
+    expect(graph["13"].inputs.pixels).toEqual(["30", 0]);
     expect(Object.values(graph).some(node => node.class_type === "EmptyImage")).toBe(false);
     expect(graph["14"].inputs).not.toHaveProperty("ref_images.ref_image_1");
-    expect(graph["17"]).toMatchObject({ class_type: "vloMaskToLatentMask", inputs: { masks: ["10", 0], latent: ["16", 0], pooling_method: "max", snap_grid: 1 } });
+    expect(graph["17"]).toMatchObject({ class_type: "vloMaskToLatentMask", inputs: { masks: ["33", 0], latent: ["16", 0], pooling_method: "max", snap_grid: 1 } });
     expect(graph["24"].inputs.latent_image).toEqual(["18", 0]);
-    expect(graph["27"]).toMatchObject({ class_type: "ImageCompositeMasked", inputs: { destination: ["6", 0], source: ["25", 0], mask: ["10", 0] } });
+    expect(graph["27"]).toMatchObject({ class_type: "ImageCompositeMasked", inputs: { destination: ["6", 0], source: ["34", 0], mask: ["10", 0] } });
     expect(session.job!.snapshot).toMatchObject({ status: "completed", stage: "inpaint", inpainting: { videoId: request.videoId, seed: 7, frames: 124 } });
     expect((await app.request(session.inpainting!.video.url, { headers: { cookie, Range: "bytes=0-9" } })).status).toBe(206);
   });
@@ -66,10 +84,10 @@ describe("video inpainting", () => {
     expect((await upload({ ...request, fillMaskedArea: true })).status).toBe(202);
     await session.job!.done;
     const graph = submit.mock.calls[0][0].json as ApiGraph;
-    expect(graph["13"].inputs.pixels).toEqual(["6", 0]);
+    expect(graph["13"].inputs.pixels).toEqual(["30", 0]);
     expect(Object.values(graph).some(node => node.class_type === "EmptyImage")).toBe(false);
     expect(Object.values(graph).filter(node => node.class_type === "ImageCompositeMasked")).toHaveLength(1);
-    expect(graph["27"].inputs).toMatchObject({ destination: ["6", 0], source: ["25", 0], mask: ["10", 0] });
+    expect(graph["27"].inputs).toMatchObject({ destination: ["6", 0], source: ["34", 0], mask: ["10", 0] });
     expect(session.inpainting).not.toHaveProperty("fillMaskedArea");
   });
   it("normalizes and binds the optional image as Picture 1", async () => {
