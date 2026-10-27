@@ -89,9 +89,9 @@ export function App() {
       pointerEvents: ready ? "auto" : "none", opacity: ready ? 1 : .45 }} inert={!ready}>
       <Paper sx={{ p: { xs: 1.5, md: 2.5 }, overflow: "hidden" }}>
         {workflow === "video" ? <InpaintEditor onRemove={removeUpload} /> : <>
-        <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1} sx={{ mb: 2 }}>
-          <Typography variant="overline" color="text.secondary">{phase === 3 && isolation ? "OUTPUT" : phase === 2 && isolation ? "MOTION PREVIEW" : phase > 0 && isolation ? "BACKGROUND PREVIEW" : "SOURCE PHOTO"}</Typography>
-        </Stack>
+        {phase > 0 && isolation && <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1} sx={{ mb: 2 }}>
+          <Typography variant="overline" color="text.secondary">{phase === 3 ? "OUTPUT" : phase === 2 ? "MOTION PREVIEW" : "BACKGROUND PREVIEW"}</Typography>
+        </Stack>}
         {phase === 3 && isolation ? <GenerateStage mediaAction={imageRemoveButton} /> : phase === 2 && isolation ? <MotionEditor mediaAction={imageRemoveButton} />
           : phase > 0 && isolation ? <IsolatePreview mediaAction={imageRemoveButton} /> : <SelectionCanvas mediaAction={imageRemoveButton} />}
         </>}

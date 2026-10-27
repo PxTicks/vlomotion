@@ -197,10 +197,7 @@ export function SelectionCanvas({ mediaAction }: { mediaAction?: ReactNode }) {
     </Box>
     <input ref={fileInput} hidden type="file" accept="image/jpeg,image/png,image/webp" aria-label="Upload a photo"
       onChange={event => { const file = event.target.files?.[0]; event.target.value = ""; if (file) void upload(file); }} />
-    {image && <Stack direction="row" justifyContent="space-between" alignItems="center">
-      <Typography variant="caption" color="text.secondary">{image.width} × {image.height}{editing ? activeId ? ` · Editing ${labels[activeId] ?? "subject"}` : " · New subject" : ""}</Typography>
-      <Button size="small" disabled={busy} onClick={() => fileInput.current?.click()}>Replace photo</Button>
-    </Stack>}
+    {image && editing && activeId && <Typography variant="caption" color="text.secondary">Editing {labels[activeId] ?? "subject"}</Typography>}
     {image && candidates.length > 0 && <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
       <Typography variant="caption" color="text.secondary">{activeId ? "Yellow: editing · " : ""}Blue: included · Dashed: suggestion</Typography>
       <Button size="small" onPointerDown={event => { event.currentTarget.setPointerCapture(event.pointerId); setHideOverlays(true); }} onPointerUp={() => setHideOverlays(false)} onPointerCancel={() => setHideOverlays(false)} onBlur={() => setHideOverlays(false)}
