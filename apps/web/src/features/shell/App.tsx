@@ -12,6 +12,7 @@ import { InpaintPanel } from "../inpaint/InpaintPanel";
 import { useInpaintStore } from "../inpaint/useInpaintStore";
 import { MediaUpload } from "./MediaUpload";
 import type { Workflow } from "./MediaUpload";
+import { RemoveMediaButton } from "./RemoveMediaButton";
 
 let sessionPromise: Promise<unknown> | undefined;
 
@@ -38,6 +39,20 @@ export function App() {
   const error = useSelectionStore(s => s.error);
   const notice = useSelectionStore(s => s.notice);
   const clearError = useSelectionStore(s => s.clearError);
+
+  function removeUpload() {
+    if (busy) return;
+    if (workflow === "image") {
+      useSelectionStore.setState({ ...useSelectionStore.getInitialState(), aspectRatio: ratio }, true);
+      useMotionStore.setState(useMotionStore.getInitialState(), true);
+      useGenerateStore.setState(useGenerateStore.getInitialState(), true);
+    } else if (workflow === "video") {
+      useInpaintStore.setState(useInpaintStore.getInitialState(), true);
+    }
+    setLastWorkflow(null);
+    setWorkflow("upload");
+  }
+  const imageRemoveButton = <RemoveMediaButton label="Remove image" disabled={busy} onRemove={removeUpload} />;
 
   useEffect(() => {
     let disposed = false;
@@ -75,15 +90,16 @@ export function App() {
     </Paper> : <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "minmax(0, 1fr) 360px" }, gap: 3, alignItems: "start",
       pointerEvents: ready ? "auto" : "none", opacity: ready ? 1 : .45 }} inert={!ready}>
       <Paper sx={{ p: { xs: 1.5, md: 2.5 }, overflow: "hidden" }}>
-        {workflow === "video" ? <InpaintEditor /> : <>
-        <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 2 }}>
+        {workflow === "video" ? <InpaintEditor onRemove={removeUpload} /> : <>
+        <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1} sx={{ mb: 2 }}>
           <Typography variant="overline" color="text.secondary">{phase === 3 && isolation ? "OUTPUT" : phase === 2 && isolation ? "MOTION PREVIEW" : phase > 0 && isolation ? "BACKGROUND PREVIEW" : "SOURCE PHOTO"}</Typography>
           <ToggleButtonGroup exclusive size="small" value={ratio} disabled={busy} aria-label="Working aspect ratio"
             onChange={(_, value: unknown) => { const parsed = aspectRatioSchema.safeParse(value); if (parsed.success) void changeRatio(parsed.data); }}>
             {["16:9", "9:16", "1:1"].map(value => <ToggleButton key={value} value={value} sx={{ px: 1.5, py: .5, borderRadius: 99 }}>{value}</ToggleButton>)}
           </ToggleButtonGroup>
         </Stack>
-        {phase === 3 && isolation ? <GenerateStage /> : phase === 2 && isolation ? <MotionEditor /> : phase > 0 && isolation ? <IsolatePreview /> : <SelectionCanvas />}
+        {phase === 3 && isolation ? <GenerateStage mediaAction={imageRemoveButton} /> : phase === 2 && isolation ? <MotionEditor mediaAction={imageRemoveButton} />
+          : phase > 0 && isolation ? <IsolatePreview mediaAction={imageRemoveButton} /> : <SelectionCanvas mediaAction={imageRemoveButton} />}
         </>}
       </Paper>
       <Paper sx={{ p: 3 }}>

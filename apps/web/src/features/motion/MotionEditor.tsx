@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import type { ReactNode } from "react";
 import { Stack } from "@mui/material";
 import { FPS, lastFrame } from "@h3-motion/shared";
 import { MotionCanvas } from "./MotionCanvas";
@@ -40,12 +41,12 @@ function useShortcuts(readOnly: boolean) {
   }, [readOnly]);
 }
 
-export function MotionEditor({ readOnly = false }: { readOnly?: boolean }) {
+export function MotionEditor({ readOnly = false, mediaAction }: { readOnly?: boolean; mediaAction?: ReactNode }) {
   usePlayback();
   useShortcuts(readOnly);
   useEffect(() => () => useMotionStore.getState().leave(), []);
   return <Stack spacing={2}>
-    <MotionCanvas readOnly={readOnly} />
+    <MotionCanvas readOnly={readOnly} mediaAction={mediaAction} />
     <MotionTimeline readOnly={readOnly} />
   </Stack>;
 }

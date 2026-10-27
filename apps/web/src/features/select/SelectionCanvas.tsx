@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { Box, Button, CircularProgress, Stack, Typography } from "@mui/material";
 import { styled } from "@mui/material/styles";
 import type { MaskCandidate, Point } from "@h3-motion/shared";
@@ -39,7 +40,7 @@ function loadImage(url: string): Promise<HTMLImageElement> {
   });
 }
 
-export function SelectionCanvas() {
+export function SelectionCanvas({ mediaAction }: { mediaAction?: ReactNode }) {
   const image = useSelectionStore(s => s.image);
   const candidates = useSelectionStore(s => s.candidates);
   const selectedIds = useSelectionStore(s => s.selectedIds);
@@ -193,6 +194,7 @@ export function SelectionCanvas() {
       {busy && <Box sx={{ position: "absolute", top: 16, left: 16, bgcolor: "background.paper", borderRadius: 99, py: 1, px: 2, display: "flex", gap: 1, alignItems: "center" }}>
         <CircularProgress size={16} /><Typography variant="caption">Working…</Typography>
       </Box>}
+      {image && mediaAction}
     </Box>
     <input ref={fileInput} hidden type="file" accept="image/jpeg,image/png,image/webp" aria-label="Upload a photo"
       onChange={event => { const file = event.target.files?.[0]; event.target.value = ""; if (file) void upload(file); }} />

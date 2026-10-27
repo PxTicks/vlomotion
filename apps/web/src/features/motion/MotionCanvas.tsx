@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { PointerEvent as ReactPointerEvent } from "react";
+import type { PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import { Alert, Box, CircularProgress, Typography } from "@mui/material";
 import { styled } from "@mui/material/styles";
 import { buildMotionCurve, isStartKey } from "@h3-motion/shared";
@@ -17,7 +17,7 @@ type Drag = { pointerId: number; origin: Point; start: Point } & (
 type Hover = "key" | "subject" | "record" | "path" | null;
 
 /** Composites all subjects; read-only previews match the frames sent to generation. */
-export function MotionCanvas({ readOnly = false }: { readOnly?: boolean }) {
+export function MotionCanvas({ readOnly = false, mediaAction }: { readOnly?: boolean; mediaAction?: ReactNode }) {
   const image = useSelectionStore(s => s.image);
   const mask = useSelectionStore(s => s.mask);
   const motion = useMotionStore(s => s.motion);
@@ -184,5 +184,6 @@ export function MotionCanvas({ readOnly = false }: { readOnly?: boolean }) {
     </Box>}
     {!ready && !error && <Box sx={{ position: "absolute", inset: 0, display: "grid", placeItems: "center" }}><CircularProgress size={28} /></Box>}
     {error && <Alert severity="error" sx={{ position: "absolute", left: 12, right: 12, bottom: 12 }}>{error}</Alert>}
+    {mediaAction}
   </Box>;
 }

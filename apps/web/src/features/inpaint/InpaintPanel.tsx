@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Box, Button, LinearProgress, Stack, Step, StepButton, Stepper, TextField, ToggleButton, ToggleButtonGroup, Typography } from "@mui/material";
 import { FPS } from "@h3-motion/shared";
 import { useInpaintStore } from "./useInpaintStore";
+import { RemoveMediaButton } from "../shell/RemoveMediaButton";
 
 export function InpaintPanel() {
   const s = useInpaintStore();
@@ -44,10 +45,10 @@ export function InpaintPanel() {
           if (file) s.setReference(file);
         }} />
       </Button>
-      {s.reference && <Stack spacing={0.5}>
-        {referenceUrl && <Box component="img" src={referenceUrl} alt="Reference" sx={{ width: "100%", maxHeight: 160, objectFit: "contain", borderRadius: 1 }} />}
-        <Button size="small" disabled={busy} onClick={() => s.setReference(null)}>Remove reference</Button>
-      </Stack>}
+      {s.reference && <Box sx={{ position: "relative", width: "fit-content", maxWidth: "100%", mx: "auto" }}>
+        {referenceUrl && <Box component="img" src={referenceUrl} alt="Reference" sx={{ display: "block", maxWidth: "100%", maxHeight: 160, borderRadius: 1 }} />}
+        <RemoveMediaButton label="Remove reference image" disabled={busy} onRemove={() => s.setReference(null)} />
+      </Box>}
       <TextField label="Prompt" placeholder="Describe what should appear in the mask" multiline minRows={5} value={s.prompt} disabled={busy}
         onChange={event => s.setPrompt(event.target.value)} slotProps={{ htmlInput: { maxLength: 4000 } }}
         helperText={s.reference ? "Use <Picture 1> to refer to your image." : undefined} />

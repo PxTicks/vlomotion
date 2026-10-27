@@ -1,9 +1,9 @@
 import { useState } from "react";
-import type { PointerEvent } from "react";
+import type { PointerEvent, ReactNode } from "react";
 import { Alert, Box, Stack, Typography } from "@mui/material";
 import { currentIsolation, useSelectionStore } from "../select";
 
-export function IsolatePreview() {
+export function IsolatePreview({ mediaAction }: { mediaAction?: ReactNode }) {
   const image = useSelectionStore(s => s.image);
   const result = useSelectionStore(currentIsolation);
   const [split, setSplit] = useState(50);
@@ -16,6 +16,7 @@ export function IsolatePreview() {
   }
 
   return <Stack spacing={1.5}>
+    <Box sx={{ position: "relative", width: "100%", maxWidth: image.height > image.width ? 420 : "100%", mx: "auto" }}>
     <Box role="slider" tabIndex={0} aria-label="Compare original photo with clean background"
       aria-orientation="horizontal" aria-valuemin={0} aria-valuemax={100} aria-valuenow={split}
       aria-valuetext={`${split}% original photo, ${100 - split}% clean background`}
@@ -41,7 +42,7 @@ export function IsolatePreview() {
       <Box component="img" src={result.plate.url} alt="Clean background with the subject removed" draggable={false}
         onError={() => setFailedUrl(result.plate.url)} sx={{ display: "block", width: "100%", height: "100%", objectFit: "contain", pointerEvents: "none" }} />
       <Box sx={{ position: "absolute", inset: 0, clipPath: `inset(0 0 0 ${split}%)`, pointerEvents: "none" }}>
-        <Box sx={{ position: "absolute", top: 12, right: 12, borderRadius: 99, px: 1.5, py: .5, bgcolor: "background.paper" }}>
+        <Box sx={{ position: "absolute", top: 12, right: mediaAction ? 48 : 12, borderRadius: 99, px: 1.5, py: .5, bgcolor: "background.paper" }}>
           <Typography variant="caption">Clean background</Typography>
         </Box>
       </Box>
@@ -58,6 +59,8 @@ export function IsolatePreview() {
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m8 7-5 5 5 5m8-10 5 5-5 5M12 5v14" /></svg>
         </Box>
       </Box>
+    </Box>
+    {mediaAction}
     </Box>
     <Typography variant="caption" color="text.secondary" textAlign="center">Hover or drag to compare · Use arrow keys when focused.</Typography>
     {(failedUrl === image.url || failedUrl === result.plate.url) && <Alert severity="error">Could not load the comparison preview. Try isolating the subject again.</Alert>}
