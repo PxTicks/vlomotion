@@ -40,9 +40,7 @@ export function IsolatePanel() {
     }}>
       {result ? "Try prompt again" : "Isolate subject"}
     </Button>
-    {!result && <Typography variant="caption" color="text.secondary">{recovery
-      ? "Isolation failed. Retry to generate a removal prompt from the highlighted subject."
-      : "Isolate this selection to generate a removal prompt. You can edit it after the first result."}</Typography>}
+    {!result && recovery && <Typography variant="caption" color="text.secondary">Isolation failed. Retry to generate a removal prompt from the highlighted subject.</Typography>}
     {result && <Button variant="contained" size="large" disabled={busy} onClick={() => visitPhase(2)}>Continue →</Button>}
   </Stack>;
 }
