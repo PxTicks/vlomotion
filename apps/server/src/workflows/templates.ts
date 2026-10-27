@@ -73,8 +73,7 @@ export const ANIMATE_OUTPUT = "25";
 export const INPAINT_BINDINGS = {
   source: { node: "5", input: "file", classType: "LoadVideo" },
   mask: { node: "7", input: "file", classType: "LoadVideo" },
-  fillWidth: { node: "11", input: "width", classType: "EmptyImage" },
-  fillHeight: { node: "11", input: "height", classType: "EmptyImage" },
+  encode: { node: "13", input: "pixels", classType: "VAEEncode" },
   width: { node: "14", input: "width", classType: "MiniMaxH3ReferenceToVideo" },
   height: { node: "14", input: "height", classType: "MiniMaxH3ReferenceToVideo" },
   length: { node: "14", input: "length", classType: "MiniMaxH3ReferenceToVideo" },
@@ -94,7 +93,7 @@ export async function buildInpaintWorkflow(client: Comfy, options: {
   const workflow = client.workflows.fromJson(graph);
   const values: Record<keyof typeof INPAINT_BINDINGS, unknown> = {
     source: client.assets.fromFile(options.sourcePath), mask: client.assets.fromFile(options.maskPath),
-    fillWidth: options.size.width, fillHeight: options.size.height, width: options.size.width, height: options.size.height,
+    encode: ["6", 0], width: options.size.width, height: options.size.height,
     length: options.frames, prompt: options.prompt, seed: options.seed,
   };
   for (const [key, binding] of Object.entries(INPAINT_BINDINGS)) workflow.setInput(binding.node, binding.input, values[key as keyof typeof values]);

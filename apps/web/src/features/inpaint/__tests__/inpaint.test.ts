@@ -75,7 +75,7 @@ describe("inpainting editor", () => {
     await useInpaintStore.getState().generate();
     expect(renderInpaintVideos).toHaveBeenCalledWith(expect.objectContaining({ source, shape: "ellipse", keys, size: { width: 864, height: 480 } }), expect.any(Function), expect.any(AbortSignal));
     const form = vi.mocked(apiRequest).mock.calls[0][1]!.body as FormData;
-    expect(JSON.parse(form.get("request") as string)).toMatchObject({ videoId: video.id, width: 864, height: 480, frames: 124 });
+    expect(JSON.parse(form.get("request") as string)).toEqual({ videoId: video.id, width: 864, height: 480, frames: 124, prompt: "A bird from <Picture 1> flies." });
     expect(form.get("reference")).toBe(reference);
     expect(useInpaintStore.getState()).toMatchObject({ status: "idle", view: "result", result });
   });

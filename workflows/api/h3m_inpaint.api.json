@@ -76,40 +76,11 @@
       "value": 0.5
     }
   },
-  "11": {
-    "class_type": "EmptyImage",
-    "inputs": {
-      "width": 864,
-      "height": 480,
-      "batch_size": 1,
-      "color": 8421504
-    }
-  },
-  "12": {
-    "class_type": "ImageCompositeMasked",
-    "inputs": {
-      "destination": [
-        "6",
-        0
-      ],
-      "source": [
-        "11",
-        0
-      ],
-      "mask": [
-        "10",
-        0
-      ],
-      "x": 0,
-      "y": 0,
-      "resize_source": false
-    }
-  },
   "13": {
     "class_type": "VAEEncode",
     "inputs": {
       "pixels": [
-        "12",
+        "6",
         0
       ],
       "vae": [
@@ -178,7 +149,8 @@
         0
       ],
       "pooling_method": "max",
-      "resize_mode": "nearest-exact"
+      "resize_mode": "nearest-exact",
+      "snap_grid": 1
     }
   },
   "18": {

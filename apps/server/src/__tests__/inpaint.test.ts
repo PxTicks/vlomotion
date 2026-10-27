@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import sharp from "sharp";
-import { Comfy } from "@comfyorg/sdk";
+import { Comfy, InvalidWorkflow } from "@comfyorg/sdk";
 import type { Job } from "@comfyorg/sdk";
 import { createApp } from "../app.js";
 import { SessionStore } from "../sessions.js";
@@ -52,12 +52,25 @@ describe("video inpainting", () => {
     expect(Object.values(graph).filter(n => n.class_type === "SamplerCustomAdvanced")).toHaveLength(1);
     expect(graph["1"].inputs.unet_name).toBe("minimax_h3_ref2va_pruned_int8_convrot.safetensors");
     expect(graph["14"].inputs).toMatchObject({ width: 480, height: 480, length: 124, prompt: request.prompt });
+    expect(graph["13"].inputs.pixels).toEqual(["6", 0]);
+    expect(Object.values(graph).some(node => node.class_type === "EmptyImage")).toBe(false);
     expect(graph["14"].inputs).not.toHaveProperty("ref_images.ref_image_1");
-    expect(graph["17"]).toMatchObject({ class_type: "vloMaskToLatentMask", inputs: { masks: ["10", 0], latent: ["16", 0], pooling_method: "max" } });
+    expect(graph["17"]).toMatchObject({ class_type: "vloMaskToLatentMask", inputs: { masks: ["10", 0], latent: ["16", 0], pooling_method: "max", snap_grid: 1 } });
     expect(graph["24"].inputs.latent_image).toEqual(["18", 0]);
     expect(graph["27"]).toMatchObject({ class_type: "ImageCompositeMasked", inputs: { destination: ["6", 0], source: ["25", 0], mask: ["10", 0] } });
     expect(session.job!.snapshot).toMatchObject({ status: "completed", stage: "inpaint", inpainting: { videoId: request.videoId, seed: 7, frames: 124 } });
     expect((await app.request(session.inpainting!.video.url, { headers: { cookie, Range: "bytes=0-9" } })).status).toBe(206);
+  });
+  it("ignores the removed fill option from older clients", async () => {
+    const { request, upload, submit, session } = await setup();
+    expect((await upload({ ...request, fillMaskedArea: true })).status).toBe(202);
+    await session.job!.done;
+    const graph = submit.mock.calls[0][0].json as ApiGraph;
+    expect(graph["13"].inputs.pixels).toEqual(["6", 0]);
+    expect(Object.values(graph).some(node => node.class_type === "EmptyImage")).toBe(false);
+    expect(Object.values(graph).filter(node => node.class_type === "ImageCompositeMasked")).toHaveLength(1);
+    expect(graph["27"].inputs).toMatchObject({ destination: ["6", 0], source: ["25", 0], mask: ["10", 0] });
+    expect(session.inpainting).not.toHaveProperty("fillMaskedArea");
   });
   it("normalizes and binds the optional image as Picture 1", async () => {
     const { upload, session, submit } = await setup();
@@ -68,6 +81,34 @@ describe("video inpainting", () => {
     expect(graph.reference.class_type).toBe("LoadImage");
     expect(graph["14"].inputs["ref_images.ref_image_1"]).toEqual(["reference", 0]);
     expect(session.job!.snapshot.status).toBe("completed");
+  });
+  it("reports node validation details when ComfyUI rejects a workflow", async () => {
+    const { upload, submit, session, app, cookie } = await setup();
+    submit.mockRejectedValue(new InvalidWorkflow("Prompt outputs failed validation", {
+      details: { node_errors: {
+        "17": { class_type: "vloMaskToLatentMask", errors: [
+          { type: "required_input_missing", message: "Required input is missing", details: "snap_grid", extra_info: { input_name: "snap_grid" } },
+        ] },
+        "1": { class_type: "UNETLoader", errors: [
+          { message: "Value not in list", details: "unet_name: missing-model.safetensors" },
+        ] },
+      } },
+    }));
+    expect((await upload()).status).toBe(202);
+    await session.job!.done;
+    const response = await app.request(`/api/jobs/${session.job!.snapshot.id}`, { headers: { cookie } });
+    const snapshot = await response.json();
+    expect(snapshot.status).toBe("failed");
+    expect(snapshot.error).toContain("vloMaskToLatentMask (node 17): Required input is missing: snap_grid");
+    expect(snapshot.error).toContain("UNETLoader (node 1): Value not in list: unet_name: missing-model.safetensors");
+    expect(session.inpainting).toBeUndefined();
+  });
+  it.each([null, { node_errors: null }, { node_errors: { "17": { errors: "invalid" } } }])("keeps the summary when validation details are unavailable (%j)", async details => {
+    const { upload, submit, session } = await setup();
+    submit.mockRejectedValue(new InvalidWorkflow("Prompt outputs failed validation", { details }));
+    expect((await upload()).status).toBe(202);
+    await session.job!.done;
+    expect(session.job!.snapshot).toMatchObject({ status: "failed", error: "Prompt outputs failed validation" });
   });
   it("rejects a stale source, changed canvas and mismatched frame counts before submission", async () => {
     const { request, upload, submit } = await setup();

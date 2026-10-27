@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
+import { InvalidWorkflow } from "@comfyorg/sdk";
 import type { Comfy, Job, Progress, Workflow } from "@comfyorg/sdk";
 import type { JobSnapshot } from "@h3-motion/shared";
+import { z } from "zod";
 
 export interface ManagedJob {
   snapshot: JobSnapshot;
@@ -68,6 +70,28 @@ export function stageProgress(event: Progress, sampled: boolean): { fraction: nu
   return { fraction: value === null ? null : value * 0.05, detail: event.message };
 }
 
+const validationNodeSchema = z.object({
+  class_type: z.string().optional(),
+  errors: z.array(z.object({ message: z.string(), details: z.string().optional() })),
+});
+
+function jobErrorMessage(error: unknown, operation: string): string {
+  if (error instanceof TypeError && error.message === "fetch failed") {
+    return "ComfyUI is unavailable. Start ComfyUI and the API proxy, then try again.";
+  }
+  if (error instanceof InvalidWorkflow) {
+    const nodes = z.record(z.string(), z.unknown()).safeParse(error.details?.node_errors);
+    const details = nodes.success ? Object.entries(nodes.data).flatMap(([id, value]) => {
+      const node = validationNodeSchema.safeParse(value);
+      if (!node.success) return [];
+      const label = node.data.class_type ? `${node.data.class_type} (node ${id})` : `Node ${id}`;
+      return node.data.errors.map(issue => `${label}: ${issue.message}${issue.details ? `: ${issue.details}` : ""}`);
+    }) : [];
+    return [error.message, ...details].join("\n");
+  }
+  return error instanceof Error ? error.message : `${operation} failed.`;
+}
+
 export function failJob(managed: ManagedJob, error: unknown, operation: string): void {
   if (managed.cancelRequested || error instanceof JobCancelled) {
     managed.snapshot.status = "cancelled";
@@ -75,9 +99,7 @@ export function failJob(managed: ManagedJob, error: unknown, operation: string):
     managed.snapshot.message = `${operation} cancelled.`;
   } else {
     managed.snapshot.status = "failed";
-    managed.snapshot.error = error instanceof TypeError && error.message === "fetch failed"
-      ? "ComfyUI is unavailable. Start ComfyUI and the API proxy, then try again."
-      : error instanceof Error ? error.message : `${operation} failed.`;
+    managed.snapshot.error = jobErrorMessage(error, operation);
     managed.snapshot.message = `Could not complete ${operation.toLowerCase()}. Check ComfyUI and try again.`;
   }
 }

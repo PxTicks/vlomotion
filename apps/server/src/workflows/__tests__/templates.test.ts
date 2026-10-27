@@ -22,9 +22,23 @@ describe("workflow contracts", () => {
     }
     const workflow = await buildInpaintWorkflow(new Comfy(), { sourcePath: "/tmp/source.mp4", maskPath: "/tmp/mask.mp4",
       size: { width: 480, height: 864 }, frames: 107, prompt: "A bird flies.", seed: 42 });
-    expect(workflow.json["11"]).toMatchObject({ inputs: { width: 480, height: 864 } });
+    expect(workflow.json["13"]).toMatchObject({ inputs: { pixels: ["6", 0] } });
+    expect(Object.values(workflow.json as ApiGraph).some(node => node.class_type === "EmptyImage")).toBe(false);
     expect(workflow.json["14"]).toMatchObject({ inputs: { width: 480, height: 864, length: 107, prompt: "A bird flies." } });
     expect(workflow.json["23"]).toMatchObject({ inputs: { noise_seed: 42 } });
+  });
+  it("encodes original source pixels and composites only after generation", async () => {
+    const workflow = await buildInpaintWorkflow(new Comfy(), { sourcePath: "/tmp/source.mp4", maskPath: "/tmp/mask.mp4",
+      size: { width: 480, height: 864 }, frames: 107, prompt: "A bird flies.", seed: 42 });
+    const graph = workflow.json as ApiGraph;
+    expect(graph["13"].inputs.pixels).toEqual(["6", 0]);
+    expect(Object.values(graph).some(node => node.class_type === "EmptyImage")).toBe(false);
+    expect(Object.values(graph).filter(node => node.class_type === "ImageCompositeMasked")).toHaveLength(1);
+    expect(graph["27"].inputs).toMatchObject({ destination: ["6", 0], source: ["25", 0], mask: ["10", 0] });
+    expect((await loadTemplate("inpaint"))["13"].inputs.pixels).toEqual(["6", 0]);
+    for (const node of Object.values(graph)) {
+      for (const value of Object.values(node.inputs)) if (Array.isArray(value)) expect(graph).toHaveProperty(String(value[0]));
+    }
   });
   it("binds text and points variants to the correct classes", async () => {
     const text = await loadTemplate("segment_text");

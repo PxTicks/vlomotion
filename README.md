@@ -13,9 +13,27 @@ interpolate between keyframes. Video preparation uses a 480p strided canvas at
 Video inpainting uses the main masked-latent pass from `~/vlo`'s
 `vlo_minimax_h3_inpaint.json`, with the `minimax_h3_ref2va_pruned_int8_convrot.safetensors`
 model and `vloMaskToLatentMask` from ComfyUI-vlo. There is one sampling pass;
-the seam-correction pass is omitted. The app fills the masked source region with
-neutral gray before encoding and composites generated pixels into the source
+the seam-correction pass is omitted. Original source pixels go straight into the
+VAE encoder without a prefill step. Generated pixels are composited into the source
 through the animated mask. The output includes generated audio.
+
+Compared with vlo's reference-based inpainting workflow, this shares the ref2va
+model, source-video VAE encoding, a joint video/audio latent, `vloMaskToLatentMask`,
+masked sampling, and a 20-step simple scheduler with the `er_sde` sampler. Important
+differences:
+
+- The app uses the whole frame resized to 480p. vlo defaults to a crop around the
+  mask with 10% padding, then positions and masks the generated patch in its editor.
+- The app has no prefill step. vlo uses `vloFillMaskedArea`, a pull-push fill that
+  smoothly extrapolates surrounding colors, enabled by default at full denoise.
+- The app maps the mask with `nearest-exact` and a one-cell grid. vlo uses spatial
+  max coverage and snaps outward to two-cell (32-pixel) model tokens.
+- The app uses a hard pixel composite at the mask boundary. It omits vlo's explicit
+  latent blanking, seam-correction pass, and temporal mask-feather controls.
+
+Sampling still uses full denoise. Using the source directly keeps its pixels during
+VAE encoding, but the model regenerates the masked region; it does not guarantee
+that the original content inside the mask survives.
 
 Currently implemented: npm workspaces, the themed app shell, photo upload with
 centre crop, text-based SAM 3.1 candidates, multiple selection, point refinement,
