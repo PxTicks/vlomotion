@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Box, Button, Checkbox, IconButton, LinearProgress, Stack, TextField, Typography } from "@mui/material";
+import { Box, Button, Checkbox, Chip, IconButton, LinearProgress, Stack, TextField, Typography } from "@mui/material";
 import { canApplyRefinement, hasPendingPoints, useSelectionStore } from "./useSelectionStore";
 
 export function SelectPanel() {
@@ -31,7 +31,7 @@ export function SelectPanel() {
           <Typography variant="h2">Subjects</Typography>
           <Button size="small" disabled={!s.image || s.busy} onClick={s.addSubject}>+ Add subject</Button>
         </Stack>
-        <Typography variant="body2" color="text.secondary">{s.selectedIds.length} included · Use the pencil to edit a mask.</Typography>
+        <Typography variant="body2" color="text.secondary">{s.selectedIds.length} included</Typography>
         {s.candidates.length > 1 && <Button size="small" disabled={s.busy || s.selectedIds.length === s.candidates.length} onClick={s.includeAll}>Include all {s.candidates.length}</Button>}
         {s.candidates.map((candidate, index) => {
           const name = s.labels[candidate.id] ?? `Subject ${index + 1}`;
@@ -45,9 +45,8 @@ export function SelectPanel() {
             </Box>
             <Stack sx={{ flex: 1, minWidth: 0 }}><Typography variant="body2" noWrap>{index + 1}. {name}</Typography>
               {s.drafts[candidate.id]?.pointsPending && <Typography variant="caption" color="text.secondary">Unapplied points</Typography>}</Stack>
-            <IconButton size="small" disabled={s.busy} aria-label={`Edit ${name}`} onClick={() => s.editSubject(candidate.id)}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="m15 5 4 4M4 20l4-1L20 7a2.8 2.8 0 0 0-4-4L4 15z" /></svg>
-            </IconButton>
+            <Chip component="button" type="button" size="small" label="Refine mask" variant="outlined" disabled={s.busy}
+              aria-label={`Refine mask for ${name}`} onClick={() => s.editSubject(candidate.id)} />
             <IconButton size="small" disabled={s.busy} aria-label={`Delete ${name}`} onClick={() => s.deleteSubject(candidate.id)}>×</IconButton>
           </Stack>;
         })}
@@ -61,11 +60,10 @@ export function SelectPanel() {
       </Stack>
       {!editing && <Stack component="form" spacing={1.5} onSubmit={event => { event.preventDefault(); void s.segment(); }}>
         <TextField label="Find subjects" placeholder="e.g. red car" value={s.text} onChange={event => s.setText(event.target.value)}
-          disabled={!s.image || s.busy} inputProps={{ maxLength: 160 }} helperText="Use points when placed, or search by name. Existing subjects are kept." fullWidth />
+          disabled={!s.image || s.busy} inputProps={{ maxLength: 160 }} fullWidth />
         <Button type="submit" variant="outlined" disabled={!s.image || s.busy || (s.pointsPending ? !canApplyRefinement(s) : !s.text.trim())}>Find subjects</Button>
       </Stack>}
       {(editing || adding) && <Stack spacing={1.5}>
-        <Typography variant="caption" color="text.secondary">Left-click to include. Right-click to exclude. Click a point to remove it.</Typography>
         <Typography variant="caption" role="status">{s.positive.length} include · {s.negative.length} exclude{s.pointsPending ? " · Unapplied changes" : ""}</Typography>
         {editing && <Button variant="contained" disabled={!canApplyRefinement(s)} onClick={() => void s.applyRefinement()}>Apply points</Button>}
         {(s.positive.length > 0 || s.negative.length > 0) && <Button disabled={s.busy} onClick={s.clearPoints}>Clear points</Button>}

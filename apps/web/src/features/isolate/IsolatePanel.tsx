@@ -22,10 +22,9 @@ export function IsolatePanel() {
   return <Stack spacing={2.5}>
     <Stack spacing={1}>
       <Typography variant="h2">Generate clean background</Typography>
-      <Typography variant="body2" color="text.secondary">Remove the selected subject and fill in the background behind it. Your selection stays available for motion editing.</Typography>
     </Stack>
     {result && <Chip label={result.instructionSource === "custom" ? "Custom removal instruction" : `Removed: ${result.phrase}`} color="primary" sx={{ alignSelf: "start", height: "auto", ".MuiChip-label": { whiteSpace: "normal", py: 1 } }} />}
-    {result && <TextField multiline minRows={5} fullWidth label="Prompt" value={instruction}
+    {result && <TextField multiline minRows={5} fullWidth label="Prompt (for subject removal)" value={instruction}
       disabled={busy} onChange={event => setDraft({ selectionKey, instruction: event.target.value })} inputProps={{ maxLength: 2000 }}
       slotProps={{ inputLabel: { shrink: true } }}
       placeholder={`[e.g. Remove the ${subject} from the image]`} />}
