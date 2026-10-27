@@ -3,7 +3,7 @@ import { Comfy } from "@comfyorg/sdk";
 import { videoGeometry } from "@h3-motion/shared";
 import { ANIMATE_BINDINGS, ANIMATE_MODEL, ANIMATE_OUTPUT, assertBindings, buildAnimateWorkflow, buildDescribeWorkflow, buildIsolateWorkflow, buildSegmentWorkflow, DESCRIBE_BINDINGS, DESCRIBE_OUTPUTS, ISOLATE_BINDINGS, ISOLATE_OUTPUT, isolationGeometry, loadTemplate, samText, REFINE_BINDINGS, SEGMENT_BINDINGS, SEGMENT_OUTPUT } from "../templates.js";
 import type { ApiGraph } from "../templates.js";
-import { INPAINT_BINDINGS, INPAINT_OUTPUT, buildInpaintWorkflow } from "../templates.js";
+import { INPAINT_BINDINGS, INPAINT_MODEL, INPAINT_OUTPUT, buildInpaintWorkflow } from "../templates.js";
 
 describe("workflow contracts", () => {
   it("stretches all animation inputs onto one model canvas and restores the delivered ratio before encoding", async () => {
@@ -184,12 +184,45 @@ describe("workflow contracts", () => {
     const plain = (await buildAnimateWorkflow(new Comfy(), options)).json as ApiGraph;
     expect(plain["14"].inputs).toMatchObject({ width: 1248, height: 704, length: 175, prompt: "A dog runs." });
     expect(plain[ANIMATE_BINDINGS.grow.node].inputs.expand).toBe(-16);
-    expect(plain["16"].inputs).toMatchObject({ end_step: 15, model: ["15", 0] });
+    expect(plain["16"].inputs).toMatchObject({ end_step: 15, model: ["30", 0] });
     expect(plain).not.toHaveProperty("spectrum");
     const fast = (await buildAnimateWorkflow(new Comfy(), { ...options, spectrum: true })).json as ApiGraph;
-    expect(fast.spectrum).toMatchObject({ class_type: "SpectrumApplyMiniMaxH3", inputs: { model: ["15", 0], enabled: true, offline_smoothing_replay: false } });
+    expect(fast.spectrum).toMatchObject({ class_type: "SpectrumApplyMiniMaxH3", inputs: { model: ["30", 0], enabled: true, offline_smoothing_replay: false } });
     expect(fast["16"].inputs.model).toEqual(["spectrum", 0]);
     expect(fast["18"].inputs.model).toEqual(["spectrum", 0]);
-    expect((await loadTemplate("animate"))["16"].inputs.model).toEqual(["15", 0]);
+    expect((await loadTemplate("animate"))["16"].inputs.model).toEqual(["30", 0]);
+  });
+  it("layers sol-attn over Kitchen attention, beneath Spectrum, unless bypassed", async () => {
+    const graph = await loadTemplate("animate");
+    expect(graph["15"].inputs.attention).toBe("comfy kitchen attention");
+    expect(graph["30"]).toMatchObject({ class_type: "BlockSparseAttention",
+      inputs: { model: ["15", 0], selection: "sol-attn", "selection.tau": 1.3, start_percent: 0.2, end_percent: 1 } });
+    expect(graph["18"].inputs.model).toEqual(["30", 0]);
+    const options = { startPath: "/tmp/start.png", referencePath: "/tmp/reference.mp4", maskPath: "/tmp/mask.mp4",
+      size: { width: 864, height: 480 }, modelSize: { width: 864, height: 480 }, frames: 124, prompt: "A dog runs.", lockIn: 6, seed: 9 };
+    const dense = (await buildAnimateWorkflow(new Comfy(), { ...options, sol: false })).json as ApiGraph;
+    expect(dense).not.toHaveProperty("30");
+    expect(dense["16"].inputs.model).toEqual(["15", 0]);
+    expect(dense["18"].inputs.model).toEqual(["15", 0]);
+    const denseSpectrum = (await buildAnimateWorkflow(new Comfy(), { ...options, sol: false, spectrum: true })).json as ApiGraph;
+    expect(denseSpectrum.spectrum.inputs.model).toEqual(["15", 0]);
+    expect(denseSpectrum["18"].inputs.model).toEqual(["spectrum", 0]);
+  });
+  it("layers sol-attn over Kitchen attention in inpainting unless bypassed", async () => {
+    const graph = await loadTemplate("inpaint");
+    expect(graph["19"].inputs.attention).toBe("comfy kitchen attention");
+    expect(graph["35"]).toMatchObject({ class_type: "BlockSparseAttention", inputs: { model: ["19", 0], selection: "sol-attn" } });
+    const options = { sourcePath: "/tmp/source.mp4", maskPath: "/tmp/mask.mp4",
+      size: { width: 864, height: 480 }, modelSize: { width: 864, height: 480 }, frames: 124, prompt: "A bird flies.", seed: 42 };
+    const sol = (await buildInpaintWorkflow(new Comfy(), options)).json as ApiGraph;
+    expect(sol[INPAINT_MODEL.guider.node].inputs.model).toEqual(["35", 0]);
+    expect(sol[INPAINT_MODEL.scheduler.node].inputs.model).toEqual(["35", 0]);
+    const dense = (await buildInpaintWorkflow(new Comfy(), { ...options, sol: false })).json as ApiGraph;
+    expect(dense).not.toHaveProperty("35");
+    expect(dense[INPAINT_MODEL.guider.node].inputs.model).toEqual(["19", 0]);
+    expect(dense[INPAINT_MODEL.scheduler.node].inputs.model).toEqual(["19", 0]);
+    for (const node of Object.values(dense)) {
+      for (const value of Object.values(node.inputs)) if (Array.isArray(value)) expect(dense).toHaveProperty(String(value[0]));
+    }
   });
 });

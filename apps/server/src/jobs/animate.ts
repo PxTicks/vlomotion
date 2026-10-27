@@ -2,7 +2,7 @@ import { randomInt } from "node:crypto";
 import type { Comfy } from "@comfyorg/sdk";
 import type { AnimateRequest, AnimationResult } from "@h3-motion/shared";
 import { videoGeometry } from "@h3-motion/shared";
-import { SPECTRUM_ENABLED } from "../config.js";
+import { SOL_ENABLED, SPECTRUM_ENABLED } from "../config.js";
 import { inspectVideo } from "../media/video.js";
 import { ANIMATE_OUTPUT, buildAnimateWorkflow } from "../workflows/templates.js";
 import type { Session, SessionStore } from "../sessions.js";
@@ -12,7 +12,7 @@ import type { ManagedJob } from "./runtime.js";
 export interface AnimateInputs { startPath: string; referencePath: string; maskPath: string }
 
 export function startAnimate(client: Comfy, store: SessionStore, session: Session, request: AnimateRequest, inputs: AnimateInputs,
-  options: { spectrum?: boolean } = {}): ManagedJob {
+  options: { spectrum?: boolean; sol?: boolean } = {}): ManagedJob {
   const { image, selection, isolation } = session;
   if (!image || !selection || !isolation || image.id !== request.imageId || selection.id !== request.maskId || isolation.plate.id !== request.plateId) {
     throw new Error("Isolate the current subject before generating.");
@@ -30,7 +30,7 @@ export function startAnimate(client: Comfy, store: SessionStore, session: Sessio
       const size = { width: request.width, height: request.height };
       const modelSize = videoGeometry(image!, Math.min(size.width, size.height)).generation;
       const workflow = await buildAnimateWorkflow(client, { ...inputs, size, modelSize, frames: request.frames, prompt: request.prompt,
-        lockIn: request.lockIn, seed, spectrum: options.spectrum ?? SPECTRUM_ENABLED });
+        lockIn: request.lockIn, seed, spectrum: options.spectrum ?? SPECTRUM_ENABLED, sol: options.sol ?? SOL_ENABLED });
       const job = await runWorkflow(client, managed, workflow, { stage: "animate", message: "Animating with MiniMax H3…", from: 0, to: 0.95 });
       const output = job.getOutputs(ANIMATE_OUTPUT)[0];
       if (!output) throw new Error("Generation completed without a video. Try again.");

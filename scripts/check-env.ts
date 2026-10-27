@@ -8,6 +8,7 @@ const nodes = [
   "QwenImage21Cache", "GrowMask", "ImageBlur", "ImageToMask", "ImageCompositeMasked", "ImageScale",
   "LoadVideo", "GetVideoComponents", "MiniMaxH3ImageToVideo", "vloTimeToMove", "CreateVideo", "SaveVideo",
   "MiniMaxH3ReferenceToVideo", "vloMaskToLatentMask", "SetLatentNoiseMask", "LTXVSeparateAVLatent", "LTXVConcatAVLatent",
+  "ModelAttentionBackend", "BlockSparseAttention",
 ];
 const models = [
   ["CheckpointLoaderSimple", "ckpt_name", "sam3.1_multiplex_fp16.safetensors"],

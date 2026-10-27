@@ -189,9 +189,12 @@ nodes. Use a pack revision containing both nodes; `npm run check-env` checks
 their availability. Its H3 support needs ComfyUI's
 per-token mask support (upstream since August 2026). Selection requires the SAM
 checkpoint. Isolation also requires the Qwen diffusion model, Qwen3-VL encoder
-and Qwen VAE listed below; generation requires the four MiniMax H3 files. The
-animate workflow uses Comfy Kitchen INT8 attention, which needs an NVIDIA or AMD
-GPU. Set `H3M_SPECTRUM=1` to splice in the third-party
+and Qwen VAE listed below; generation requires the four MiniMax H3 files. Both
+H3 workflows use Comfy Kitchen INT8 attention, which needs an NVIDIA or AMD
+GPU. Core sol-attn sparse attention (`BlockSparseAttention`) is layered on top
+at the node's defaults: from 20% of sampling, long sequences run sparse and
+everything else falls back to Kitchen attention. Set `H3M_SOL=0` to turn it
+off; the node is upstream since September 2026. Set `H3M_SPECTRUM=1` to splice in the third-party
 [Spectrum H3](https://github.com/xmarre/ComfyUI-Spectrum-MiniMax-H3) speed-up;
 it is off by default; generation needs no other node pack.
 

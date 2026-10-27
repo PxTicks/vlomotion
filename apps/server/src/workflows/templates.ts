@@ -62,11 +62,19 @@ export const ANIMATE_BINDINGS = {
   lockIn: { node: "16", input: "end_step", classType: "vloTimeToMove" },
   seed: { node: "20", input: "noise_seed", classType: "RandomNoise" },
 } satisfies Record<string, Binding>;
-/** The model chain Spectrum is spliced into: attention backend → (Spectrum) → TTM and the scheduler. */
+/** The animate model chain: Kitchen attention → sol-attn → (Spectrum) → TTM and the scheduler. */
 export const ANIMATE_MODEL = {
   base: { node: "15", input: "model", classType: "ModelAttentionBackend" },
+  sol: { node: "30", input: "model", classType: "BlockSparseAttention" },
   ttm: { node: "16", input: "model", classType: "vloTimeToMove" },
   scheduler: { node: "18", input: "model", classType: "BasicScheduler" },
+} satisfies Record<string, Binding>;
+/** The inpaint model chain: Kitchen attention → sol-attn → guider and scheduler. */
+export const INPAINT_MODEL = {
+  base: { node: "19", input: "model", classType: "ModelAttentionBackend" },
+  sol: { node: "35", input: "model", classType: "BlockSparseAttention" },
+  guider: { node: "20", input: "model", classType: "BasicGuider" },
+  scheduler: { node: "21", input: "model", classType: "BasicScheduler" },
 } satisfies Record<string, Binding>;
 export const ANIMATE_OUTPUT = "25";
 
@@ -92,12 +100,21 @@ function setVideoGeometry(graph: ApiGraph, inputs: string[], output: string, mod
   }
 }
 
+/** Drop the sol-attn node and feed its consumers straight from Kitchen attention. */
+function bypassSol(graph: ApiGraph, chain: { base: Binding; sol: Binding }, consumers: Binding[]) {
+  delete graph[chain.sol.node];
+  for (const consumer of consumers) graph[consumer.node].inputs[consumer.input] = [chain.base.node, 0];
+}
+
 export async function buildInpaintWorkflow(client: Comfy, options: {
   sourcePath: string; maskPath: string; referencePath?: string; size: FrameSize; modelSize: FrameSize; frames: number; prompt: string; seed: number;
+  sol?: boolean;
 }): Promise<Workflow> {
   const graph = await loadTemplate("inpaint");
-  assertBindings(graph, [...Object.values(INPAINT_BINDINGS), { node: INPAINT_OUTPUT, input: "video", classType: "SaveVideo" }]);
+  assertBindings(graph, [...Object.values(INPAINT_BINDINGS), ...Object.values(INPAINT_MODEL),
+    { node: INPAINT_OUTPUT, input: "video", classType: "SaveVideo" }]);
   setVideoGeometry(graph, ["30", "31"], "34", options.modelSize, options.size);
+  if (options.sol === false) bypassSol(graph, INPAINT_MODEL, [INPAINT_MODEL.guider, INPAINT_MODEL.scheduler]);
   if (options.referencePath) {
     graph.reference = { class_type: "LoadImage", inputs: { image: "reference.png" } };
     graph[INPAINT_BINDINGS.prompt.node].inputs["ref_images.ref_image_1"] = ["reference", 0];
@@ -155,14 +172,16 @@ export const ANIMATION_MASK_EXPAND = -16;
 
 export async function buildAnimateWorkflow(client: Comfy, options: {
   startPath: string; referencePath: string; maskPath: string; size: FrameSize; modelSize: FrameSize; frames: number;
-  prompt: string; lockIn: number; seed: number; spectrum?: boolean;
+  prompt: string; lockIn: number; seed: number; spectrum?: boolean; sol?: boolean;
 }): Promise<Workflow> {
   const graph = await loadTemplate("animate");
   assertBindings(graph, [...Object.values(ANIMATE_BINDINGS), ...Object.values(ANIMATE_MODEL)]);
   setVideoGeometry(graph, ["26", "27", "28"], "29", options.modelSize, options.size);
+  if (options.sol === false) bypassSol(graph, ANIMATE_MODEL, [ANIMATE_MODEL.ttm, ANIMATE_MODEL.scheduler]);
   if (options.spectrum) {
     // vlo's Spectrum settings are the node's defaults; offline smoothing replay is opted out of explicitly.
-    graph.spectrum = { class_type: "SpectrumApplyMiniMaxH3", inputs: { model: [ANIMATE_MODEL.base.node, 0], enabled: true, blend_weight: 0.5,
+    // It wraps whatever TTM reads (sol-attn unless bypassed); Spectrum v0.2.27+ audits core sparse attention beneath it.
+    graph.spectrum = { class_type: "SpectrumApplyMiniMaxH3", inputs: { model: graph[ANIMATE_MODEL.ttm.node].inputs.model, enabled: true, blend_weight: 0.5,
       degree: 1, ridge_lambda: 0.1, window_size: 2, flex_window: 0.75, warmup_steps: 1, tail_actual_steps: 1, max_history: 8, debug: false,
       history_storage: "system_ram", bootstrap_first_forecast: true, offline_smoothing_replay: false } };
     graph[ANIMATE_MODEL.ttm.node].inputs.model = ["spectrum", 0];
