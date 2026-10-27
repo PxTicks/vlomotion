@@ -90,7 +90,8 @@ export async function loadSubjectLayers(photoUrl: string, plateUrl: string, mask
   matte.width = width; matte.height = height;
   const white = new ImageData(width, height);
   for (let i = 0; i < mask.length; i++) { white.data[i * 4] = white.data[i * 4 + 1] = white.data[i * 4 + 2] = 255; white.data[i * 4 + 3] = mask[i]; }
-  matte.getContext("2d")!.putImageData(white, 0, 0);
+  // CPU-backed like the cut-out: a GPU context reset would silently blank the TTM mask.
+  matte.getContext("2d", { willReadFrequently: true })!.putImageData(white, 0, 0);
   return { width, height, photo, plate, cutout: canvas, matte, mask, bounds };
 }
 
