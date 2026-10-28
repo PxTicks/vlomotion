@@ -75,6 +75,27 @@ describe("motion store", () => {
     expect(state()).toMatchObject({ recording: false, playing: false });
     expect(state().motion?.keys.map(key => [key.frame, key.x, key.y])).toEqual([[0, 100, 200], [62, 300, 200], [123, 300, 400]]);
   });
+  it("keyframes instead of recording when the user scrubs before the first drag", () => {
+    state().setPlayhead(40);
+    expect(state().scrubbed).toBe(true);
+    expect(state().startRecording()).toBeNull();
+    expect(state().beginSubjectDrag()).toEqual({ x: 100, y: 200 });
+    state().placeSubject({ x: 300, y: 200 });
+    state().setPlayhead(123);
+    state().beginSubjectDrag(); state().placeSubject({ x: 300, y: 400 });
+    expect(state().recording).toBe(false);
+    expect(state().motion?.keys.map(key => [key.frame, key.x, key.y])).toEqual([[0, 100, 200], [40, 300, 200], [123, 300, 400]]);
+  });
+  it.each([
+    ["scrubbing back to the photo frame", () => state().setPlayhead(0)],
+    ["playing the clip", () => state().togglePlay()],
+    ["clearing the path", () => state().clearPath()],
+  ])("records again after %s", (_, reset) => {
+    state().setPlayhead(60);
+    reset();
+    expect(state().scrubbed).toBe(false);
+    expect(state().startRecording()).not.toBeNull();
+  });
   it("drops an unfinished take when the editor closes", () => {
     state().startRecording();
     state().leave();

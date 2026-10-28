@@ -27,6 +27,7 @@ export function MotionCanvas({ readOnly = false, mediaAction }: { readOnly?: boo
   const playhead = useMotionStore(s => s.playhead);
   const playing = useMotionStore(s => s.playing);
   const recording = useMotionStore(s => s.recording);
+  const scrubbed = useMotionStore(s => s.scrubbed);
   const selectedKeyId = useMotionStore(s => s.selectedKeyId);
   const canvas = useRef<HTMLCanvasElement>(null);
   const overlay = useRef<SVGSVGElement>(null);
@@ -93,7 +94,8 @@ export function MotionCanvas({ readOnly = false, mediaAction }: { readOnly?: boo
       store.selectKey(key.id); store.setPlayhead(key.frame);
       if (!isStartKey(target.subject.motion, key.id)) startDrag(event, { kind: "key", id: key.id, pointerId, origin: point, start: { x: key.x, y: key.y } });
     } else if (target.kind === "subject") {
-      if (target.subject.motion.keys.length > 1) {
+      // Scrubbing before the first drag keyframes the path at the playhead instead of recording it.
+      if (target.subject.motion.keys.length > 1 || store.scrubbed) {
         const start = store.beginSubjectDrag();
         if (start) startDrag(event, { kind: "subject", pointerId, origin: point, start });
       } else {
@@ -116,7 +118,7 @@ export function MotionCanvas({ readOnly = false, mediaAction }: { readOnly?: boo
     const point = toImage(event), current = drag.current;
     if (!current) {
       const target = motionTargetAt(tracks, point, playhead, scale);
-      setHover(target?.kind === "subject" && target.subject.motion.keys.length === 1 ? "record" : target?.kind ?? null);
+      setHover(target?.kind === "subject" && target.subject.motion.keys.length === 1 && !scrubbed ? "record" : target?.kind ?? null);
       return;
     }
     if (current.pointerId !== event.pointerId) return;
@@ -177,7 +179,7 @@ export function MotionCanvas({ readOnly = false, mediaAction }: { readOnly?: boo
     </Box>}
     {ready && active && !playing && !recording && !readOnly && active.motion.keys.length === 1 && <Box sx={{ position: "absolute", bottom: 12, left: "50%", transform: "translateX(-50%)",
       pointerEvents: "none", bgcolor: "background.paper", borderRadius: 99, px: 2, py: .75, maxWidth: "calc(100% - 24px)" }}>
-      <Typography variant="caption">Drag to create a path.</Typography>
+      <Typography variant="caption">{scrubbed ? `Drag to place a key at ${formatSeconds(playhead)}.` : "Drag to create a path."}</Typography>
     </Box>}
     {recording && <Box sx={{ position: "absolute", top: 12, left: 12, bgcolor: "error.main", color: "#fff", borderRadius: 99, px: 1.5, py: .25 }}>
       <Typography variant="caption" sx={{ fontWeight: 600 }}>● REC</Typography>

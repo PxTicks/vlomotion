@@ -135,8 +135,11 @@ arrows change the layer order. The top row is in front. Paths, diamond keys and
 the active subject's timeline use that subject's colour.
 Drag the subject to record a path automatically. Recording is available only
 while that subject has no path; use **Clear path** to record again. This clears
-only the active subject's path. Dragging a subject along an existing path adjusts
-its position at the playhead without replacing its other keys.
+only the active subject's path. To keyframe instead, scrub the timeline before
+the first drag. Each drag then places a key at the playhead, so you can scrub,
+drag, scrub and drag again. Scrubbing back to 0 s or pressing play switches
+recording back on. Dragging a subject along an existing path adjusts its position
+at the playhead without replacing its other keys.
 Drag a ◆ on the canvas to adjust its position, or on the timeline to adjust its
 timing. Click the path to insert a key. Motion uses smooth timing by default.
 **Clear path** restores the subject's starting position and removes the path,
