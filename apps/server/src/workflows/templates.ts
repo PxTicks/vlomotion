@@ -139,7 +139,7 @@ export async function buildDescribeWorkflow(client: Comfy, highlightPath: string
   const workflow = client.workflows.fromJson(graph);
   workflow.setInput(highlight.node, highlight.input, client.assets.fromFile(highlightPath));
   workflow.setInput(phrase.node, phrase.input, `Identify the subject from the highlighted region. The yellow highlight marks the selected object or group.${hint} Reply only with an unambiguous noun phrase of at most 8 words identifying all highlighted subjects. Do not mention the highlight.`);
-  workflow.setInput(caption.node, caption.input, `${captionPrompt} Identify the subject from the highlighted region.${hint} Use "moves" for motion_verb if no action is visible.`);
+  workflow.setInput(caption.node, caption.input, `${captionPrompt} Identify the subject from the highlighted region.${hint} Use "moves" (or "move" for several subjects) for motion_verb if no action is visible.`);
   return workflow;
 }
 

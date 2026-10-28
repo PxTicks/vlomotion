@@ -87,6 +87,17 @@ describe("H3 prompt", () => {
     expect(buildH3PromptFields({ ...DEFAULT_CAPTION, soundscape: "Birdsong breaks the silence." }, "moves").soundEffects)
       .toBe("Birdsong breaks the silence.");
   });
+  it("fits captions that ignore the field formats into the sentence", () => {
+    const main = (caption: Partial<typeof DEFAULT_CAPTION>) => buildH3PromptFields({ ...DEFAULT_CAPTION, ...caption }, "runs to the right").mainPrompt;
+    expect(main({ style: "photorealistic", subject: "The brown dog", scene: "On a sunlit lawn." }))
+      .toBe("Photorealistic, the brown dog in <Picture 1> runs to the right, on a sunlit lawn. The camera stays still.");
+    expect(main({ subject: "A red car", scene: "a quiet street at dusk" }))
+      .toBe("Live-action, cinematic, a red car in <Picture 1> runs to the right. A quiet street at dusk. The camera stays still.");
+    expect(main({ subject: "Big Ben", scene: "The scene shows a rainy London square." }))
+      .toBe("Live-action, cinematic, Big Ben in <Picture 1> runs to the right. The scene shows a rainy London square. The camera stays still.");
+    expect(main({ scene: "Indoors, beside a window" })).toContain("runs to the right, indoors, beside a window.");
+    expect(main({ scene: "Inn courtyard" })).toContain("runs to the right. Inn courtyard.");
+  });
   it("fills the I2VA template without doubled punctuation", () => {
     expect(buildH3Prompt({ ...DEFAULT_CAPTION, subject: "the brown dog", scene: "on a sunlit lawn.", soundscape: "Paws thud on grass." },
       "runs to the right across the frame")).toBe([

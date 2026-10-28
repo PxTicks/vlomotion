@@ -8,9 +8,15 @@ export const DEFAULT_CAPTION = {
   soundscape: "Natural ambient sounds from the scene.",
 };
 const field = (fallback: string) => z.string().trim().min(1).max(600).catch(fallback);
+/**
+ * The verb leads every motion phrase, so anything but one finite verb ("is walking", "running") falls back to "moves".
+ * A participle's stem always has a vowel ("fly-ing", "run-ning"); "swing", "spring" and "cling" don't.
+ */
+const verb = z.string().trim().toLowerCase().regex(/^[a-z]{2,20}$/).refine(word => !/[aeiouy][a-z]*ing$/.test(word))
+  .catch(DEFAULT_CAPTION.motion_verb);
 export const captionSchema = z.object({
   style: field(DEFAULT_CAPTION.style), subject: field(DEFAULT_CAPTION.subject),
-  motion_verb: field(DEFAULT_CAPTION.motion_verb), scene: field(DEFAULT_CAPTION.scene),
+  motion_verb: verb, scene: field(DEFAULT_CAPTION.scene),
   soundscape: field(DEFAULT_CAPTION.soundscape),
 });
 export type Caption = z.infer<typeof captionSchema>;

@@ -102,6 +102,9 @@ function describePath(motion: SubjectMotion, size: FrameSize, verb: string, boun
 }
 
 const clean = (text: string) => text.trim().replace(/[\s.,;:]+$/, "");
+const capitalize = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
+/** Scenes that can trail the motion as a clause ("…, on a lawn."); anything else gets its own sentence. */
+const PLACING = /^(?:in|on|at|by|near|next to|beside|behind|under|beneath|below|above|over|across|along|through|inside|outside|against|among|amid|amidst|around|between|within|atop|with|underwater|indoors|outdoors)\b/i;
 
 export interface H3PromptFields { mainPrompt: string; soundEffects: string; music: string }
 
@@ -110,8 +113,12 @@ export function buildH3PromptFields(caption: Caption, motionPhrase: string): H3P
   const soundscape = clean(caption.soundscape);
   // A still image has no audio track; an automatic caption must not turn that into a request for silence.
   const silent = /^(?:silent|silence|none|n\/a|no (?:sounds?|audio|audible sounds?))$/i.test(soundscape);
+  // The subject sits mid-sentence, so a leading article is lowercased; other capitals may be proper nouns.
+  const subject = clean(caption.subject).replace(/^(?:The|A|An)\b/, article => article.toLowerCase());
+  const scene = clean(caption.scene);
+  const placed = PLACING.test(scene) ? `, ${scene.charAt(0).toLowerCase()}${scene.slice(1)}.` : `. ${capitalize(scene)}.`;
   return {
-    mainPrompt: `${clean(caption.style)}, ${clean(caption.subject)} in <Picture 1> ${clean(motionPhrase)}, ${clean(caption.scene)}. The camera stays still.`,
+    mainPrompt: `${capitalize(clean(caption.style))}, ${subject} in <Picture 1> ${clean(motionPhrase)}${placed} The camera stays still.`,
     soundEffects: !soundscape || silent ? DEFAULT_CAPTION.soundscape : `${soundscape}.`,
     music: "",
   };

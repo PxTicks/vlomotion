@@ -61,20 +61,26 @@ describe("isolation pipeline", () => {
     await app.request("/api/jobs/isolate", post(cookie, request)); await session.job!.done;
     expect(session.isolation).toMatchObject({ phrase: "the black cat", caption: { style: DEFAULT_CAPTION.style } });
   });
-  it("uses a custom instruction directly without requiring description generation", async () => {
+  it("still describes the subject for the video prompt when the removal instruction is custom", async () => {
     const { app, client, session, cookie, png, request } = await setup();
-    const submit = vi.spyOn(client, "submit").mockResolvedValue(remote({ "19": [png] }));
+    const submit = vi.spyOn(client, "submit").mockResolvedValueOnce(description()).mockResolvedValueOnce(remote({ "19": [png] }));
     await app.request("/api/jobs/isolate", post(cookie, { ...request, instruction: "Remove the dog." })); await session.job!.done;
-    expect(submit).toHaveBeenCalledOnce();
-    expect(session.isolation?.instruction).toBe("Remove the dog.");
-    expect(session.isolation?.descriptionSource).toBe("fallback");
-    expect(session.isolation?.instructionSource).toBe("custom");
-    expect(session.description).toBeUndefined();
-    submit.mockResolvedValueOnce(description()).mockResolvedValueOnce(remote({ "19": [png] }));
+    expect(submit).toHaveBeenCalledTimes(2);
+    expect(submit.mock.calls[1][0].json["6"]).toMatchObject({ inputs: { prompt: "Remove the dog." } });
+    expect(session.isolation).toMatchObject({ instruction: "Remove the dog.", instructionSource: "custom", descriptionSource: "model",
+      caption: { subject: "the brown dog", scene: "on a lawn" } });
+    submit.mockResolvedValueOnce(remote({ "19": [png] }));
     await app.request("/api/jobs/isolate", post(cookie, request)); await session.job!.done;
     expect(submit).toHaveBeenCalledTimes(3);
-    expect(session.description).toMatchObject({ phrase: "the brown dog on the left", userText: "dog" });
-    expect(session.isolation?.descriptionSource).toBe("model");
+    expect(session.isolation).toMatchObject({ descriptionSource: "model", instructionSource: "model", instruction: expect.stringContaining("Remove the brown dog on the left") });
+  });
+  it("falls back to the generic caption when description fails alongside a custom instruction", async () => {
+    const { app, client, session, cookie, png, request } = await setup();
+    const submit = vi.spyOn(client, "submit").mockRejectedValueOnce(new Error("TextGenerate unavailable")).mockResolvedValueOnce(remote({ "19": [png] }));
+    await app.request("/api/jobs/isolate", post(cookie, { ...request, instruction: "Remove the dog." })); await session.job!.done;
+    expect(submit).toHaveBeenCalledTimes(2);
+    expect(session.isolation).toMatchObject({ instruction: "Remove the dog.", descriptionSource: "fallback", caption: DEFAULT_CAPTION });
+    expect(session.description).toBeUndefined();
   });
   it("regenerates a cached description when the subject hint changes", async () => {
     const { app, client, session, cookie, png, request } = await setup();
@@ -113,11 +119,13 @@ describe("isolation pipeline", () => {
     const submit = vi.spyOn(client, "submit").mockRejectedValueOnce(new Error("TextGenerate unavailable"));
     await app.request("/api/jobs/isolate", post(cookie, request)); await session.job!.done;
     expect(session.job!.snapshot).toMatchObject({ status: "failed", stage: "describe", imageId: request.imageId, maskId: request.maskId });
-    submit.mockResolvedValueOnce(remote({ "19": [png] }));
+    // The service has recovered, so the custom-instruction retry describes the subject again.
+    submit.mockResolvedValueOnce(description()).mockResolvedValueOnce(remote({ "19": [png] }));
     await app.request("/api/jobs/isolate", post(cookie, { ...request, instruction: "Remove the red car." })); await session.job!.done;
     expect(session.job!.snapshot.status).toBe("completed");
-    expect(submit).toHaveBeenCalledTimes(2);
-    expect(submit.mock.calls[1][0].json["6"]).toMatchObject({ inputs: { prompt: "Remove the red car." } });
+    expect(submit).toHaveBeenCalledTimes(3);
+    expect(submit.mock.calls[2][0].json["6"]).toMatchObject({ inputs: { prompt: "Remove the red car." } });
+    expect(session.isolation).toMatchObject({ descriptionSource: "model", caption: { scene: "on a lawn" } });
   });
   it("reports missing proxy text files separately from an unidentified subject and allows manual recovery", async () => {
     const { app, client, session, cookie, png, request } = await setup();
@@ -128,10 +136,11 @@ describe("isolation pipeline", () => {
     expect(session.description).toBeUndefined();
     expect(session.isolation).toBeUndefined();
     expect(submit).toHaveBeenCalledOnce();
-    submit.mockResolvedValueOnce(remote({ "19": [png] }));
+    submit.mockResolvedValueOnce(remote({})).mockResolvedValueOnce(remote({ "19": [png] }));
     await app.request("/api/jobs/isolate", post(cookie, { ...request, instruction: "Remove the dog." })); await session.job!.done;
     expect(session.job!.snapshot.status).toBe("completed");
-    expect(session.isolation).toMatchObject({ instruction: "Remove the dog.", instructionSource: "custom" });
+    expect(submit).toHaveBeenCalledTimes(3);
+    expect(session.isolation).toMatchObject({ instruction: "Remove the dog.", instructionSource: "custom", descriptionSource: "fallback" });
   });
   it("describes a different confirmed mask again even when the search hint is unchanged", async () => {
     const { app, store, client, session, cookie, png, request } = await setup();

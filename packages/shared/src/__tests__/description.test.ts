@@ -20,6 +20,10 @@ describe("subject description fallbacks", () => {
     expect(parseDescription("the brown dog", caption).caption.subject).toBe("the brown dog");
     expect(() => parseDescription("", caption)).toThrow("Could not identify");
   });
+  it.each([["Walks", "walks"], [" fly ", "fly"], ["swing", "swing"], ["spring", "spring"], ["cling", "cling"], ["is walking", "moves"],
+    ["running", "moves"], ["flying", "moves"], ["swinging", "moves"], ["being", "moves"], ["walks slowly", "moves"], ["", "moves"]])("keeps the motion verb to one finite verb: %s", (raw, verb) => {
+    expect(parseDescription("the brown dog", JSON.stringify({ motion_verb: raw })).caption.motion_verb).toBe(verb);
+  });
   it("uses Qwen's image reference syntax in the removal instruction", () => {
     expect(removalInstruction("the red car")).toBe("Remove the red car from <image1>, including its shadow and reflection. Fill the area with the background that would naturally be behind it. Keep everything else exactly the same.");
   });

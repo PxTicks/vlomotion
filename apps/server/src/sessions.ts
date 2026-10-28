@@ -16,6 +16,8 @@ export interface Session {
   inpainting?: InpaintResult;
   selection?: StoredImage;
   description?: SubjectDescription & { imageId: string; maskId: string; userText: string };
+  /** The subject the model last answered unusably, so a custom instruction doesn't ask again. */
+  describeFailure?: { imageId: string; maskId: string; userText: string };
   isolation?: IsolationResult;
   animation?: AnimationResult;
   job?: ManagedJob;
@@ -52,6 +54,7 @@ export function isBusy(session: Session): boolean {
 
 export function clearIsolation(session: Session): void {
   session.description = undefined;
+  session.describeFailure = undefined;
   session.isolation = undefined;
   session.animation = undefined;
 }
