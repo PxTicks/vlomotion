@@ -40,7 +40,7 @@ export function GeneratePanel() {
         </Tooltip>
         <Typography variant="body2" sx={{ fontVariantNumeric: "tabular-nums" }}>{lockIn}</Typography>
       </Stack>
-      <Slider value={lockIn} min={LOCK_IN.min} max={LOCK_IN.max} step={LOCK_IN.step} marks disabled={busy} aria-label="Motion lock-in"
+      <Slider value={lockIn} min={LOCK_IN.min} max={LOCK_IN.max} step={LOCK_IN.step} disabled={busy} aria-label="Motion lock-in"
         onChange={(_, value) => setLockIn(Array.isArray(value) ? value[0] : value)} />
       <Stack direction="row" justifyContent="space-between" sx={{ mt: -1 }}>
         <Typography variant="caption" color="text.secondary">Loose</Typography>

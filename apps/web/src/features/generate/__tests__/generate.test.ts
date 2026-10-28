@@ -119,9 +119,9 @@ describe("generate guards", () => {
     expect(request.prompt).toContain("overall_soundscape: Soft rolling sounds.");
     expect(request.prompt).toContain("non_diegetic_music: Quiet piano music.");
   });
-  it("defaults lock-in to 6 and snaps changes to the five control points", () => {
+  it("defaults lock-in to 6 and allows every whole step from 2 to 15", () => {
     expect(useGenerateStore.getState().lockIn).toBe(6);
-    for (const [input, expected] of [[0, 3], [3, 3], [5, 6], [8, 9], [12, 12], [17, 15]]) {
+    for (const [input, expected] of [[0, 2], [2, 2], ...Array.from({ length: 13 }, (_, i) => [i + 3, i + 3]), [7.6, 8], [17, 15]]) {
       useGenerateStore.getState().setLockIn(input);
       expect(useGenerateStore.getState().lockIn).toBe(expected);
     }

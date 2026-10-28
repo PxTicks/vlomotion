@@ -69,20 +69,20 @@ describe("animate job", () => {
     expect(graph["29"].inputs).toMatchObject({ width: 686, height: 480, crop: "disabled" });
     expect(session.job!.snapshot).toMatchObject({ status: "completed", animation: { width: 686, height: 480 } });
   });
-  it("submits the uploads with the request's settings and serves the generated video with byte ranges", async () => {
+  it.each([2, 6, 8, 15])("submits lock-in %i with the request's settings and serves the generated video with byte ranges", async lockIn => {
     const { app, client, session, cookie, request } = await setup();
     const video = new Uint8Array(await fixture(124));
     const submit = vi.spyOn(client, "submit").mockResolvedValue(remote(video));
-    const response = await upload(app, cookie, request);
+    const response = await upload(app, cookie, { ...request, lockIn });
     expect(response.status).toBe(202);
     await session.job!.done;
     const json = submit.mock.calls[0][0].json as ApiGraph;
     expect(json[ANIMATE_BINDINGS.prompt.node].inputs).toMatchObject({ prompt: "A dog runs.", width: 480, height: 480, length: 124 });
-    expect(json[ANIMATE_BINDINGS.lockIn.node].inputs).toMatchObject({ start_step: 1, end_step: 6 });
+    expect(json[ANIMATE_BINDINGS.lockIn.node].inputs).toMatchObject({ start_step: 1, end_step: lockIn });
     expect(json[ANIMATE_MODEL.scheduler.node].inputs.steps).toBe(25);
     expect(json[ANIMATE_BINDINGS.seed.node].inputs.noise_seed).toBe(7);
     expect(json[ANIMATE_BINDINGS.grow.node].inputs.expand).toBe(-16);
-    expect(session.job!.snapshot).toMatchObject({ status: "completed", stage: "animate", animation: { seed: 7, frames: 124, lockIn: 6 } });
+    expect(session.job!.snapshot).toMatchObject({ status: "completed", stage: "animate", animation: { seed: 7, frames: 124, lockIn } });
     const { url } = session.animation!.video;
     const full = await app.request(url, { headers: { cookie } });
     expect(full.headers.get("content-type")).toBe("video/mp4");
@@ -92,10 +92,10 @@ describe("animate job", () => {
     expect(partial.headers.get("content-range")).toBe(`bytes 10-19/${video.length}`);
     expect(new Uint8Array(await partial.arrayBuffer())).toEqual(video.subarray(10, 20));
   });
-  it("rejects lock-in values outside the slider's control points before submitting", async () => {
+  it("rejects lock-in values outside 2–15 or fractional steps before submitting", async () => {
     const { app, client, cookie, request } = await setup();
     const submit = vi.spyOn(client, "submit");
-    for (const lockIn of [1, 8, 16]) {
+    for (const lockIn of [1, 8.5, 16]) {
       expect((await upload(app, cookie, { ...request, lockIn })).status).toBe(400);
     }
     expect(submit).not.toHaveBeenCalled();

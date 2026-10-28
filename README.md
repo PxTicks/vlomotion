@@ -151,7 +151,7 @@ their paths when the selection changes; a new photo resets all paths. Preview an
 video rendering composite every subject using its own path and the chosen order.
 
 **Continue** opens Generate. The workflow uses **25 sampling steps**.
-**Motion lock-in** offers **3, 6, 9, 12 and 15**, default **6**, setting the step
+**Motion lock-in** uses a slider from **2 to 15** in whole steps, default **6**, setting the step
 at which the subject is released from your path. Higher values hold it longer but
 leave H3 less room to blend the cut-out into the scene. **GENERATE** renders the
 reference and mask videos in a Web Worker, encodes exactly 124, 175 or 243
