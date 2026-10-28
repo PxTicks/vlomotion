@@ -37,7 +37,6 @@ export function InpaintEditor({ onRemove }: { onRemove(): void }) {
 
   if (!s.video) return null;
   const size = inpaintSize(s.video.width, s.video.height);
-  const removeButton = <RemoveMediaButton label="Remove video" disabled={busy || s.uploading} onRemove={onRemove} />;
   const point = (event: PointerEvent<SVGSVGElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
     return { x: Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)), y: Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height)) };
@@ -63,7 +62,6 @@ export function InpaintEditor({ onRemove }: { onRemove(): void }) {
     {showResult ? <Box sx={{ position: "relative", width: "100%", maxWidth: 680 * s.result!.width / s.result!.height, mx: "auto" }}>
         <Box component="video" key={s.result!.video.id} src={s.result!.video.url} controls autoPlay
           sx={{ display: "block", width: "100%", aspectRatio: `${s.result!.width}/${s.result!.height}`, bgcolor: "#19151f", borderRadius: 1 }} />
-        {removeButton}
       </Box>
       : <Box sx={{ position: "relative", width: "100%", maxWidth: 680 * s.video.width / s.video.height, mx: "auto", aspectRatio: `${s.video.width}/${s.video.height}`, bgcolor: "#19151f", borderRadius: 1, overflow: "hidden" }}>
         <video ref={video} key={s.video.id} src={s.video.url} muted playsInline preload="auto"
@@ -99,7 +97,7 @@ export function InpaintEditor({ onRemove }: { onRemove(): void }) {
             {s.step === 1 && !busy && <rect data-resize="true" x={(box.x + box.width) * 1000 - 12} y={(box.y + box.height) * 1000 - 12} width={24} height={24} fill="#f2ff59" stroke="none" style={{ cursor: "nwse-resize" }} />}
           </g>}
         </svg>
-        {removeButton}
+        {s.step === 0 && <RemoveMediaButton label="Remove video" disabled={busy || s.uploading} onRemove={onRemove} />}
       </Box>}
     {!showResult && s.step > 0 && <Stack spacing={1}>
       <Stack direction="row" alignItems="center" justifyContent="space-between">

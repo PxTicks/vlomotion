@@ -1,11 +1,10 @@
-import type { ReactNode } from "react";
 import { Alert, Box, Stack, ToggleButton, ToggleButtonGroup } from "@mui/material";
 import { MotionEditor } from "../motion";
 import { useGenerationInputs } from "./inputs";
 import { useCurrentResult, useGenerateStore } from "./useGenerateStore";
 
 /** Source plays the exact frames sent to H3; Result plays the generated video. */
-export function GenerateStage({ mediaAction }: { mediaAction?: ReactNode }) {
+export function GenerateStage() {
   const view = useGenerateStore(s => s.view);
   const setView = useGenerateStore(s => s.setView);
   const tier = useGenerateStore(s => s.tier);
@@ -29,9 +28,8 @@ export function GenerateStage({ mediaAction }: { mediaAction?: ReactNode }) {
       ? <Box sx={{ position: "relative", width: "100%", maxWidth: result.height > result.width ? 420 : "100%", mx: "auto" }}>
           <Box component="video" key={result.video.id} src={result.video.url} controls autoPlay loop playsInline aria-label="Generated video"
             sx={{ display: "block", width: "100%", aspectRatio: `${result.width}/${result.height}`, borderRadius: 1, bgcolor: "#19151f" }} />
-          {mediaAction}
         </Box>
-      : <MotionEditor readOnly mediaAction={mediaAction} />}
+      : <MotionEditor readOnly />}
     {showing === "result" && stale && <Alert severity="info">The motion or settings have changed since this video was made. Generate again to see them.</Alert>}
   </Stack>;
 }

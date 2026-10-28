@@ -50,7 +50,6 @@ export function App() {
     setLastWorkflow(null);
     setWorkflow("upload");
   }
-  const imageRemoveButton = <RemoveMediaButton label="Remove image" disabled={busy} onRemove={removeUpload} />;
 
   useEffect(() => {
     let disposed = false;
@@ -92,8 +91,9 @@ export function App() {
         {phase > 0 && isolation && <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1} sx={{ mb: 2 }}>
           <Typography variant="overline" color="text.secondary">{phase === 3 ? "OUTPUT" : phase === 2 ? "MOTION PREVIEW" : "BACKGROUND PREVIEW"}</Typography>
         </Stack>}
-        {phase === 3 && isolation ? <GenerateStage mediaAction={imageRemoveButton} /> : phase === 2 && isolation ? <MotionEditor mediaAction={imageRemoveButton} />
-          : phase > 0 && isolation ? <IsolatePreview mediaAction={imageRemoveButton} /> : <SelectionCanvas mediaAction={imageRemoveButton} />}
+        {phase === 3 && isolation ? <GenerateStage /> : phase === 2 && isolation ? <MotionEditor />
+          : phase > 0 && isolation ? <IsolatePreview />
+          : <SelectionCanvas mediaAction={<RemoveMediaButton label="Remove image" disabled={busy} onRemove={removeUpload} />} />}
         </>}
       </Paper>
       <Paper sx={{ p: 3 }}>

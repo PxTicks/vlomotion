@@ -1,9 +1,9 @@
 import { useState } from "react";
-import type { PointerEvent, ReactNode } from "react";
+import type { PointerEvent } from "react";
 import { Alert, Box, Stack, Typography } from "@mui/material";
 import { currentIsolation, useSelectionStore } from "../select";
 
-export function IsolatePreview({ mediaAction }: { mediaAction?: ReactNode }) {
+export function IsolatePreview() {
   const image = useSelectionStore(s => s.image);
   const result = useSelectionStore(currentIsolation);
   const [split, setSplit] = useState(50);
@@ -42,7 +42,7 @@ export function IsolatePreview({ mediaAction }: { mediaAction?: ReactNode }) {
       <Box component="img" src={result.plate.url} alt="Clean background with the subject removed" draggable={false}
         onError={() => setFailedUrl(result.plate.url)} sx={{ display: "block", width: "100%", height: "100%", objectFit: "contain", pointerEvents: "none" }} />
       <Box sx={{ position: "absolute", inset: 0, clipPath: `inset(0 0 0 ${split}%)`, pointerEvents: "none" }}>
-        <Box sx={{ position: "absolute", top: 12, right: mediaAction ? 48 : 12, borderRadius: 99, px: 1.5, py: .5, bgcolor: "background.paper" }}>
+        <Box sx={{ position: "absolute", top: 12, right: 12, borderRadius: 99, px: 1.5, py: .5, bgcolor: "background.paper" }}>
           <Typography variant="caption">Clean background</Typography>
         </Box>
       </Box>
@@ -60,7 +60,6 @@ export function IsolatePreview({ mediaAction }: { mediaAction?: ReactNode }) {
         </Box>
       </Box>
     </Box>
-    {mediaAction}
     </Box>
     {(failedUrl === image.url || failedUrl === result.plate.url) && <Alert severity="error">Could not load the comparison preview. Try isolating the subject again.</Alert>}
   </Stack>;
