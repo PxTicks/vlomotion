@@ -317,10 +317,13 @@ The browser does not decode and re-encode the generated output. The animate grap
 frame-trimming, end-frame and inversion nodes: the app sends exact frame counts.
 Inpainting follows the same sizing pipeline, restoring the generated pixels
 before compositing them with the original prepared source and mask at delivery size.
-Before TTM, ComfyUI erodes the binary white subject mask by a fixed 16 image
-pixels using negative `GrowMask` expansion, then TTM downsamples it to the latent
-grid. The inset matches H3's 16× spatial VAE compression at every resolution,
-leaving the subject's edges flexible and reducing background leakage into the held region.
+Before TTM, ComfyUI erodes the binary white subject mask by the **Edge freedom**
+setting (Advanced, 0–64 generation-canvas pixels, default 16) using negative
+`GrowMask` expansion, then TTM downsamples it to the latent grid. The default
+inset matches H3's 16× spatial VAE compression at every resolution, leaving the
+subject's edges flexible and reducing background leakage into the held region.
+Raise it when a cut-off subject, such as an arm reaching in from off-screen,
+keeps its cut edge instead of being completed.
 
 ## License and acknowledgements
 

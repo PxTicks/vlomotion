@@ -32,7 +32,7 @@ async function setup() {
   session.isolation = { imageId: session.image.id, maskId: session.selection.id, plate: { id: plate.id, url: plate.url, width: 2, height: 2 },
     phrase: "the brown dog", caption: DEFAULT_CAPTION, descriptionSource: "model", instructionSource: "model", instruction: "Remove it.", seed: 1 };
   const request: AnimateRequest = { imageId: session.image.id, maskId: session.selection.id, plateId: plate.id,
-    width: 480, height: 480, frames: 124, prompt: "A dog runs.", lockIn: 6, seed: 7 };
+    width: 480, height: 480, frames: 124, prompt: "A dog runs.", lockIn: 6, edgeFreedom: 16, seed: 7 };
   return { app, client, session, cookie, request };
 }
 
@@ -99,6 +99,18 @@ describe("animate job", () => {
       expect((await upload(app, cookie, { ...request, lockIn })).status).toBe(400);
     }
     expect(submit).not.toHaveBeenCalled();
+  });
+  it("erodes the held mask by the requested edge freedom and rejects values outside 0–64 or fractional pixels", async () => {
+    const { app, client, session, cookie, request } = await setup();
+    const submit = vi.spyOn(client, "submit").mockResolvedValue(remote(new Uint8Array(await fixture(124))));
+    for (const edgeFreedom of [-4, 6.5, 68]) {
+      expect((await upload(app, cookie, { ...request, edgeFreedom })).status).toBe(400);
+    }
+    expect(submit).not.toHaveBeenCalled();
+    expect((await upload(app, cookie, { ...request, edgeFreedom: 48 })).status).toBe(202);
+    await session.job!.done;
+    expect((submit.mock.calls[0][0].json as ApiGraph)[ANIMATE_BINDINGS.grow.node].inputs.expand).toBe(-48);
+    expect(session.job!.snapshot).toMatchObject({ status: "completed", animation: { edgeFreedom: 48 } });
   });
   it("rejects videos without exactly the requested frames before submitting", async () => {
     const { app, client, cookie, request } = await setup();

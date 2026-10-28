@@ -18,7 +18,7 @@ const isolation: IsolationResult = { imageId: image.id, maskId: mask.id, plate: 
   phrase: "the red ball", caption: { ...DEFAULT_CAPTION, subject: "the red ball", motion_verb: "rolls" }, instruction: "Remove it.",
   descriptionSource: "model", instructionSource: "model", seed: 1 };
 const layers = { width: 1728, height: 960 } as unknown as SubjectLayers;
-const settings = { tier: 480 as const, lockIn: 6, prompt: null };
+const settings = { tier: 480 as const, lockIn: 6, edgeFreedom: 16, prompt: null };
 const videos: MotionVideos = { reference: new Blob(), mask: new Blob(), start: new Blob(), container: "mp4" };
 const queued: JobSnapshot = { id: "73ec450b-4181-46f9-aa8b-fb07ff5e3b38", status: "queued", progress: null,
   message: "Preparing video generation…", candidates: [], error: null };
@@ -50,6 +50,7 @@ describe("generation inputs", () => {
   it("changes its signature with anything that changes the video, and treats a blank prompt as automatic", () => {
     const base = resolveInputs(currentParts(settings))!;
     expect(resolveInputs(currentParts({ ...settings, lockIn: 9 }))!.signature).not.toBe(base.signature);
+    expect(resolveInputs(currentParts({ ...settings, edgeFreedom: 32 }))!.signature).not.toBe(base.signature);
     expect(resolveInputs(currentParts({ ...settings, prompt: "A ball rolls." }))!.promptFields.mainPrompt).toBe("A ball rolls.");
     expect(resolveInputs(currentParts({ ...settings, prompt: "   " }))!.signature).toBe(base.signature);
   });
@@ -104,6 +105,20 @@ describe("generation inputs", () => {
 });
 
 describe("generate guards", () => {
+  it.each(["", " \t\n "])("submits ambient sound and N/A music when the music box is blank: %j", async music => {
+    useSelectionStore.setState({ isolation: { ...isolation, caption: { ...isolation.caption, soundscape: "silent" } } });
+    const store = useGenerateStore.getState();
+    store.setMusic("Piano.");
+    store.setMusic(music);
+    vi.mocked(renderMotionVideos).mockResolvedValue(videos);
+    vi.mocked(apiRequest).mockResolvedValue(queued);
+    vi.mocked(watchJob).mockResolvedValue({ ...queued, status: "cancelled" });
+    await store.generate();
+    const form = vi.mocked(apiRequest).mock.calls[0][1]!.body as FormData;
+    const request = JSON.parse(form.get("request") as string);
+    expect(request.prompt).toContain(`overall_soundscape: ${DEFAULT_CAPTION.soundscape}`);
+    expect(request.prompt).toContain("non_diegetic_music: N/A");
+  });
   it("uploads the composed main prompt and optional audio instructions", async () => {
     const store = useGenerateStore.getState();
     store.setPrompt("A red ball rolls past the camera.");
@@ -124,6 +139,13 @@ describe("generate guards", () => {
     for (const [input, expected] of [[0, 2], [2, 2], ...Array.from({ length: 13 }, (_, i) => [i + 3, i + 3]), [7.6, 8], [17, 15]]) {
       useGenerateStore.getState().setLockIn(input);
       expect(useGenerateStore.getState().lockIn).toBe(expected);
+    }
+  });
+  it("defaults edge freedom to 16 px and snaps it to 4 px steps from 0 to 64", () => {
+    expect(useGenerateStore.getState().edgeFreedom).toBe(16);
+    for (const [input, expected] of [[-8, 0], [0, 0], [5, 4], [30, 32], [64, 64], [80, 64]]) {
+      useGenerateStore.getState().setEdgeFreedom(input);
+      expect(useGenerateStore.getState().edgeFreedom).toBe(expected);
     }
   });
   it("refuses a path without movement and an invalid seed before rendering", async () => {
@@ -162,7 +184,7 @@ describe("generate guards", () => {
     vi.mocked(watchJob).mockReturnValue(finished.promise);
     const previous = { imageId: image.id, maskId: mask.id, plateId: isolation.plate.id,
       video: { id: "last-video", url: "/api/files/last-video" }, width: 864, height: 480, frames: 124 as const,
-      prompt: "A ball rolls.", lockIn: 3, seed: 1, signature: "previous" };
+      prompt: "A ball rolls.", lockIn: 3, edgeFreedom: 16, seed: 1, signature: "previous" };
     useGenerateStore.setState({ result: previous, view: "result" });
     const running = useGenerateStore.getState().generate();
     await vi.waitFor(() => expect(useGenerateStore.getState().status).toBe("uploading"));

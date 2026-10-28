@@ -63,6 +63,18 @@ describe("H3 prompt", () => {
     expect(composeH3Prompt({ ...fields, soundEffects: " ", music: "" })).toContain("overall_soundscape: N/A\n\nnon_diegetic_music: N/A");
     expect(composeH3Prompt({ mainPrompt: "a".repeat(3000), soundEffects: "b".repeat(500), music: "c".repeat(250) }).length).toBeLessThanOrEqual(4000);
   });
+  it.each(["silent", " Silence. ", "none", "N/A", "No sound.", "No audio", "No audible sounds.", "   "])("replaces an automatic silent soundscape with ambient sound: %s", soundscape => {
+    const fields = buildH3PromptFields({ ...DEFAULT_CAPTION, soundscape }, "moves to the right");
+    expect(fields.soundEffects).toBe(DEFAULT_CAPTION.soundscape);
+    expect(composeH3Prompt(fields)).toContain(`overall_soundscape: ${DEFAULT_CAPTION.soundscape}`);
+    expect(composeH3Prompt(fields)).toContain("non_diegetic_music: N/A");
+  });
+  it("preserves explicit silence edits and scene sounds that mention silence", () => {
+    expect(composeH3Prompt({ mainPrompt: "A ball rolls.", soundEffects: "Silent.", music: "" }))
+      .toContain("overall_soundscape: Silent.");
+    expect(buildH3PromptFields({ ...DEFAULT_CAPTION, soundscape: "Birdsong breaks the silence." }, "moves").soundEffects)
+      .toBe("Birdsong breaks the silence.");
+  });
   it("fills the I2VA template without doubled punctuation", () => {
     expect(buildH3Prompt({ ...DEFAULT_CAPTION, subject: "the brown dog", scene: "on a sunlit lawn.", soundscape: "Paws thud on grass." },
       "runs to the right across the frame")).toBe([

@@ -1,3 +1,4 @@
+import { DEFAULT_CAPTION } from "./description.js";
 import type { Caption } from "./description.js";
 import { FPS } from "./media.js";
 import type { FrameSize } from "./media.js";
@@ -75,9 +76,12 @@ export interface H3PromptFields { mainPrompt: string; soundEffects: string; musi
 
 /** Editable parts of the prompt, without the model's section labels. */
 export function buildH3PromptFields(caption: Caption, motionPhrase: string): H3PromptFields {
+  const soundscape = clean(caption.soundscape);
+  // A still image has no audio track; an automatic caption must not turn that into a request for silence.
+  const silent = /^(?:silent|silence|none|n\/a|no (?:sounds?|audio|audible sounds?))$/i.test(soundscape);
   return {
     mainPrompt: `${clean(caption.style)}, ${clean(caption.subject)} in <Picture 1> ${clean(motionPhrase)}, ${clean(caption.scene)}. The camera stays still.`,
-    soundEffects: `${clean(caption.soundscape)}.`,
+    soundEffects: !soundscape || silent ? DEFAULT_CAPTION.soundscape : `${soundscape}.`,
     music: "",
   };
 }

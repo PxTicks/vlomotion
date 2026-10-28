@@ -2,7 +2,7 @@
   "1": { "class_type": "CLIPLoader", "inputs": { "clip_name": "qwen3vl_8b_int8_convrot.safetensors", "type": "qwen_image", "device": "default" } },
   "2": { "class_type": "LoadImage", "inputs": { "image": "highlight.png" } },
   "3": { "class_type": "TextGenerate", "inputs": { "clip": ["1", 0], "image": ["2", 0], "prompt": "Identify the object highlighted in yellow. Reply with only a short noun phrase of at most 8 words. Do not mention the highlight.", "max_length": 128, "sampling_mode": "off", "thinking": false } },
-  "4": { "class_type": "TextGenerate", "inputs": { "clip": ["1", 0], "image": ["2", 0], "prompt": "Describe the highlighted subject and the scene. Return only JSON with string fields style, subject, motion_verb, scene, soundscape. Do not mention the highlight. Do not invent dialogue or music.", "max_length": 512, "sampling_mode": "off", "thinking": false } },
+  "4": { "class_type": "TextGenerate", "inputs": { "clip": ["1", 0], "image": ["2", 0], "prompt": "Describe the highlighted subject and the scene. Return only JSON with string fields style, subject, motion_verb, scene, soundscape. For soundscape, suggest audible natural ambient sounds and subject sounds appropriate to the scene when animated. Do not describe silence just because the input is a still image. If unsure, use Natural ambient sounds from the scene. Do not mention the highlight. Do not invent dialogue or music.", "max_length": 512, "sampling_mode": "off", "thinking": false } },
   "5": { "class_type": "SaveText", "inputs": { "text": ["3", 0], "filename_prefix": "h3m/phrase", "format": "json" } },
   "6": { "class_type": "SaveText", "inputs": { "text": ["4", 0], "filename_prefix": "h3m/caption", "format": "json" } }
 }

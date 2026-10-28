@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { LOCK_IN, jobSnapshotSchema, validateMotion } from "@h3-motion/shared";
+import { EDGE_FREEDOM, LOCK_IN, jobSnapshotSchema, validateMotion } from "@h3-motion/shared";
 import type { AnimateRequest, AnimationResult, JobSnapshot } from "@h3-motion/shared";
 import { apiRequest, watchJob } from "../../api";
 import { currentIsolation, useSelectionStore } from "../select";
@@ -11,11 +11,11 @@ export type GenerateStatus = "idle" | "rendering" | "uploading" | "generating";
 export interface GeneratedVideo extends AnimationResult { signature: string }
 
 interface GenerateState {
-  lockIn: number; tier: Tier; seed: string; prompt: string | null;
+  lockIn: number; edgeFreedom: number; tier: Tier; seed: string; prompt: string | null;
   soundEffects: string | null; music: string;
   status: GenerateStatus; progress: number | null; job: JobSnapshot | null;
   result: GeneratedVideo | null; view: "source" | "result"; error: string | null; notice: string | null;
-  setLockIn: (lockIn: number) => void; setTier: (tier: Tier) => void; setSeed: (seed: string) => void;
+  setLockIn: (lockIn: number) => void; setEdgeFreedom: (edgeFreedom: number) => void; setTier: (tier: Tier) => void; setSeed: (seed: string) => void;
   /** null follows the generated main prompt or sound effects. */
   setPrompt: (prompt: string | null) => void;
   setSoundEffects: (soundEffects: string | null) => void; setMusic: (music: string) => void;
@@ -29,9 +29,10 @@ const message = (error: unknown) => error instanceof Error ? error.message : "So
 let controller: AbortController | null = null;
 
 export const useGenerateStore = create<GenerateState>((set, get) => ({
-  lockIn: LOCK_IN.default, tier: 480, seed: "", prompt: null, soundEffects: null, music: "",
+  lockIn: LOCK_IN.default, edgeFreedom: EDGE_FREEDOM.default, tier: 480, seed: "", prompt: null, soundEffects: null, music: "",
   status: "idle", progress: null, job: null, result: null, view: "source", error: null, notice: null,
   setLockIn: lockIn => set({ lockIn: Math.min(LOCK_IN.max, Math.max(LOCK_IN.min, Math.round(lockIn / LOCK_IN.step) * LOCK_IN.step)) }),
+  setEdgeFreedom: edgeFreedom => set({ edgeFreedom: Math.min(EDGE_FREEDOM.max, Math.max(EDGE_FREEDOM.min, Math.round(edgeFreedom / EDGE_FREEDOM.step) * EDGE_FREEDOM.step)) }),
   setTier: tier => set({ tier }),
   setSeed: seed => set({ seed }),
   setPrompt: prompt => set({ prompt }),
@@ -40,9 +41,9 @@ export const useGenerateStore = create<GenerateState>((set, get) => ({
   setView: view => set({ view }),
   clearError: () => set({ error: null }),
   generate: async ({ newSeed = false } = {}) => {
-    const { status, tier, lockIn, prompt, soundEffects, music, seed: seedText } = get();
+    const { status, tier, lockIn, edgeFreedom, prompt, soundEffects, music, seed: seedText } = get();
     if (status !== "idle") return;
-    const inputs = resolveInputs(currentParts({ tier, lockIn, prompt, soundEffects, music }));
+    const inputs = resolveInputs(currentParts({ tier, lockIn, edgeFreedom, prompt, soundEffects, music }));
     if (!inputs) { set({ error: "Isolate the subject and give it a path before generating." }); return; }
     const motions = inputs.subjects.length ? inputs.subjects.map(subject => subject.motion) : [inputs.motion];
     const invalid = motions.flatMap(validateMotion)[0];
@@ -61,7 +62,7 @@ export const useGenerateStore = create<GenerateState>((set, get) => ({
       signal.throwIfAborted();
       set({ status: "uploading", progress: null });
       const request: AnimateRequest = { imageId: inputs.image.id, maskId: inputs.mask.id, plateId: inputs.isolation.plate.id,
-        ...inputs.size, frames: inputs.motion.frames, prompt: inputs.prompt, lockIn: inputs.lockIn, ...(seed === undefined ? {} : { seed }) };
+        ...inputs.size, frames: inputs.motion.frames, prompt: inputs.prompt, lockIn: inputs.lockIn, edgeFreedom: inputs.edgeFreedom, ...(seed === undefined ? {} : { seed }) };
       const form = new FormData();
       form.set("request", JSON.stringify(request));
       form.set("reference", videos.reference, `reference.${videos.container}`);

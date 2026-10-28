@@ -9,7 +9,7 @@ describe("workflow contracts", () => {
   it("stretches all animation inputs onto one model canvas and restores the delivered ratio before encoding", async () => {
     const { output: size, generation: modelSize } = videoGeometry({ width: 1000, height: 701 });
     const graph = (await buildAnimateWorkflow(new Comfy(), { startPath: "/tmp/start.png", referencePath: "/tmp/reference.mp4",
-      maskPath: "/tmp/mask.mp4", size, modelSize, frames: 124, prompt: "A bird flies.", lockIn: 6, seed: 42 })).json as ApiGraph;
+      maskPath: "/tmp/mask.mp4", size, modelSize, frames: 124, prompt: "A bird flies.", lockIn: 6, edgeFreedom: 16, seed: 42 })).json as ApiGraph;
     expect(graph["14"].inputs).toMatchObject({ ...modelSize, first_frame: ["26", 0] });
     for (const [node, image] of [["26", "5"], ["27", "8"], ["28", "9"]]) {
       expect(graph[node]).toMatchObject({ class_type: "ImageScale", inputs: { ...modelSize, image: [image, 0], crop: "disabled" } });
@@ -180,7 +180,7 @@ describe("workflow contracts", () => {
   });
   it("binds animate inputs and splices Spectrum only when asked", async () => {
     const options = { startPath: "/tmp/start.png", referencePath: "/tmp/reference.mp4", maskPath: "/tmp/mask.mp4",
-      size: { width: 1248, height: 704 }, modelSize: { width: 1248, height: 704 }, frames: 175, prompt: "A dog runs.", lockIn: 15, seed: 9 };
+      size: { width: 1248, height: 704 }, modelSize: { width: 1248, height: 704 }, frames: 175, prompt: "A dog runs.", lockIn: 15, edgeFreedom: 16, seed: 9 };
     const plain = (await buildAnimateWorkflow(new Comfy(), options)).json as ApiGraph;
     expect(plain["14"].inputs).toMatchObject({ width: 1248, height: 704, length: 175, prompt: "A dog runs." });
     expect(plain[ANIMATE_BINDINGS.grow.node].inputs.expand).toBe(-16);
@@ -199,7 +199,7 @@ describe("workflow contracts", () => {
       inputs: { model: ["15", 0], selection: "sol-attn", "selection.tau": 1.3, start_percent: 0.2, end_percent: 1 } });
     expect(graph["18"].inputs.model).toEqual(["30", 0]);
     const options = { startPath: "/tmp/start.png", referencePath: "/tmp/reference.mp4", maskPath: "/tmp/mask.mp4",
-      size: { width: 864, height: 480 }, modelSize: { width: 864, height: 480 }, frames: 124, prompt: "A dog runs.", lockIn: 6, seed: 9 };
+      size: { width: 864, height: 480 }, modelSize: { width: 864, height: 480 }, frames: 124, prompt: "A dog runs.", lockIn: 6, edgeFreedom: 16, seed: 9 };
     const dense = (await buildAnimateWorkflow(new Comfy(), { ...options, sol: false })).json as ApiGraph;
     expect(dense).not.toHaveProperty("30");
     expect(dense["16"].inputs.model).toEqual(["15", 0]);

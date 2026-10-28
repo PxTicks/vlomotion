@@ -42,6 +42,8 @@ export const isolationResultSchema = z.object({
 });
 export type IsolationResult = z.infer<typeof isolationResultSchema>;
 export const LOCK_IN = { min: 2, max: 15, step: 1, default: 6 } as const;
+/** How far the held subject mask is eroded before TTM, in generation-canvas pixels. 16 is one H3 latent cell. */
+export const EDGE_FREEDOM = { min: 0, max: 64, step: 4, default: 16 } as const;
 const dimensionSchema = videoDimensionSchema;
 const seedSchema = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
 /** Sent as the `request` field of a multipart upload alongside the reference, mask and start-frame files. */
@@ -50,6 +52,7 @@ export const animateRequestSchema = z.object({
   width: dimensionSchema, height: dimensionSchema, frames: frameCountSchema,
   prompt: z.string().trim().min(1).max(4000),
   lockIn: z.number().int().min(LOCK_IN.min).max(LOCK_IN.max),
+  edgeFreedom: z.number().int().min(EDGE_FREEDOM.min).max(EDGE_FREEDOM.max),
   seed: seedSchema.optional(),
 });
 export type AnimateRequest = z.infer<typeof animateRequestSchema>;
@@ -57,7 +60,7 @@ export const animationResultSchema = z.object({
   imageId: idSchema, maskId: idSchema, plateId: idSchema,
   video: z.object({ id: idSchema, url: z.string() }),
   width: dimensionSchema, height: dimensionSchema, frames: frameCountSchema,
-  prompt: z.string(), lockIn: z.number().int(), seed: seedSchema,
+  prompt: z.string(), lockIn: z.number().int(), edgeFreedom: z.number().int(), seed: seedSchema,
 });
 export type AnimationResult = z.infer<typeof animationResultSchema>;
 export const jobSnapshotSchema = z.object({

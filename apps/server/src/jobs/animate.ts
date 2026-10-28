@@ -30,7 +30,7 @@ export function startAnimate(client: Comfy, store: SessionStore, session: Sessio
       const size = { width: request.width, height: request.height };
       const modelSize = videoGeometry(image!, Math.min(size.width, size.height)).generation;
       const workflow = await buildAnimateWorkflow(client, { ...inputs, size, modelSize, frames: request.frames, prompt: request.prompt,
-        lockIn: request.lockIn, seed, spectrum: options.spectrum ?? SPECTRUM_ENABLED, sol: options.sol ?? SOL_ENABLED });
+        lockIn: request.lockIn, edgeFreedom: request.edgeFreedom, seed, spectrum: options.spectrum ?? SPECTRUM_ENABLED, sol: options.sol ?? SOL_ENABLED });
       const job = await runWorkflow(client, managed, workflow, { stage: "animate", message: "Animating with MiniMax H3…", from: 0, to: 0.95 });
       const output = job.getOutputs(ANIMATE_OUTPUT)[0];
       if (!output) throw new Error("Generation completed without a video. Try again.");
@@ -43,7 +43,7 @@ export function startAnimate(client: Comfy, store: SessionStore, session: Sessio
       if (session.image !== image || session.selection !== selection || session.isolation !== isolation) throw new Error("The subject changed during generation. Generate again.");
       const result: AnimationResult = { imageId: image!.id, maskId: selection!.id, plateId: isolation!.plate.id,
         video: { id: file.id, url: file.url }, width: size.width, height: size.height, frames: request.frames,
-        prompt: request.prompt, lockIn: request.lockIn, seed };
+        prompt: request.prompt, lockIn: request.lockIn, edgeFreedom: request.edgeFreedom, seed };
       session.animation = result;
       managed.snapshot = { ...managed.snapshot, status: "completed", progress: 1, message: "Your video is ready.", animation: result };
     } catch (error) { failJob(managed, error, "Generation"); }

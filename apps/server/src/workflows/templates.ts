@@ -167,12 +167,9 @@ export async function buildIsolateWorkflow(client: Comfy, options: {
   return workflow;
 }
 
-/** Erode by one H3 VAE latent-cell spacing (16 image pixels), independent of resolution. */
-export const ANIMATION_MASK_EXPAND = -16;
-
 export async function buildAnimateWorkflow(client: Comfy, options: {
   startPath: string; referencePath: string; maskPath: string; size: FrameSize; modelSize: FrameSize; frames: number;
-  prompt: string; lockIn: number; seed: number; spectrum?: boolean; sol?: boolean;
+  prompt: string; lockIn: number; edgeFreedom: number; seed: number; spectrum?: boolean; sol?: boolean;
 }): Promise<Workflow> {
   const graph = await loadTemplate("animate");
   assertBindings(graph, [...Object.values(ANIMATE_BINDINGS), ...Object.values(ANIMATE_MODEL)]);
@@ -190,7 +187,7 @@ export async function buildAnimateWorkflow(client: Comfy, options: {
   const workflow = client.workflows.fromJson(graph);
   const values: Record<keyof typeof ANIMATE_BINDINGS, unknown> = {
     start: client.assets.fromFile(options.startPath), reference: client.assets.fromFile(options.referencePath),
-    mask: client.assets.fromFile(options.maskPath), grow: ANIMATION_MASK_EXPAND, prompt: options.prompt,
+    mask: client.assets.fromFile(options.maskPath), grow: -options.edgeFreedom, prompt: options.prompt,
     width: options.modelSize.width, height: options.modelSize.height, length: options.frames, lockIn: options.lockIn, seed: options.seed,
   };
   for (const [key, binding] of Object.entries(ANIMATE_BINDINGS)) workflow.setInput(binding.node, binding.input, values[key as keyof typeof values]);

@@ -1,13 +1,15 @@
 import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, LinearProgress, Slider, Stack, TextField, ToggleButton, ToggleButtonGroup, Tooltip, Typography } from "@mui/material";
-import { FPS, LOCK_IN, VIDEO_TIERS } from "@h3-motion/shared";
+import { EDGE_FREEDOM, FPS, LOCK_IN, VIDEO_TIERS } from "@h3-motion/shared";
 import { useSelectionStore } from "../select";
 import { useGenerationInputs } from "./inputs";
 import { useCurrentResult, useGenerateStore } from "./useGenerateStore";
 
 const LOCK_IN_HELP = "How long the subject is held to your path. Higher values follow the path more tightly, but leave the model less room to blend the cut-out into the scene.";
+const EDGE_FREEDOM_HELP = "How far inside its outline the subject is released from your animation. More freedom lets the model redraw the subject's edges, which helps when part of it is cut off, such as an arm reaching in from off-screen.";
 
 export function GeneratePanel() {
   const lockIn = useGenerateStore(s => s.lockIn);
+  const edgeFreedom = useGenerateStore(s => s.edgeFreedom);
   const tier = useGenerateStore(s => s.tier);
   const seed = useGenerateStore(s => s.seed);
   const prompt = useGenerateStore(s => s.prompt);
@@ -18,9 +20,9 @@ export function GeneratePanel() {
   const job = useGenerateStore(s => s.job);
   const error = useGenerateStore(s => s.error);
   const notice = useGenerateStore(s => s.notice);
-  const { setLockIn, setTier, setSeed, setPrompt, setSoundEffects, setMusic, generate, cancel, clearError } = useGenerateStore.getState();
+  const { setLockIn, setEdgeFreedom, setTier, setSeed, setPrompt, setSoundEffects, setMusic, generate, cancel, clearError } = useGenerateStore.getState();
   const visitPhase = useSelectionStore(s => s.visitPhase);
-  const inputs = useGenerationInputs({ tier, lockIn, prompt, soundEffects, music });
+  const inputs = useGenerationInputs({ tier, lockIn, edgeFreedom, prompt, soundEffects, music });
   const result = useCurrentResult();
   const busy = status !== "idle";
   const statusText = status === "rendering" ? `Rendering motion frames… ${Math.round((progress ?? 0) * 100)}%`
@@ -59,7 +61,7 @@ export function GeneratePanel() {
     {result && <Stack spacing={1}>
       <Typography variant="overline" color="text.secondary">Output</Typography>
       <Typography variant="caption" color="text.secondary">
-        {result.width} × {result.height} · {(result.frames / FPS).toFixed(1)} s · lock-in {result.lockIn} · seed {result.seed}
+        {result.width} × {result.height} · {(result.frames / FPS).toFixed(1)} s · lock-in {result.lockIn} · edge freedom {result.edgeFreedom} px · seed {result.seed}
       </Typography>
       <Stack direction="row" gap={1} flexWrap="wrap">
         <Button variant="outlined" component="a" href={result.video.url} download="h3-motion.mp4">Download video</Button>
@@ -78,6 +80,16 @@ export function GeneratePanel() {
               {VIDEO_TIERS.map(value => <ToggleButton key={value} value={value} sx={{ px: 1.5, py: .5, borderRadius: 99 }}>{value}p</ToggleButton>)}
             </ToggleButtonGroup>
           </Stack>
+          <Box>
+            <Stack direction="row" justifyContent="space-between" alignItems="center">
+              <Tooltip title={EDGE_FREEDOM_HELP} placement="top-start">
+                <Typography variant="caption" color="text.secondary" tabIndex={0} sx={{ cursor: "help" }}>Edge freedom ⓘ</Typography>
+              </Tooltip>
+              <Typography variant="body2" sx={{ fontVariantNumeric: "tabular-nums" }}>{edgeFreedom} px</Typography>
+            </Stack>
+            <Slider value={edgeFreedom} min={EDGE_FREEDOM.min} max={EDGE_FREEDOM.max} step={EDGE_FREEDOM.step} disabled={busy} aria-label="Edge freedom"
+              onChange={(_, value) => setEdgeFreedom(Array.isArray(value) ? value[0] : value)} />
+          </Box>
           <TextField size="small" label="Seed" placeholder="Random" value={seed} disabled={busy} onChange={event => setSeed(event.target.value)}
             slotProps={{ htmlInput: { inputMode: "numeric" } }} helperText="Leave empty for a new random seed each time." />
           <TextField multiline minRows={3} label="Sound effects [Optional]" value={soundEffects ?? inputs?.promptFields.soundEffects ?? ""} disabled={busy || !inputs}
