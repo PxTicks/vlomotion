@@ -15,7 +15,8 @@ function usePlayback() {
     const last = lastFrame({ frames }), startFrame = useMotionStore.getState().playhead, startTime = performance.now();
     let request = requestAnimationFrame(function tick(now) {
       const frame = Math.min(last, startFrame + Math.floor((now - startTime) / 1000 * FPS));
-      useMotionStore.setState(frame >= last ? { playhead: last, playing: false } : { playhead: frame });
+      useMotionStore.setState({ playhead: frame });
+      if (frame >= last) useMotionStore.getState().pause();
       if (frame < last) request = requestAnimationFrame(tick);
     });
     return () => cancelAnimationFrame(request);

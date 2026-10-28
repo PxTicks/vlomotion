@@ -115,6 +115,25 @@ describe("motion store", () => {
     state().scrub(0);
     expect(state().selectedKeyId).toBe(start.id);
   });
+  it("selects the last key crossed since play started when playback pauses", () => {
+    for (const frame of [40, 80]) { state().setPlayhead(frame); state().beginSubjectDrag(); state().placeSubject({ x: 100 + frame, y: 200 }); }
+    const [, at40, at80] = state().motion!.keys;
+    state().setPlayhead(50); state().selectKey(null);
+    state().togglePlay();
+    useMotionStore.setState({ playhead: 70 });
+    state().togglePlay();
+    expect(state()).toMatchObject({ playing: false, selectedKeyId: null });
+    state().setPlayhead(10);
+    state().togglePlay();
+    useMotionStore.setState({ playhead: 90 });
+    state().togglePlay();
+    expect(state().selectedKeyId).toBe(at80.id);
+    state().setPlayhead(10);
+    state().togglePlay();
+    useMotionStore.setState({ playhead: 60 });
+    state().pause();
+    expect(state()).toMatchObject({ playing: false, selectedKeyId: at40.id });
+  });
   it("drops an unfinished take when the editor closes", () => {
     state().startRecording();
     state().leave();
