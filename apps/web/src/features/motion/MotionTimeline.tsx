@@ -34,6 +34,9 @@ export function MotionTimeline({ readOnly = false }: { readOnly?: boolean }) {
     if (recording || event.button !== 0 || !motion) return;
     const store = useMotionStore.getState();
     const keyId = readOnly ? null : (event.target as HTMLElement).closest("[data-key-id]")?.getAttribute("data-key-id");
+    // Stops the press selecting nearby text, which the browser would then start dragging and cancel this drag.
+    event.preventDefault();
+    event.currentTarget.focus({ preventScroll: true });
     event.currentTarget.setPointerCapture(event.pointerId);
     if (keyId) {
       const key = motion.keys.find(k => k.id === keyId);
@@ -49,8 +52,10 @@ export function MotionTimeline({ readOnly = false }: { readOnly?: boolean }) {
   function onPointerMove(event: ReactPointerEvent<HTMLDivElement>) {
     const current = drag.current;
     if (!current || current.pointerId !== event.pointerId) return;
-    if (current.kind === "key") useMotionStore.getState().retimeKey(current.id, frameAt(event.clientX));
-    else setPlayhead(frameAt(event.clientX));
+    const store = useMotionStore.getState();
+    if (current.kind === "key") store.retimeKey(current.id, frameAt(event.clientX));
+    else if (readOnly) store.setPlayhead(frameAt(event.clientX));
+    else store.scrub(frameAt(event.clientX));
   }
 
   const ticks = Array.from({ length: Math.floor(last / FPS) + 1 }, (_, second) => second);
@@ -65,6 +70,7 @@ export function MotionTimeline({ readOnly = false }: { readOnly?: boolean }) {
       <Box ref={track} role="slider" tabIndex={0} aria-label="Playhead" aria-valuemin={0} aria-valuemax={last} aria-valuenow={playhead}
         aria-valuetext={formatSeconds(playhead)} onPointerDown={onPointerDown} onPointerMove={onPointerMove}
         onPointerUp={() => { drag.current = null; }} onPointerCancel={() => { drag.current = null; }}
+        onLostPointerCapture={() => { drag.current = null; }} onDragStart={event => event.preventDefault()}
         onKeyDown={event => {
           const step = event.shiftKey ? FPS : 1;
           const next = event.key === "ArrowLeft" ? playhead - step : event.key === "ArrowRight" ? playhead + step
@@ -72,7 +78,7 @@ export function MotionTimeline({ readOnly = false }: { readOnly?: boolean }) {
           if (next === null) return;
           event.preventDefault(); event.stopPropagation(); setPlayhead(next);
         }}
-        sx={{ position: "relative", flex: 1, height: 44, mx: 1, cursor: recording ? "default" : "pointer", touchAction: "none",
+        sx={{ position: "relative", flex: 1, height: 44, mx: 1, cursor: recording ? "default" : "pointer", touchAction: "none", userSelect: "none",
           "&:focus-visible": { outline: "2px solid", outlineColor: "primary.main", outlineOffset: 4, borderRadius: 1 } }}>
         <Box sx={{ position: "absolute", left: 0, right: 0, top: "50%", height: 4, mt: "-2px", borderRadius: 99, bgcolor: "rgba(255,255,255,.12)" }} />
         {ticks.map(second => <Box key={second} sx={{ position: "absolute", left: percent(second * FPS), bottom: 0, width: "1px", height: 6, bgcolor: "rgba(255,255,255,.2)" }} />)}

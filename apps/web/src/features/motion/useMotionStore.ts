@@ -26,7 +26,9 @@ interface MotionState {
   prepareSubjects: (subjectKey: string, layersKey: string, sceneKey: string, layers: SubjectLayers, subjects: SubjectInput[]) => void;
   selectSubject: (id: string) => void; reorderSubject: (id: string, direction: -1 | 1) => void;
   /** Moves the playhead for the user; parking it after the photo frame switches path creation to keyframing. */
-  setPlayhead: (frame: number) => void; togglePlay: () => void;
+  setPlayhead: (frame: number) => void;
+  /** Moves the playhead like setPlayhead and selects the last key it passed or landed on. */
+  scrub: (frame: number) => void; togglePlay: () => void;
   /** Stops playback and drops an unfinished take, e.g. when the editor closes. */
   leave: () => void;
   /** Starts dragging the subject at the playhead; returns where it currently is, or null if this frame can't change. */
@@ -111,6 +113,15 @@ export const useMotionStore = create<MotionState>((set, get) => {
       if (!motion || recording) return;
       const playhead = clamp(Math.round(frame), 0, lastFrame(motion));
       set({ playhead, playing: false, scrubbed: playhead > 0 });
+    },
+    scrub: frame => {
+      const { playhead: from, setPlayhead } = get();
+      setPlayhead(frame);
+      const { motion, playhead: to } = get();
+      if (!motion || to === from) return;
+      const crossed = motion.keys.filter(key => to > from ? key.frame > from && key.frame <= to : key.frame < from && key.frame >= to);
+      const nearest = crossed.reduce<typeof crossed[number] | null>((best, key) => !best || Math.abs(key.frame - to) < Math.abs(best.frame - to) ? key : best, null);
+      if (nearest) set({ selectedKeyId: nearest.id });
     },
     togglePlay: () => {
       const { motion, playing, playhead, recording } = get();

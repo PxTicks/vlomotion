@@ -96,6 +96,25 @@ describe("motion store", () => {
     expect(state().scrubbed).toBe(false);
     expect(state().startRecording()).not.toBeNull();
   });
+  it("selects the last key the playhead crosses while scrubbing", () => {
+    for (const frame of [40, 80, 123]) { state().setPlayhead(frame); state().beginSubjectDrag(); state().placeSubject({ x: 100 + frame, y: 200 }); }
+    const [start, at40, at80, at123] = state().motion!.keys;
+    state().setPlayhead(10); state().selectKey(null);
+    state().scrub(30);
+    expect(state().selectedKeyId).toBeNull();
+    state().scrub(90);
+    expect(state().selectedKeyId).toBe(at80.id);
+    state().scrub(100);
+    expect(state().selectedKeyId).toBe(at80.id);
+    state().scrub(123);
+    expect(state().selectedKeyId).toBe(at123.id);
+    state().scrub(60);
+    expect(state().selectedKeyId).toBe(at80.id);
+    state().scrub(20);
+    expect(state().selectedKeyId).toBe(at40.id);
+    state().scrub(0);
+    expect(state().selectedKeyId).toBe(start.id);
+  });
   it("drops an unfinished take when the editor closes", () => {
     state().startRecording();
     state().leave();
