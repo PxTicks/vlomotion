@@ -141,7 +141,13 @@ drag, scrub and drag again. Scrubbing back to 0 s or pressing play switches
 recording back on. Dragging a subject along an existing path adjusts its position
 at the playhead without replacing its other keys.
 Drag a ◆ on the canvas to adjust its position, or on the timeline to adjust its
-timing. Click the path to insert a key. Motion uses smooth timing by default.
+timing. The box around the active subject keys its size at the playhead: drag a
+corner to resize it evenly, or an edge to stretch one axis. The opposite side
+stays put; hold Alt to resize about the centre, or Shift to free a corner's
+aspect ratio. Drag an edge past the opposite edge to mirror the subject, for a
+crude turn or flip. Sizes range up to 400% either way and change at a steady
+rate between keys, passing straight through zero when an axis flips. Resizing
+never records, and **Reset size** on a selected key restores 100%. Click the path to insert a key. Motion uses smooth timing by default.
 **Clear path** restores the subject's starting position and removes the path,
 keeping the chosen clip length. Each recorded drag is simplified into keys and
 timed to fill the clip from the playhead to the end, however long the drag took;

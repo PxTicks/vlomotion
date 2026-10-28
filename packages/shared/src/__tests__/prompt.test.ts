@@ -40,6 +40,18 @@ describe("motion description", () => {
     expect(describeMotion(motionWith([10, 300, 200], [30, 300, 200], [40, 300, 400], [60, 300, 400], [70, 100, 400], [90, 100, 400], [100, 100, 100]), size, "hops"))
       .toBe("hops around the frame, pausing along the way");
   });
+  it("describes flips and the final size, with or without travel", () => {
+    const grow = upsertKey(createMotion({ x: 100, y: 200 }), 100, { x: 100, y: 200, sx: -1.5, sy: 1.5 }, "grow")!.motion;
+    expect(describeMotion(grow, size)).toBe("turns around and grows larger");
+    const shrink = upsertKey(motionWith([100, 900, 200]), 100, { x: 900, y: 200, sx: .5, sy: .5 }, "shrink")!.motion;
+    expect(describeMotion(shrink, size, "runs")).toBe("runs to the right across the frame while shrinking");
+    let pulse = upsertKey(createMotion({ x: 100, y: 200 }), 50, { x: 100, y: 200, sx: 2, sy: 2 }, "big")!.motion;
+    pulse = upsertKey(pulse, 100, { x: 100, y: 200, sx: 1, sy: 1 }, "back")!.motion;
+    expect(describeMotion(pulse, size)).toBe("grows and shrinks back");
+    const spin = upsertKey(upsertKey(createMotion({ x: 100, y: 200 }), 50, { x: 100, y: 200, sx: -1, sy: 1 }, "away")!.motion,
+      100, { x: 100, y: 200, sx: 1, sy: 1 }, "home")!.motion;
+    expect(describeMotion(spin, size)).toBe("turns around and back");
+  });
 });
 
 describe("H3 prompt", () => {

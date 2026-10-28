@@ -2,7 +2,7 @@ import { DEFAULT_CAPTION } from "./description.js";
 import type { Caption } from "./description.js";
 import { FPS } from "./media.js";
 import type { FrameSize } from "./media.js";
-import { buildMotionCurve } from "./motion.js";
+import { buildMotionCurve, placeRect, scaleOf } from "./motion.js";
 import type { Rect, SubjectMotion } from "./motion.js";
 
 const DIRECTIONS = ["to the right", "toward the upper right", "upward", "toward the upper left",
@@ -10,18 +10,49 @@ const DIRECTIONS = ["to the right", "toward the upper right", "upward", "toward 
 /** Holds at least this long read as a pause; shorter ones are part of the movement. */
 const PAUSE_FRAMES = 12;
 const MAX_MOVES = 3;
+/** A final size at least this much larger (or smaller, inverted) reads as growing (or shrinking). */
+const GROWTH = 1.2;
 
 interface Move { from: number; to: number; start: number; end: number }
 
 /**
  * Describes the keyed path in screen terms for the video prompt: compass direction, extent,
- * speed and its profile, pauses and arcs. Deterministic, so the same path always reads the same.
+ * speed and its profile, pauses and arcs, then any flips or change of size. Deterministic, so the
+ * same motion always reads the same.
  */
 export function describeMotion(motion: SubjectMotion, size: FrameSize, verb = "moves", bounds?: Rect): string {
+  const path = describePath(motion, size, verb, bounds), scaling = describeScaling(motion);
+  if (!scaling.length) return path ?? "stays still";
+  return path ? `${path} while ${scaling.map(([, participle]) => participle).join(" and ")}` : scaling.map(([phrase]) => phrase).join(" and ");
+}
+
+/**
+ * Flips and size changes, as [phrase, participle] pairs. One that is undone by the last key reads "and back",
+ * so a subject that grows and returns to its size isn't described as still. Interpolation never overshoots a
+ * key, so the keys hold every extreme.
+ */
+function describeScaling(motion: SubjectMotion): [string, string][] {
+  const scales = motion.keys.map(scaleOf), last = scales[scales.length - 1];
+  const parts: [string, string][] = [];
+  const flip = (axis: "sx" | "sy", phrase: string, participle: string) => {
+    if (!scales.some(scale => scale[axis] < 0)) return;
+    parts.push(last[axis] < 0 ? [phrase, participle] : [`${phrase} and back`, `${participle} and back`]);
+  };
+  flip("sx", "turns around", "turning around");
+  flip("sy", "flips upside down", "flipping upside down");
+  const sizes = scales.map(scale => Math.sqrt(Math.abs(scale.sx * scale.sy))), end = sizes[sizes.length - 1];
+  if (end >= GROWTH) parts.push(["grows larger", "growing larger"]);
+  else if (end <= 1 / GROWTH) parts.push(["shrinks", "shrinking"]);
+  else if (Math.max(...sizes) >= GROWTH) parts.push(["grows and shrinks back", "growing and shrinking back"]);
+  else if (Math.min(...sizes) <= 1 / GROWTH) parts.push(["shrinks and grows back", "shrinking and growing back"]);
+  return parts;
+}
+
+function describePath(motion: SubjectMotion, size: FrameSize, verb: string, bounds?: Rect): string | null {
   const curve = buildMotionCurve(motion);
   const { keys } = motion, lengths = curve.keyLengths;
   const diagonal = Math.hypot(size.width, size.height);
-  if (curve.length < diagonal * 0.01) return "stays still";
+  if (curve.length < diagonal * 0.01) return null;
 
   const moves: Move[] = [];
   for (let i = 1; i < keys.length; i++) {
@@ -64,8 +95,8 @@ export function describeMotion(motion: SubjectMotion, size: FrameSize, verb = "m
   if (moves[0].from >= PAUSE_FRAMES) text = `waits a moment, then ${text}`;
   const last = keys[keys.length - 1];
   if (bounds) {
-    const x = bounds.x + last.x - motion.anchor.x, y = bounds.y + last.y - motion.anchor.y;
-    if (x >= size.width || x + bounds.width <= 0 || y >= size.height || y + bounds.height <= 0) text += " and leaves the frame";
+    const { x, y, width, height } = placeRect(bounds, curve.placementAt(last.frame));
+    if (x >= size.width || x + width <= 0 || y >= size.height || y + height <= 0) text += " and leaves the frame";
   }
   return text;
 }

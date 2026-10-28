@@ -18,7 +18,7 @@ describe("motion store", () => {
     expect(state().notice).toBeNull();
   });
   it("makes the first drag from the photo frame set the end position", () => {
-    expect(state().beginSubjectDrag()).toEqual({ x: 100, y: 200 });
+    expect(state().beginSubjectDrag()).toEqual({ x: 100, y: 200, sx: 1, sy: 1 });
     expect(state().playhead).toBe(123);
     state().placeSubject({ x: 600, y: 250 });
     expect(state().motion?.keys.map(key => [key.frame, key.x, key.y])).toEqual([[0, 100, 200], [123, 600, 250]]);
@@ -79,7 +79,7 @@ describe("motion store", () => {
     state().setPlayhead(40);
     expect(state().scrubbed).toBe(true);
     expect(state().startRecording()).toBeNull();
-    expect(state().beginSubjectDrag()).toEqual({ x: 100, y: 200 });
+    expect(state().beginSubjectDrag()).toEqual({ x: 100, y: 200, sx: 1, sy: 1 });
     state().placeSubject({ x: 300, y: 200 });
     state().setPlayhead(123);
     state().beginSubjectDrag(); state().placeSubject({ x: 300, y: 400 });
@@ -133,6 +133,17 @@ describe("motion store", () => {
     useMotionStore.setState({ playhead: 60 });
     state().pause();
     expect(state()).toMatchObject({ playing: false, selectedKeyId: at40.id });
+  });
+  it("keys a resize at the playhead and keeps the size when the subject is dragged later", () => {
+    state().setPlayhead(60);
+    expect(state().beginSubjectDrag()).toEqual({ x: 100, y: 200, sx: 1, sy: 1 });
+    state().placeSubject({ x: 110, y: 210, sx: 1.5, sy: 1.5 });
+    state().setPlayhead(100);
+    expect(state().beginSubjectDrag()).toEqual({ x: 110, y: 210, sx: 1.5, sy: 1.5 });
+    state().placeSubject({ x: 400, y: 210 });
+    expect(state().motion?.keys.map(key => [key.frame, key.x, key.sx])).toEqual([[0, 100, undefined], [60, 110, 1.5], [100, 400, 1.5]]);
+    state().resetScale();
+    expect(state().motion?.keys[2]).toMatchObject({ x: 400, sx: 1, sy: 1 });
   });
   it("drops an unfinished take when the editor closes", () => {
     state().startRecording();

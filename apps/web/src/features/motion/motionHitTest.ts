@@ -9,7 +9,7 @@ export type MotionTarget<T> = { subject: T } & (
 
 /** Opaque subjects intercept clicks before keys or paths belonging to obscured subjects. */
 export function motionTargetAt<T extends HitSubject>(subjects: T[], point: Point, frame: number, scale: number): MotionTarget<T> | null {
-  const body = subjects.find(subject => hitsSubject(subject.layers, point, subject.curve.offsetAt(frame)));
+  const body = subjects.find(subject => hitsSubject(subject.layers, point, subject.curve.placementAt(frame)));
   for (const subject of body ? [body] : subjects) {
     for (const key of [...subject.motion.keys].reverse()) {
       if (body && isStartKey(subject.motion, key.id)) continue;

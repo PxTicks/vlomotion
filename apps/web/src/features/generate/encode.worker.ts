@@ -29,14 +29,14 @@ async function encode({ layers, motion, size }: EncodeRequest) {
   const subjects = layers.subjects?.map(subject => ({ ...subject, curve: buildMotionCurve(subject.motion) }));
   let start: Blob | undefined;
   for (let frame = 0; frame < motion.frames; frame++) {
-    const offset = curve.offsetAt(frame);
     if (subjects?.length) {
-      const positioned = subjects.map(subject => ({ layers: subject.layers, offset: subject.curve.offsetAt(frame) }));
+      const positioned = subjects.map(subject => ({ layers: subject.layers, placement: subject.curve.placementAt(frame) }));
       drawSceneReference(reference.context, layers, positioned, frame === 0);
       drawSceneMask(mask.context, positioned);
     } else {
-      drawReference(reference.context, layers, offset);
-      drawMask(mask.context, layers, offset);
+      const placement = curve.placementAt(frame);
+      drawReference(reference.context, layers, placement);
+      drawMask(mask.context, layers, placement);
     }
     // Frame 0 is the untouched photo, so the start frame matches the reference exactly before encoding.
     if (frame === 0) {

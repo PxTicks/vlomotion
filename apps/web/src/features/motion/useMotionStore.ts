@@ -3,7 +3,7 @@ import {
   applyRecording, buildMotionCurve, createMotion, deleteKey, evenSpeed, insertKeyAtLength, isStartKey, lastFrame,
   moveKey, retimeKey, setClipFrames, upsertKey,
 } from "@h3-motion/shared";
-import type { FrameCount, FrameSize, MotionTiming, Point, Rect, SubjectMotion, TimedSample } from "@h3-motion/shared";
+import type { FrameCount, FrameSize, MotionTiming, Point, Pose, Rect, Scale, SubjectMotion, TimedSample } from "@h3-motion/shared";
 import type { SubjectLayers } from "./subjectLayers";
 
 export const SUBJECT_COLORS = ["#f2ff59", "#65d9ff", "#ff91c7", "#a6e879", "#c5a0ff", "#ffb86b", "#7af0d2", "#ff7777",
@@ -33,12 +33,13 @@ interface MotionState {
   pause: () => void;
   /** Stops playback and drops an unfinished take, e.g. when the editor closes. */
   leave: () => void;
-  /** Starts dragging the subject at the playhead; returns where it currently is, or null if this frame can't change. */
-  beginSubjectDrag: () => Point | null;
-  placeSubject: (point: Point) => void; addKey: () => void;
+  /** Starts dragging or resizing the subject at the playhead; returns its pose there, or null if this frame can't change. */
+  beginSubjectDrag: () => Pose | null;
+  /** Keys the subject's position, and its scale when given, at the playhead. */
+  placeSubject: (pose: Point & Partial<Scale>) => void; addKey: () => void;
   selectKey: (id: string | null) => void; moveKey: (id: string, point: Point) => void;
   retimeKey: (id: string, frame: number) => void; insertAtLength: (length: number) => string | null;
-  deleteSelected: () => void; evenSpeed: () => void; clearPath: () => void;
+  deleteSelected: () => void; resetScale: () => void; evenSpeed: () => void; clearPath: () => void;
   setFrames: (frames: FrameCount) => void; setTiming: (timing: MotionTiming) => void;
   /** Starts a take on a subject without a path, unless the user scrubbed first; returns the frame it starts at. */
   startRecording: () => number | null;
@@ -155,14 +156,15 @@ export const useMotionStore = create<MotionState>((set, get) => {
         }
         // With no keys yet, the first drag sets where the subject ends up.
         set({ playhead: lastFrame(motion) });
-        return { ...motion.anchor };
+        return { ...motion.anchor, sx: 1, sy: 1 };
       }
-      return buildMotionCurve(motion).positionAt(playhead);
+      const curve = buildMotionCurve(motion);
+      return { ...curve.positionAt(playhead), ...curve.scaleAt(playhead) };
     },
-    placeSubject: point => {
+    placeSubject: pose => {
       const { motion, playhead } = get();
       if (!motion) return;
-      const result = upsertKey(motion, playhead, bounded(point), newId());
+      const result = upsertKey(motion, playhead, { ...pose, ...bounded(pose) }, newId());
       if (!result) { set({ notice: "You've reached the key limit. Delete a key to add another." }); return; }
       edit(result.motion, { selectedKeyId: result.id });
     },
@@ -172,7 +174,8 @@ export const useMotionStore = create<MotionState>((set, get) => {
       if (playhead === 0) { set({ notice: "The first frame is your photo and already has a key." }); return; }
       const existing = motion.keys.find(key => key.frame === playhead);
       if (existing) { set({ selectedKeyId: existing.id }); return; }
-      const result = upsertKey(motion, playhead, buildMotionCurve(motion).positionAt(playhead), newId());
+      const curve = buildMotionCurve(motion);
+      const result = upsertKey(motion, playhead, { ...curve.positionAt(playhead), ...curve.scaleAt(playhead) }, newId());
       if (!result) { set({ notice: "You've reached the key limit. Delete a key to add another." }); return; }
       edit(result.motion, { selectedKeyId: result.id });
     },
@@ -197,6 +200,11 @@ export const useMotionStore = create<MotionState>((set, get) => {
       const { motion, selectedKeyId } = get();
       if (!motion || !selectedKeyId || isStartKey(motion, selectedKeyId)) return;
       edit(deleteKey(motion, selectedKeyId), { selectedKeyId: null });
+    },
+    resetScale: () => {
+      const { motion, selectedKeyId } = get();
+      const key = motion?.keys.find(key => key.id === selectedKeyId);
+      if (motion && key) edit(moveKey(motion, key.id, { x: key.x, y: key.y, sx: 1, sy: 1 }));
     },
     evenSpeed: () => {
       const { motion } = get();

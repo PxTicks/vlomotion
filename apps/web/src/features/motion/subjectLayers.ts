@@ -1,4 +1,5 @@
-import type { Point, Rect, SubjectMotion } from "@h3-motion/shared";
+import { isAtRest } from "@h3-motion/shared";
+import type { Placement, Point, Rect, SubjectMotion } from "@h3-motion/shared";
 
 type Context2D = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
 type Drawable = CanvasImageSource & { width: number; height: number };
@@ -56,8 +57,11 @@ export function featherMask(mask: Uint8ClampedArray, width: number, height: numb
 export const subjectKeyOf = (imageId: string, maskId: string) => `${imageId}:${maskId}`;
 export const layersKeyOf = (photoUrl: string, maskUrl: string, plateUrl: string) => `${photoUrl}|${maskUrl}|${plateUrl}`;
 
-export const hitsSubject = (layers: SubjectLayers, point: Point, offset: Point) => {
-  const x = Math.floor(point.x - offset.x), y = Math.floor(point.y - offset.y);
+export const hitsSubject = (layers: SubjectLayers, point: Point, { anchor, offset, sx, sy }: Placement) => {
+  if (!sx || !sy) return false;
+  // Unscaled axes skip the anchor round trip, which could tip an exact pixel edge into its neighbour.
+  const x = Math.floor(sx === 1 ? point.x - offset.x : anchor.x + (point.x - anchor.x - offset.x) / sx);
+  const y = Math.floor(sy === 1 ? point.y - offset.y : anchor.y + (point.y - anchor.y - offset.y) / sy);
   return x >= 0 && y >= 0 && x < layers.width && y < layers.height && layers.mask[y * layers.width + x] > 0;
 };
 
@@ -95,45 +99,56 @@ export async function loadSubjectLayers(photoUrl: string, plateUrl: string, mask
   return { width, height, photo, plate, cutout: canvas, matte, mask, bounds };
 }
 
-/** Map the whole working image into the output canvas, including its even-pixel encoder rounding. */
-function drawLayer(context: Context2D, layers: RenderLayers, image: Drawable, offset: Point) {
-  const { width, height } = context.canvas;
-  context.drawImage(image, offset.x * width / layers.width, offset.y * height / layers.height, width, height);
-}
-
 /**
- * Draws one reference frame: the plate with the cut-out at its offset.
- * At rest the original photo is drawn instead, so those frames match the start frame exactly.
+ * Map the whole working image into the output canvas, including its even-pixel encoder rounding.
+ * Without a placement the image is drawn as is, as the photo and plate always are.
  */
-export function drawReference(context: Context2D, layers: RenderLayers, offset: Point) {
-  if (offset.x === 0 && offset.y === 0) { drawLayer(context, layers, layers.photo, offset); return; }
-  drawLayer(context, layers, layers.plate, { x: 0, y: 0 });
-  drawLayer(context, layers, layers.cutout, offset);
-}
-
-/** Draws one TTM mask frame: the subject in white at its offset, black everywhere else. */
-export function drawMask(context: Context2D, layers: RenderLayers, offset: Point) {
-  context.fillStyle = "#000";
-  context.fillRect(0, 0, context.canvas.width, context.canvas.height);
-  drawLayer(context, layers, layers.matte, offset);
-}
-
-export function drawGhost(context: Context2D, layers: RenderLayers, offset: Point, opacity: number) {
+function drawLayer(context: Context2D, layers: RenderLayers, image: Drawable, placement?: Placement) {
+  const { width, height } = context.canvas;
+  const toX = (x: number) => x * width / layers.width, toY = (y: number) => y * height / layers.height;
+  if (!placement) { context.drawImage(image, 0, 0, width, height); return; }
+  const { anchor, offset, sx, sy } = placement;
+  if (sx === 1 && sy === 1) { context.drawImage(image, toX(offset.x), toY(offset.y), width, height); return; }
   context.save();
-  context.globalAlpha = opacity;
-  drawLayer(context, layers, layers.cutout, offset);
+  context.translate(toX(anchor.x + offset.x), toY(anchor.y + offset.y));
+  context.scale(sx, sy);
+  context.drawImage(image, -toX(anchor.x), -toY(anchor.y), width, height);
   context.restore();
 }
 
-export interface PositionedSubject { layers: RenderLayers; offset: Point }
+/**
+ * Draws one reference frame: the plate with the cut-out at its placement.
+ * At rest the original photo is drawn instead, so those frames match the start frame exactly.
+ */
+export function drawReference(context: Context2D, layers: RenderLayers, placement: Placement) {
+  if (isAtRest(placement)) { drawLayer(context, layers, layers.photo); return; }
+  drawLayer(context, layers, layers.plate);
+  drawLayer(context, layers, layers.cutout, placement);
+}
+
+/** Draws one TTM mask frame: the subject in white at its placement, black everywhere else. */
+export function drawMask(context: Context2D, layers: RenderLayers, placement: Placement) {
+  context.fillStyle = "#000";
+  context.fillRect(0, 0, context.canvas.width, context.canvas.height);
+  drawLayer(context, layers, layers.matte, placement);
+}
+
+export function drawGhost(context: Context2D, layers: RenderLayers, placement: Placement, opacity: number) {
+  context.save();
+  context.globalAlpha = opacity;
+  drawLayer(context, layers, layers.cutout, placement);
+  context.restore();
+}
+
+export interface PositionedSubject { layers: RenderLayers; placement: Placement }
 
 /** Subjects are listed front first; compositing draws the back layer first. */
 export function drawSceneReference(context: Context2D, layers: RenderLayers, subjects: PositionedSubject[], originalFrame = false) {
-  if (originalFrame) { drawLayer(context, layers, layers.photo, { x: 0, y: 0 }); return; }
-  drawLayer(context, layers, layers.plate, { x: 0, y: 0 });
+  if (originalFrame) { drawLayer(context, layers, layers.photo); return; }
+  drawLayer(context, layers, layers.plate);
   for (let index = subjects.length - 1; index >= 0; index--) {
     const subject = subjects[index];
-    drawLayer(context, subject.layers, subject.layers.cutout, subject.offset);
+    drawLayer(context, subject.layers, subject.layers.cutout, subject.placement);
   }
 }
 
@@ -142,6 +157,6 @@ export function drawSceneMask(context: Context2D, subjects: PositionedSubject[])
   context.fillRect(0, 0, context.canvas.width, context.canvas.height);
   for (let index = subjects.length - 1; index >= 0; index--) {
     const subject = subjects[index];
-    drawLayer(context, subject.layers, subject.layers.matte, subject.offset);
+    drawLayer(context, subject.layers, subject.layers.matte, subject.placement);
   }
 }

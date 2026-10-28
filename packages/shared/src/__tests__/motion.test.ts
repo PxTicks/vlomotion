@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   MAX_MOTION_KEYS, applyRecording, buildMotionCurve, createMotion, deleteKey, evenSpeed, firstFrameOutside,
-  insertKeyAtLength, moveKey, retimeKey, setClipFrames, upsertKey, validateMotion,
+  insertKeyAtLength, moveKey, placeRect, retimeKey, setClipFrames, upsertKey, validateMotion,
 } from "../motion.js";
 import type { SubjectMotion } from "../motion.js";
 
@@ -52,6 +52,54 @@ describe("motion curve", () => {
     expect(hit.length).toBeCloseTo(50, 1);
     expect(hit.distance).toBeCloseTo(10, 1);
     expect(curve.frameAtLength(50)).toBeCloseTo(25, 1);
+  });
+});
+
+describe("scale keys", () => {
+  const scaled = (...keys: [number, number, number][]) => keys.reduce<SubjectMotion>((motion, [frame, sx, sy]) =>
+    upsertKey(motion, frame, { ...anchor, sx, sy }, id())!.motion, { ...createMotion(anchor), timing: "linear" });
+  it("scales geometrically, so halfway between 1× and 4× is 2×", () => {
+    const curve = buildMotionCurve(scaled([100, 4, 4]));
+    expect(curve.scaleAt(0)).toEqual({ sx: 1, sy: 1 });
+    expect(curve.scaleAt(50).sx).toBeCloseTo(2, 9);
+    expect(curve.scaleAt(100)).toEqual({ sx: 4, sy: 4 });
+    expect(curve.scaleAt(123)).toEqual({ sx: 4, sy: 4 });
+    expect(curve.length).toBe(0);
+    expect(curve.animated).toBe(true);
+    expect(buildMotionCurve(createMotion(anchor)).animated).toBe(false);
+  });
+  it("flips an axis linearly through zero without touching the other", () => {
+    const curve = buildMotionCurve(scaled([100, -1, 1]));
+    expect(curve.scaleAt(50).sx).toBeCloseTo(0, 9);
+    expect(curve.scaleAt(25).sx).toBeCloseTo(.5, 9);
+    expect(curve.scaleAt(50).sy).toBe(1);
+  });
+  it("keeps a uniform resize uniform when a later key flips one axis", () => {
+    for (const timing of ["linear", "smooth"] as const) {
+      const curve = buildMotionCurve({ ...scaled([100, 4, 4], [120, -4, 4]), timing });
+      for (const frame of [25, 50, 75]) expect(curve.scaleAt(frame).sx).toBeCloseTo(curve.scaleAt(frame).sy, 9);
+      if (timing === "linear") {
+        expect(curve.scaleAt(50).sx).toBeCloseTo(2, 9);
+        expect(curve.scaleAt(110).sx).toBeCloseTo(0, 9);
+      }
+      expect(curve.scaleAt(110).sy).toBe(4);
+    }
+  });
+  it("keeps the current scale when a key is added or moved without one", () => {
+    const motion = scaled([100, 2, 3]);
+    const inserted = upsertKey(motion, 50, { x: 300, y: 200 }, "mid")!.motion;
+    expect(inserted.keys[1].sx).toBeCloseTo(Math.SQRT2, 9);
+    expect(inserted.keys[1].sy).toBeCloseTo(Math.sqrt(3), 9);
+    expect(moveKey(motion, motion.keys[1].id, { x: 5, y: 6 }).keys[1]).toMatchObject({ x: 5, y: 6, sx: 2, sy: 3 });
+    expect(moveKey(motion, motion.keys[1].id, { x: 5, y: 6, sx: 1, sy: -1 }).keys[1]).toMatchObject({ sx: 1, sy: -1 });
+  });
+  it("places mirrored bounds about the anchor and rejects oversized or rescaled photo keys", () => {
+    const bounds = { x: 80, y: 180, width: 40, height: 40 };
+    expect(placeRect(bounds, { anchor, offset: { x: 10, y: 0 }, sx: -2, sy: .5 })).toEqual({ x: 70, y: 190, width: 80, height: 20 });
+    const motion = scaled([50, 2, 2]);
+    expect(validateMotion(motion)).toEqual([]);
+    expect(validateMotion({ ...motion, keys: [motion.keys[0], { ...motion.keys[1], sx: -5 }] })).toEqual(["Key sizes must be at most 400%."]);
+    expect(validateMotion({ ...motion, keys: [{ ...motion.keys[0], sx: 2 }, motion.keys[1]] })).toHaveLength(1);
   });
 });
 

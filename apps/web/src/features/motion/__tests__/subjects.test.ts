@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildMotionCurve } from "@h3-motion/shared";
-import { drawSceneMask, drawSceneReference } from "../subjectLayers";
+import { drawSceneMask, drawSceneReference, hitsSubject } from "../subjectLayers";
 import type { SubjectLayers } from "../subjectLayers";
 import { motionTargetAt } from "../motionHitTest";
 import { useMotionStore } from "../useMotionStore";
@@ -14,6 +14,7 @@ function layers(x: number, name: string): SubjectLayers {
 const first = layers(10, "first"), second = layers(100, "second");
 const inputs = [{ id: "first", name: "First", layers: first }, { id: "second", name: "Second", layers: second }];
 const state = () => useMotionStore.getState();
+const at = (x: number, y: number) => ({ anchor: { x: 0, y: 0 }, offset: { x, y }, sx: 1, sy: 1 });
 const tracks = () => state().subjects.map(subject => ({ ...subject, curve: buildMotionCurve(subject.motion) }));
 const record = (id: string, x: number, y: number) => {
   state().selectSubject(id);
@@ -117,7 +118,7 @@ describe("scene compositing", () => {
   }
   it("draws the background once and independently positioned subjects from back to front", () => {
     const drawing = context();
-    const positioned = [{ layers: first, offset: { x: 10, y: 5 } }, { layers: second, offset: { x: -20, y: 15 } }];
+    const positioned = [{ layers: first, placement: at(10, 5) }, { layers: second, placement: at(-20, 15) }];
     drawSceneReference(drawing as unknown as CanvasRenderingContext2D, first, positioned);
     expect(drawing.drawImage.mock.calls).toEqual([
       [first.plate, 0, 0, 200, 100], [second.cutout, -20, 15, 200, 100], [first.cutout, 10, 5, 200, 100],
@@ -125,7 +126,7 @@ describe("scene compositing", () => {
   });
   it("preserves the original photo as frame zero", () => {
     const drawing = context();
-    drawSceneReference(drawing as unknown as CanvasRenderingContext2D, first, [{ layers: second, offset: { x: 0, y: 0 } }], true);
+    drawSceneReference(drawing as unknown as CanvasRenderingContext2D, first, [{ layers: second, placement: at(0, 0) }], true);
     expect(drawing.drawImage.mock.calls).toEqual([[first.photo, 0, 0, 200, 100]]);
   });
   it("keeps the full photo and mask aligned when the output ratio is rounded for encoding", () => {
@@ -135,12 +136,25 @@ describe("scene compositing", () => {
     drawSceneReference(drawing as unknown as CanvasRenderingContext2D, source, [], true);
     expect(drawing.drawImage.mock.calls).toEqual([[source.photo, 0, 0, 686, 480]]);
     drawing.drawImage.mockClear();
-    drawSceneMask(drawing as unknown as CanvasRenderingContext2D, [{ layers: source, offset: { x: 100, y: 70.1 } }]);
+    drawSceneMask(drawing as unknown as CanvasRenderingContext2D, [{ layers: source, placement: at(100, 70.1) }]);
     expect(drawing.drawImage.mock.calls).toEqual([[source.matte, 68.6, 48, 686, 480]]);
+  });
+  it("scales and mirrors a subject about its anchor", () => {
+    const drawing = { ...context(), save: vi.fn(), restore: vi.fn(), translate: vi.fn(), scale: vi.fn() };
+    const placement = { anchor: { x: 25, y: 35 }, offset: { x: 10, y: 0 }, sx: -2, sy: 1 };
+    drawSceneMask(drawing as unknown as CanvasRenderingContext2D, [{ layers: first, placement }]);
+    expect(drawing.translate).toHaveBeenCalledWith(35, 35);
+    expect(drawing.scale).toHaveBeenCalledWith(-2, 1);
+    expect(drawing.drawImage.mock.calls).toEqual([[first.matte, -25, -35, 200, 100]]);
+    // The subject spans x 10–40 about anchor 25, so mirrored at 2× and moved 10 right it spans x 5–65.
+    expect(hitsSubject(first, { x: 60, y: 30 }, placement)).toBe(true);
+    expect(hitsSubject(first, { x: 30, y: 30 }, { ...placement, sx: .5 })).toBe(true);
+    expect(hitsSubject(first, { x: 70, y: 30 }, placement)).toBe(false);
+    expect(hitsSubject(first, { x: 35, y: 30 }, { ...placement, sx: 0 })).toBe(false);
   });
   it("combines independently shifted mattes for the mask video", () => {
     const drawing = context();
-    drawSceneMask(drawing as unknown as CanvasRenderingContext2D, [{ layers: first, offset: { x: 10, y: 5 } }, { layers: second, offset: { x: -20, y: 15 } }]);
+    drawSceneMask(drawing as unknown as CanvasRenderingContext2D, [{ layers: first, placement: at(10, 5) }, { layers: second, placement: at(-20, 15) }]);
     expect(drawing.fillRect).toHaveBeenCalledWith(0, 0, 200, 100);
     expect(drawing.drawImage.mock.calls).toEqual([[second.matte, -20, 15, 200, 100], [first.matte, 10, 5, 200, 100]]);
   });

@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { Alert, Box, Button, Paper, Stack, Typography } from "@mui/material";
 import { buildMotionCurve, firstFrameOutside, isStartKey, validateMotion } from "@h3-motion/shared";
 import { useSelectionStore } from "../select";
-import { formatSeconds, signed } from "./format";
+import { formatScale, formatSeconds, signed } from "./format";
 import { subjectKeyOf } from "./subjectLayers";
 import { useMotionStore } from "./useMotionStore";
 import { SUBJECT_COLORS } from "./useMotionStore";
@@ -23,6 +23,7 @@ export function MotionPanel() {
   const notice = useMotionStore(s => s.notice);
   const retimeKey = useMotionStore(s => s.retimeKey);
   const deleteSelected = useMotionStore(s => s.deleteSelected);
+  const resetScale = useMotionStore(s => s.resetScale);
   const clearPath = useMotionStore(s => s.clearPath);
   const ready = !!image && !!mask && subjectKey === subjectKeyOf(image.id, mask.id) && !!motion;
   const curve = useMemo(() => motion ? buildMotionCurve(motion) : null, [motion]);
@@ -30,14 +31,14 @@ export function MotionPanel() {
 
   const heading = <Stack spacing={1}>
     <Typography variant="h2">Drag it into motion</Typography>
-    <Typography variant="body2" color="text.secondary">Drag to create a path. Adjust by selecting and dragging ◆ on the canvas to fix positions, or on the timeline bar to fix timings.</Typography>
+    <Typography variant="body2" color="text.secondary">Drag to create a path. Adjust by selecting and dragging ◆ on the canvas to fix positions, or on the timeline bar to fix timings. Drag the box corners to resize the subject, or its edges to stretch or flip it.</Typography>
   </Stack>;
   if (!ready || !curve) return <Stack spacing={2.5}>{heading}<Typography role="status" variant="body2">Preparing your subject…</Typography></Stack>;
 
   const index = motion.keys.findIndex(key => key.id === selectedKeyId);
   const selected = motion.keys[index];
   const errors = subjects.length ? subjects.flatMap(subject => validateMotion(subject.motion).map(error => `${subject.name}: ${error}`)) : validateMotion(motion);
-  const moving = subjects.length ? subjects.some(subject => buildMotionCurve(subject.motion).length > 0) : curve.length > 0;
+  const moving = subjects.length ? subjects.some(subject => buildMotionCurve(subject.motion).animated) : curve.animated;
   const color = subjects.find(subject => subject.id === activeSubjectId)?.color ?? SUBJECT_COLORS[0];
 
   return <Stack spacing={2.5}>
@@ -47,13 +48,15 @@ export function MotionPanel() {
     {selected ? <Paper variant="outlined" sx={{ p: 2, bgcolor: "#2b2040" }}>
       <Stack spacing={1.5}>
         <Stack direction="row" justifyContent="space-between" alignItems="baseline">
-          <Typography variant="overline" sx={{ lineHeight: 1.4 }}><Box component="span" sx={{ color }}>◆</Box> KEY {index + 1}</Typography>
-          <Typography variant="body2" sx={{ fontVariantNumeric: "tabular-nums" }}>{formatSeconds(selected.frame)} · {signed(selected.x - motion.anchor.x)}, {signed(selected.y - motion.anchor.y)}</Typography>
+          <Typography variant="overline" sx={{ lineHeight: 1.4, whiteSpace: "nowrap", mr: 1 }}><Box component="span" sx={{ color }}>◆</Box> KEY {index + 1}</Typography>
+          <Typography variant="body2" sx={{ fontVariantNumeric: "tabular-nums", textAlign: "right" }}>{formatSeconds(selected.frame)} · {signed(selected.x - motion.anchor.x)}, {signed(selected.y - motion.anchor.y)}
+            {formatScale(selected) && ` · ${formatScale(selected)}`}</Typography>
         </Stack>
         {isStartKey(motion, selected.id) ? <Typography variant="caption" color="text.secondary">The first key is your photo. It stays at 0 s in its original position.</Typography>
           : <Stack direction="row" gap={1} flexWrap="wrap">
             <Button size="small" variant="outlined" disabled={recording} onClick={() => retimeKey(selected.id, selected.frame - 1)}>− 1 frame</Button>
             <Button size="small" variant="outlined" disabled={recording} onClick={() => retimeKey(selected.id, selected.frame + 1)}>+ 1 frame</Button>
+            {formatScale(selected) && <Button size="small" variant="outlined" disabled={recording} onClick={resetScale}>Reset size</Button>}
             <Button size="small" color="error" disabled={recording} onClick={deleteSelected}>Delete key</Button>
           </Stack>}
       </Stack>
