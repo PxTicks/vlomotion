@@ -1,5 +1,5 @@
 import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, LinearProgress, Slider, Stack, TextField, ToggleButton, ToggleButtonGroup, Tooltip, Typography } from "@mui/material";
-import { EDGE_FREEDOM, FPS, LOCK_IN, VIDEO_TIERS } from "@h3-motion/shared";
+import { EDGE_FREEDOM, LOCK_IN, VIDEO_TIERS } from "@h3-motion/shared";
 import { useSelectionStore } from "../select";
 import { useGenerationInputs } from "./inputs";
 import { useCurrentResult, useGenerateStore } from "./useGenerateStore";
@@ -31,14 +31,12 @@ export function GeneratePanel() {
   return <Stack spacing={2.5}>
     <Stack spacing={1}>
       <Typography variant="h2">Bring it to life</Typography>
-      <Typography variant="body2" color="text.secondary">MiniMax H3 animates the photo along your path, blending the moving subject into the scene and adding sound.</Typography>
+      <Typography variant="body2" color="text.secondary">Write a detailed prompt to bring your animation to life.</Typography>
     </Stack>
-    <TextField multiline minRows={6} label="Main prompt" value={prompt ?? inputs?.promptFields.mainPrompt ?? ""} disabled={busy || !inputs}
-      onChange={event => setPrompt(event.target.value)} slotProps={{ htmlInput: { maxLength: 3000 } }} />
     <Box>
       <Stack direction="row" justifyContent="space-between" alignItems="center">
         <Tooltip title={LOCK_IN_HELP} placement="top-start">
-          <Typography variant="overline" color="text.secondary" tabIndex={0} sx={{ cursor: "help" }}>Motion lock-in ⓘ</Typography>
+          <Typography variant="overline" color="text.secondary" tabIndex={0} sx={{ cursor: "help" }}>Motion lock-in <Box component="span" sx={{ textTransform: "none" }}>ⓘ</Box></Typography>
         </Tooltip>
         <Typography variant="body2" sx={{ fontVariantNumeric: "tabular-nums" }}>{lockIn}</Typography>
       </Stack>
@@ -49,6 +47,19 @@ export function GeneratePanel() {
         <Typography variant="caption" color="text.secondary">Locked</Typography>
       </Stack>
     </Box>
+    <TextField multiline minRows={6} label="Main prompt" value={prompt ?? inputs?.promptFields.mainPrompt ?? ""} disabled={busy || !inputs}
+      onChange={event => setPrompt(event.target.value)} slotProps={{ htmlInput: { maxLength: 3000 } }} />
+    <TextField multiline minRows={3} label="Sound effects [Optional]" value={soundEffects ?? inputs?.promptFields.soundEffects ?? ""} disabled={busy || !inputs}
+      onChange={event => setSoundEffects(event.target.value)} slotProps={{ htmlInput: { maxLength: 500 } }} />
+    <TextField multiline minRows={3} label="Music [Optional]" value={music} disabled={busy || !inputs}
+      onChange={event => setMusic(event.target.value)} slotProps={{ htmlInput: { maxLength: 250 } }} />
+    <Stack spacing={1}>
+      <Typography variant="caption" color="text.secondary">Resolution</Typography>
+      <ToggleButtonGroup exclusive size="small" value={tier} disabled={busy} aria-label="Resolution"
+        onChange={(_, value: unknown) => { const next = VIDEO_TIERS.find(option => option === value); if (next) setTier(next); }}>
+        {VIDEO_TIERS.map(value => <ToggleButton key={value} value={value} sx={{ px: 1.5, py: .5, borderRadius: 99 }}>{value}p</ToggleButton>)}
+      </ToggleButtonGroup>
+    </Stack>
     {busy ? <Stack spacing={1} aria-live="polite">
       <Typography variant="body2">{statusText}</Typography>
       <LinearProgress variant={progress == null ? "indeterminate" : "determinate"} value={(progress ?? 0) * 100} />
@@ -60,12 +71,8 @@ export function GeneratePanel() {
     {notice && !busy && <Typography role="status" variant="body2" color="text.secondary">{notice}</Typography>}
     {result && <Stack spacing={1}>
       <Typography variant="overline" color="text.secondary">Output</Typography>
-      <Typography variant="caption" color="text.secondary">
-        {result.width} × {result.height} · {(result.frames / FPS).toFixed(1)} s · lock-in {result.lockIn} · edge freedom {result.edgeFreedom} px · seed {result.seed}
-      </Typography>
       <Stack direction="row" gap={1} flexWrap="wrap">
         <Button variant="outlined" component="a" href={result.video.url} download="h3-motion.mp4">Download video</Button>
-        <Button disabled={busy} onClick={() => void generate({ newSeed: true })}>Regenerate</Button>
         <Button disabled={busy} onClick={() => setSeed(String(result.seed))}>Reuse seed</Button>
       </Stack>
     </Stack>}
@@ -73,13 +80,6 @@ export function GeneratePanel() {
       <AccordionSummary expandIcon={<Typography color="text.secondary">▾</Typography>}><Typography variant="overline">Advanced</Typography></AccordionSummary>
       <AccordionDetails>
         <Stack spacing={2.5}>
-          <Stack spacing={1}>
-            <Typography variant="caption" color="text.secondary">Resolution{inputs ? ` · ${inputs.size.width} × ${inputs.size.height}` : ""}</Typography>
-            <ToggleButtonGroup exclusive size="small" value={tier} disabled={busy} aria-label="Resolution"
-              onChange={(_, value: unknown) => { const next = VIDEO_TIERS.find(option => option === value); if (next) setTier(next); }}>
-              {VIDEO_TIERS.map(value => <ToggleButton key={value} value={value} sx={{ px: 1.5, py: .5, borderRadius: 99 }}>{value}p</ToggleButton>)}
-            </ToggleButtonGroup>
-          </Stack>
           <Box>
             <Stack direction="row" justifyContent="space-between" alignItems="center">
               <Tooltip title={EDGE_FREEDOM_HELP} placement="top-start">
@@ -92,10 +92,6 @@ export function GeneratePanel() {
           </Box>
           <TextField size="small" label="Seed" placeholder="Random" value={seed} disabled={busy} onChange={event => setSeed(event.target.value)}
             slotProps={{ htmlInput: { inputMode: "numeric" } }} helperText="Leave empty for a new random seed each time." />
-          <TextField multiline minRows={3} label="Sound effects [Optional]" value={soundEffects ?? inputs?.promptFields.soundEffects ?? ""} disabled={busy || !inputs}
-            onChange={event => setSoundEffects(event.target.value)} slotProps={{ htmlInput: { maxLength: 500 } }} />
-          <TextField multiline minRows={3} label="Music [Optional]" value={music} disabled={busy || !inputs}
-            onChange={event => setMusic(event.target.value)} slotProps={{ htmlInput: { maxLength: 250 } }} />
         </Stack>
       </AccordionDetails>
     </Accordion>

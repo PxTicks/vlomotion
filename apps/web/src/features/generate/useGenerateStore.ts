@@ -29,7 +29,7 @@ const message = (error: unknown) => error instanceof Error ? error.message : "So
 let controller: AbortController | null = null;
 
 export const useGenerateStore = create<GenerateState>((set, get) => ({
-  lockIn: LOCK_IN.default, edgeFreedom: EDGE_FREEDOM.default, tier: 480, seed: "", prompt: null, soundEffects: null, music: "",
+  lockIn: LOCK_IN.default, edgeFreedom: EDGE_FREEDOM.default, tier: 768, seed: "", prompt: null, soundEffects: null, music: "",
   status: "idle", progress: null, job: null, result: null, view: "source", error: null, notice: null,
   setLockIn: lockIn => set({ lockIn: Math.min(LOCK_IN.max, Math.max(LOCK_IN.min, Math.round(lockIn / LOCK_IN.step) * LOCK_IN.step)) }),
   setEdgeFreedom: edgeFreedom => set({ edgeFreedom: Math.min(EDGE_FREEDOM.max, Math.max(EDGE_FREEDOM.min, Math.round(edgeFreedom / EDGE_FREEDOM.step) * EDGE_FREEDOM.step)) }),
