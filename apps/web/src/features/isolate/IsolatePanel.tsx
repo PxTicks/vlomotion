@@ -17,6 +17,7 @@ export function IsolatePanel() {
   const [draft, setDraft] = useState<{ selectionKey: string; instruction: string } | null>(null);
   const instruction = draft?.selectionKey === selectionKey ? draft.instruction
     : result?.instruction ?? "";
+  const showPrompt = !!result || draft?.selectionKey === selectionKey;
   const subject = selectionText.trim().replace(/^the\s+/i, "") || "foreground";
 
   return <Stack spacing={2.5}>
@@ -24,7 +25,9 @@ export function IsolatePanel() {
       <Typography variant="h2">Generate clean background</Typography>
     </Stack>
     {result && <Chip label={result.instructionSource === "custom" ? "Custom removal instruction" : `Removed: ${result.phrase}`} color="primary" sx={{ alignSelf: "start", height: "auto", ".MuiChip-label": { whiteSpace: "normal", py: 1 } }} />}
-    {result && <TextField multiline minRows={5} fullWidth label="Prompt (for subject removal)" value={instruction}
+    {!showPrompt && <Button size="small" disabled={busy} sx={{ alignSelf: "start" }}
+      onClick={() => setDraft({ selectionKey, instruction: "" })}>+ add prompt [optional]</Button>}
+    {showPrompt && <TextField multiline minRows={5} fullWidth label="Prompt (for subject removal)" value={instruction}
       disabled={busy} onChange={event => setDraft({ selectionKey, instruction: event.target.value })} inputProps={{ maxLength: 2000 }}
       slotProps={{ inputLabel: { shrink: true } }}
       placeholder={`[e.g. Remove the ${subject} from the image]`} />}
@@ -36,7 +39,7 @@ export function IsolatePanel() {
     </Stack>}
     <Button variant={result ? "outlined" : "contained"} size="large" disabled={busy} onClick={() => {
       const prompt = instruction.trim();
-      void isolate(!result || prompt === result.instruction ? undefined : prompt);
+      void isolate(prompt === result?.instruction ? undefined : prompt);
     }}>
       {result ? "Regenerate" : "Isolate subject"}
     </Button>
