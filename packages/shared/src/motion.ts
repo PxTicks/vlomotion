@@ -9,8 +9,9 @@ export type Pose = Point & Scale;
  */
 export interface MotionKey extends Point, Partial<Scale> { id: string; frame: number }
 export type MotionTiming = "smooth" | "linear";
-/** keys[0] is the photo: frame 0 at the anchor, never moved, retimed or deleted. */
-export interface SubjectMotion { anchor: Point; frames: FrameCount; timing: MotionTiming; keys: MotionKey[] }
+/** keys[0] is the photo: frame 0 at the anchor, never moved, retimed or deleted. Image clips use a fixed FrameCount; video masks span their source. */
+export interface SubjectMotion<F extends number = FrameCount> { anchor: Point; frames: F; timing: MotionTiming; keys: MotionKey[] }
+type AnyMotion = SubjectMotion<number>;
 export interface Rect { x: number; y: number; width: number; height: number }
 /** A recorded pointer position; `time` is in milliseconds from the start of the drag. */
 export interface TimedSample { time: number; x: number; y: number }
@@ -26,7 +27,7 @@ const RECORD_MOVE_EPSILON = 1;
 
 const distance = (a: Point, b: Point) => Math.hypot(b.x - a.x, b.y - a.y);
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
-export const lastFrame = (motion: Pick<SubjectMotion, "frames">) => motion.frames - 1;
+export const lastFrame = (motion: { frames: number }) => motion.frames - 1;
 export const scaleOf = (key: Partial<Scale>): Scale => ({ sx: key.sx ?? 1, sy: key.sy ?? 1 });
 
 /** Where a subject is drawn: shifted by `offset`, then scaled by sx/sy about its moved anchor. */
@@ -128,7 +129,7 @@ function piecewiseLinear(xs: number[], ys: number[]): (x: number) => number {
 interface PathSample extends Point { segment: number; u: number; length: number }
 
 export interface MotionCurve {
-  motion: SubjectMotion;
+  motion: AnyMotion;
   /** Dense arc-length samples along the path, for drawing and hit testing. */
   samples: PathSample[];
   /** Cumulative path length at each key. */
@@ -153,7 +154,7 @@ export interface MotionCurve {
  * decides how far along it is. The timing curve is flat at holds and never backtracks.
  * Scale is keyed on the same frames and eased with the same timing, independently of the path.
  */
-export function buildMotionCurve(motion: SubjectMotion): MotionCurve {
+export function buildMotionCurve(motion: AnyMotion): MotionCurve {
   const { keys, anchor } = motion;
   const points: Point[] = [];
   const keyPoint: number[] = [];
@@ -232,20 +233,20 @@ function spaceFrames(frames: number[], last: number): number[] {
   return out;
 }
 
-const withFrames = (motion: SubjectMotion, frames: number[]): SubjectMotion =>
+const withFrames = <M extends AnyMotion>(motion: M, frames: number[]): M =>
   ({ ...motion, keys: motion.keys.map((key, i) => ({ ...key, frame: frames[i] })) });
 
-export function createMotion(anchor: Point, frames: FrameCount = 124, timing: MotionTiming = "smooth"): SubjectMotion {
+export function createMotion<F extends number = FrameCount>(anchor: Point, frames: F = 124 as F, timing: MotionTiming = "smooth"): SubjectMotion<F> {
   return { anchor: { ...anchor }, frames, timing, keys: [{ id: START_KEY_ID, frame: 0, x: anchor.x, y: anchor.y }] };
 }
 
-export const isStartKey = (motion: SubjectMotion, id: string) => motion.keys[0]?.id === id;
+export const isStartKey = (motion: AnyMotion, id: string) => motion.keys[0]?.id === id;
 
 /**
  * Sets the pose at a frame: updates the key already there, or inserts one. A scale left out keeps the key's
  * own, or for a new key the scale the subject already has at that frame. Frame 0 is the photo and can't change.
  */
-export function upsertKey(motion: SubjectMotion, frame: number, pose: Point & Partial<Scale>, id: string): { motion: SubjectMotion; id: string } | null {
+export function upsertKey<M extends AnyMotion>(motion: M, frame: number, pose: Point & Partial<Scale>, id: string): { motion: M; id: string } | null {
   const at = Math.round(frame);
   if (at <= 0 || at > lastFrame(motion)) return null;
   const existing = motion.keys.find(key => key.frame === at);
@@ -257,14 +258,14 @@ export function upsertKey(motion: SubjectMotion, frame: number, pose: Point & Pa
 }
 
 /** Changes a key's position, and its scale when given. */
-export function moveKey(motion: SubjectMotion, id: string, pose: Point & Partial<Scale>): SubjectMotion {
+export function moveKey<M extends AnyMotion>(motion: M, id: string, pose: Point & Partial<Scale>): M {
   if (isStartKey(motion, id)) return motion;
   return { ...motion, keys: motion.keys.map(key => key.id !== id ? key
     : { ...key, x: pose.x, y: pose.y, ...(pose.sx === undefined ? {} : { sx: pose.sx }), ...(pose.sy === undefined ? {} : { sy: pose.sy }) }) };
 }
 
 /** Moves one key in time, clamped between its neighbours. Only the two adjacent segments change speed. */
-export function retimeKey(motion: SubjectMotion, id: string, frame: number): SubjectMotion {
+export function retimeKey<M extends AnyMotion>(motion: M, id: string, frame: number): M {
   const i = motion.keys.findIndex(key => key.id === id);
   if (i <= 0) return motion;
   const min = motion.keys[i - 1].frame + 1;
@@ -274,7 +275,7 @@ export function retimeKey(motion: SubjectMotion, id: string, frame: number): Sub
 }
 
 /** Inserts a key on the existing path at an arc length, timed where the subject currently passes that point. */
-export function insertKeyAtLength(motion: SubjectMotion, length: number, id: string): { motion: SubjectMotion; id: string } | null {
+export function insertKeyAtLength<M extends AnyMotion>(motion: M, length: number, id: string): { motion: M; id: string } | null {
   const curve = buildMotionCurve(motion);
   if (length <= 0 || length >= curve.length || motion.keys.length >= MAX_MOTION_KEYS) return null;
   const frame = Math.round(curve.frameAtLength(length));
@@ -284,13 +285,13 @@ export function insertKeyAtLength(motion: SubjectMotion, length: number, id: str
   return { motion: { ...motion, keys }, id };
 }
 
-export function deleteKey(motion: SubjectMotion, id: string): SubjectMotion {
+export function deleteKey<M extends AnyMotion>(motion: M, id: string): M {
   if (isStartKey(motion, id)) return motion;
   return { ...motion, keys: motion.keys.filter(key => key.id !== id) };
 }
 
 /** Re-spaces keys for constant speed along the path between the first and last key. Holds keep their length. */
-export function evenSpeed(motion: SubjectMotion): SubjectMotion {
+export function evenSpeed<M extends AnyMotion>(motion: M): M {
   const { keys } = motion;
   if (keys.length < 3) return motion;
   const { keyLengths, length } = buildMotionCurve(motion);
@@ -340,7 +341,7 @@ function rdp(points: FrameSample[], epsilon: number): FrameSample[] {
  * and after the subject reaches its final position is dropped; pauses and speed changes in between keep
  * their proportions. Keys before `startFrame` are kept and everything after it is replaced.
  */
-export function applyRecording(motion: SubjectMotion, samples: TimedSample[], startFrame: number, newId: () => string): SubjectMotion {
+export function applyRecording<M extends AnyMotion>(motion: M, samples: TimedSample[], startFrame: number, newId: () => string): M {
   const last = lastFrame(motion);
   const start = clamp(Math.round(startFrame), 0, last);
   if (samples.length < 2 || start >= last) return motion;
@@ -375,7 +376,7 @@ export function applyRecording(motion: SubjectMotion, samples: TimedSample[], st
   return { ...motion, keys: [...kept, ...recorded] };
 }
 
-export function validateMotion(motion: SubjectMotion): string[] {
+export function validateMotion(motion: AnyMotion): string[] {
   const errors: string[] = [];
   const [first] = motion.keys;
   const start = first && scaleOf(first);

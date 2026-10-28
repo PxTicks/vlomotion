@@ -1,9 +1,10 @@
 import { BlobSource, CanvasSink, Input, MP4, QUALITY_HIGH, QUALITY_VERY_HIGH, WEBM } from "mediabunny";
-import { FPS, maskAt } from "@h3-motion/shared";
-import type { FrameSize, MaskKeyframe, MaskShape } from "@h3-motion/shared";
+import { FPS } from "@h3-motion/shared";
+import type { FrameSize, MaskBox, MaskShape } from "@h3-motion/shared";
 import { createVideoTrack, pickCodec } from "../../media/encode";
 
-export interface EncodeInpaintRequest { source: File; size: FrameSize; frames: number; keys: MaskKeyframe[]; shape: MaskShape }
+/** `boxes` holds the mask on each frame, as fractions of the frame. */
+export interface EncodeInpaintRequest { source: File; size: FrameSize; frames: number; boxes: MaskBox[]; shape: MaskShape }
 export type EncodeInpaintMessage = { kind: "progress"; value: number }
   | { kind: "done"; source: Blob; mask: Blob; container: "mp4" | "webm" } | { kind: "error"; message: string };
 const scope = globalThis as unknown as {
@@ -12,7 +13,7 @@ const scope = globalThis as unknown as {
 };
 
 async function encode(request: EncodeInpaintRequest) {
-  const { size, frames, keys, shape } = request;
+  const { size, frames, boxes, shape } = request;
   const codec = await pickCodec(size);
   const container = codec === "avc" ? "mp4" : "webm";
   const source = createVideoTrack(size, codec, QUALITY_VERY_HIGH), mask = createVideoTrack(size, codec, QUALITY_HIGH);
@@ -29,7 +30,7 @@ async function encode(request: EncodeInpaintRequest) {
       source.context.drawImage(sample.canvas, 0, 0, size.width, size.height);
       mask.context.fillStyle = "black";
       mask.context.fillRect(0, 0, size.width, size.height);
-      const box = maskAt(keys, frame);
+      const box = boxes[frame];
       if (!box) throw new Error("Draw a mask before generating.");
       const x = box.x * size.width, y = box.y * size.height, w = box.width * size.width, h = box.height * size.height;
       mask.context.fillStyle = "white";

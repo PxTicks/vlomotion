@@ -1,12 +1,13 @@
 import { useMemo } from "react";
-import { Alert, Box, Button, Paper, Stack, Typography } from "@mui/material";
-import { buildMotionCurve, firstFrameOutside, isStartKey, validateMotion } from "@h3-motion/shared";
+import { Alert, Button, Stack, Typography } from "@mui/material";
+import { buildMotionCurve, firstFrameOutside, validateMotion } from "@h3-motion/shared";
 import { useSelectionStore } from "../select";
-import { formatScale, formatSeconds, signed } from "./format";
+import { formatSeconds } from "./format";
 import { subjectKeyOf } from "./subjectLayers";
 import { useMotionStore } from "./useMotionStore";
 import { SUBJECT_COLORS } from "./useMotionStore";
 import { MotionSubjects } from "./MotionSubjects";
+import { SelectedKeyCard } from "./SelectedKeyCard";
 
 export function MotionPanel() {
   const image = useSelectionStore(s => s.image);
@@ -35,8 +36,6 @@ export function MotionPanel() {
   </Stack>;
   if (!ready || !curve) return <Stack spacing={2.5}>{heading}<Typography role="status" variant="body2">Preparing your subject…</Typography></Stack>;
 
-  const index = motion.keys.findIndex(key => key.id === selectedKeyId);
-  const selected = motion.keys[index];
   const errors = subjects.length ? subjects.flatMap(subject => validateMotion(subject.motion).map(error => `${subject.name}: ${error}`)) : validateMotion(motion);
   const moving = subjects.length ? subjects.some(subject => buildMotionCurve(subject.motion).animated) : curve.animated;
   const color = subjects.find(subject => subject.id === activeSubjectId)?.color ?? SUBJECT_COLORS[0];
@@ -45,22 +44,8 @@ export function MotionPanel() {
     {heading}
     <MotionSubjects />
     {notice && <Typography role="status" variant="body2" color="text.secondary">{notice}</Typography>}
-    {selected ? <Paper variant="outlined" sx={{ p: 2, bgcolor: "#2b2040" }}>
-      <Stack spacing={1.5}>
-        <Stack direction="row" justifyContent="space-between" alignItems="baseline">
-          <Typography variant="overline" sx={{ lineHeight: 1.4, whiteSpace: "nowrap", mr: 1 }}><Box component="span" sx={{ color }}>◆</Box> KEY {index + 1}</Typography>
-          <Typography variant="body2" sx={{ fontVariantNumeric: "tabular-nums", textAlign: "right" }}>{formatSeconds(selected.frame)} · {signed(selected.x - motion.anchor.x)}, {signed(selected.y - motion.anchor.y)}
-            {formatScale(selected) && ` · ${formatScale(selected)}`}</Typography>
-        </Stack>
-        {isStartKey(motion, selected.id) ? <Typography variant="caption" color="text.secondary">The first key is your photo. It stays at 0 s in its original position.</Typography>
-          : <Stack direction="row" gap={1} flexWrap="wrap">
-            <Button size="small" variant="outlined" disabled={recording} onClick={() => retimeKey(selected.id, selected.frame - 1)}>− 1 frame</Button>
-            <Button size="small" variant="outlined" disabled={recording} onClick={() => retimeKey(selected.id, selected.frame + 1)}>+ 1 frame</Button>
-            {formatScale(selected) && <Button size="small" variant="outlined" disabled={recording} onClick={resetScale}>Reset size</Button>}
-            <Button size="small" color="error" disabled={recording} onClick={deleteSelected}>Delete key</Button>
-          </Stack>}
-      </Stack>
-    </Paper> : null}
+    <SelectedKeyCard motion={motion} keyId={selectedKeyId} color={color} disabled={recording} onRetime={retimeKey} onResetScale={resetScale} onDelete={deleteSelected}
+      startNote="The first key is your photo. It stays at 0 s in its original position." />
     <Button variant="outlined" disabled={recording || motion.keys.length < 2} onClick={clearPath}>Clear path</Button>
     {outside !== null && <Alert severity="warning">The subject is completely out of frame from {formatSeconds(outside)}. That's fine for an exit, but the video model can't see it there.</Alert>}
     {errors.map(error => <Alert key={error} severity="error">{error}</Alert>)}

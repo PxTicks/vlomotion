@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildMotionCurve } from "@h3-motion/shared";
 import { drawSceneMask, drawSceneReference, hitsSubject } from "../subjectLayers";
 import type { SubjectLayers } from "../subjectLayers";
-import { motionTargetAt } from "../motionHitTest";
+import { hitsLayers, motionTargetAt } from "../motionHitTest";
 import { useMotionStore } from "../useMotionStore";
 
 function layers(x: number, name: string): SubjectLayers {
@@ -88,14 +88,14 @@ describe("independent subject paths", () => {
 
 describe("canvas subject interception", () => {
   it("selects the subject at the click rather than whichever subject was previously active", () => {
-    expect(motionTargetAt(tracks(), { x: 105, y: 25 }, 0, .1)?.subject.id).toBe("second");
+    expect(motionTargetAt(tracks(), { x: 105, y: 25 }, 0, .1, hitsLayers)?.subject.id).toBe("second");
     expect(state().activeSubjectId).toBe("first");
   });
   it("picks the frontmost opaque subject at its moved position, respecting reordering", () => {
     record("second", 25, 35);
-    expect(motionTargetAt(tracks(), { x: 25, y: 35 }, 123, .1)?.subject.id).toBe("first");
+    expect(motionTargetAt(tracks(), { x: 25, y: 35 }, 123, .1, hitsLayers)?.subject.id).toBe("first");
     state().reorderSubject("second", -1);
-    const target = motionTargetAt(tracks(), { x: 25, y: 35 }, 123, .1);
+    const target = motionTargetAt(tracks(), { x: 25, y: 35 }, 123, .1, hitsLayers);
     expect(target?.subject.id).toBe("second");
     expect(target?.kind).toBe("key");
   });
@@ -103,11 +103,11 @@ describe("canvas subject interception", () => {
     record("second", 25, 35);
     const transparent = { ...first, mask: new Uint8ClampedArray(first.mask.length) };
     state().prepareSubjects("image:mask", "layers", "scene", first, [{ ...inputs[0], layers: transparent }, inputs[1]]);
-    expect(motionTargetAt(tracks(), { x: 25, y: 35 }, 123, .1)?.subject.id).toBe("second");
+    expect(motionTargetAt(tracks(), { x: 25, y: 35 }, 123, .1, hitsLayers)?.subject.id).toBe("second");
   });
   it("selects the owner of a path clicked away from the subject and keys", () => {
     record("first", 180, 35);
-    const target = motionTargetAt(tracks(), { x: 80, y: 35 }, 0, .1);
+    const target = motionTargetAt(tracks(), { x: 80, y: 35 }, 0, .1, hitsLayers);
     expect(target).toMatchObject({ kind: "path", subject: { id: "first" } });
   });
 });

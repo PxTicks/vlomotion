@@ -1,4 +1,5 @@
 PLAN.md
+KNOWN_ISSUES.md
 node_modules/
 dist/
 *.tsbuildinfo

@@ -47,9 +47,9 @@ export function handleCursor(handle: Handle, pose: Pose): ResizeCursor {
 /**
  * The pose after dragging `handle` by `delta` from `start`. Edges change one axis, corners both. The opposite
  * side stays put unless `centred`, so the subject's position changes too. Dragging past the pinned side
- * mirrors that axis. Scales are kept within ±MAX_SCALE.
+ * mirrors that axis. Scales are kept within ±`maxScale`.
  */
-export function dragHandle(bounds: Rect, anchor: Point, start: Pose, handle: Handle, delta: Point, { free, centred }: DragOptions): Pose {
+export function dragHandle(bounds: Rect, anchor: Point, start: Pose, handle: Handle, delta: Point, { free, centred }: DragOptions, maxScale = MAX_SCALE): Pose {
   const grabbed = local(bounds, anchor, handle);
   const pinned = centred ? { x: 0, y: 0 } : local(bounds, anchor, { hx: -handle.hx as Handle["hx"], hy: -handle.hy as Handle["hy"] });
   const from = world(grabbed, start), pin = world(pinned, start), to = { x: from.x + delta.x, y: from.y + delta.y };
@@ -58,11 +58,11 @@ export function dragHandle(bounds: Rect, anchor: Point, start: Pose, handle: Han
   if (handle.hx && handle.hy && !free && length > 0) {
     // Project the drag onto the diagonal, so the aspect ratio holds wherever the pointer strays.
     const largest = Math.max(Math.abs(sx), Math.abs(sy));
-    const factor = clamp(((to.x - pin.x) * span.x + (to.y - pin.y) * span.y) / length, -MAX_SCALE / largest, MAX_SCALE / largest);
+    const factor = clamp(((to.x - pin.x) * span.x + (to.y - pin.y) * span.y) / length, -maxScale / largest, maxScale / largest);
     sx *= factor; sy *= factor;
   } else {
-    if (handle.hx) sx = clamp((to.x - pin.x) / (grabbed.x - pinned.x), -MAX_SCALE, MAX_SCALE);
-    if (handle.hy) sy = clamp((to.y - pin.y) / (grabbed.y - pinned.y), -MAX_SCALE, MAX_SCALE);
+    if (handle.hx) sx = clamp((to.x - pin.x) / (grabbed.x - pinned.x), -maxScale, maxScale);
+    if (handle.hy) sy = clamp((to.y - pin.y) / (grabbed.y - pinned.y), -maxScale, maxScale);
   }
   return { x: pin.x - pinned.x * sx, y: pin.y - pinned.y * sy, sx, sy };
 }

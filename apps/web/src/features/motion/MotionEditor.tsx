@@ -3,6 +3,7 @@ import { Stack } from "@mui/material";
 import { FPS, lastFrame } from "@h3-motion/shared";
 import { MotionCanvas } from "./MotionCanvas";
 import { MotionTimeline } from "./MotionTimeline";
+import { useMotionShortcuts } from "./useMotionShortcuts";
 import { useMotionStore } from "./useMotionStore";
 
 /** Plays the clip in real time on the 24 fps grid, so the preview shows exactly the frames that will be rendered. */
@@ -22,28 +23,9 @@ function usePlayback() {
   }, [playing, frames]);
 }
 
-function useShortcuts(readOnly: boolean) {
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      const target = event.target as HTMLElement | null;
-      if (event.metaKey || event.ctrlKey || event.altKey || target?.closest("input, textarea, select, [contenteditable='true']")) return;
-      const store = useMotionStore.getState();
-      if (event.key === " " && !target?.closest("button, [role='slider']")) { event.preventDefault(); store.togglePlay(); }
-      else if (!readOnly && (event.key === "k" || event.key === "K")) store.addKey();
-      else if (!readOnly && (event.key === "Delete" || event.key === "Backspace")) { event.preventDefault(); store.deleteSelected(); }
-      else if ((event.key === "ArrowLeft" || event.key === "ArrowRight") && !target?.closest("[role='slider'], [role='group']")) {
-        event.preventDefault();
-        store.setPlayhead(store.playhead + (event.key === "ArrowLeft" ? -1 : 1) * (event.shiftKey ? FPS : 1));
-      }
-    };
-    globalThis.addEventListener("keydown", onKeyDown);
-    return () => globalThis.removeEventListener("keydown", onKeyDown);
-  }, [readOnly]);
-}
-
 export function MotionEditor({ readOnly = false }: { readOnly?: boolean }) {
   usePlayback();
-  useShortcuts(readOnly);
+  useMotionShortcuts(useMotionStore.getState, { readOnly });
   useEffect(() => () => useMotionStore.getState().leave(), []);
   return <Stack spacing={2}>
     <MotionCanvas readOnly={readOnly} />

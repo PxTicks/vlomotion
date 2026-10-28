@@ -1,24 +1,24 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
-import { Alert, Box, CircularProgress, Typography } from "@mui/material";
+import { Alert, Box, CircularProgress } from "@mui/material";
 import { styled } from "@mui/material/styles";
 import { buildMotionCurve, isStartKey, scaleOf } from "@h3-motion/shared";
 import type { Point, Pose, TimedSample } from "@h3-motion/shared";
 import { useSelectionStore } from "../select";
 import { drawGhost, drawSceneReference, subjectKeyOf } from "./subjectLayers";
-import { motionTargetAt } from "./motionHitTest";
+import { hitsLayers, motionTargetAt } from "./motionHitTest";
 import { useSubjectLayers } from "./useSubjectLayers";
-import { HANDLES, dragHandle, handleCursor, handlePoint, nearestHandle } from "./gizmo";
+import { dragHandle, handleCursor, nearestHandle } from "./gizmo";
 import type { Handle, ResizeCursor } from "./gizmo";
-import { formatScale, formatSeconds, signed } from "./format";
+import { formatSeconds } from "./format";
+import { CanvasHint, KeyBadge, MotionPaths, RecordingBadge, ResizeBox, canvasCursor } from "./MotionOverlay";
+import type { CanvasHover } from "./MotionOverlay";
 import { SUBJECT_COLORS, useMotionStore } from "./useMotionStore";
 
 const Surface = styled("canvas")({ display: "block", width: "100%", height: "100%" });
 type Drag = { pointerId: number; origin: Point; start: Point } & (
   | { kind: "subject" } | { kind: "key"; id: string } | { kind: "record"; startTime: number }
   | { kind: "scale"; handle: Handle; pose: Pose; cursor: ResizeCursor });
-type Hover = "key" | "subject" | "record" | "path" | ResizeCursor | null;
-const BOX_CORNERS: Handle[] = [{ hx: -1, hy: -1 }, { hx: 1, hy: -1 }, { hx: 1, hy: 1 }, { hx: -1, hy: 1 }];
 
 /** Composites all subjects; read-only previews match the frames sent to generation. */
 export function MotionCanvas({ readOnly = false }: { readOnly?: boolean }) {
@@ -40,14 +40,12 @@ export function MotionCanvas({ readOnly = false }: { readOnly?: boolean }) {
   const { layers, error } = useSubjectLayers();
   const [scale, setScale] = useState(1);
   const [live, setLive] = useState<Point | null>(null);
-  const [hover, setHover] = useState<Hover>(null);
+  const [hover, setHover] = useState<CanvasHover>(null);
   const tracks = useMemo(() => (subjects.length ? subjects : motion && layers
     ? [{ id: mask?.id ?? "subject", name: "Subject", color: SUBJECT_COLORS[0], motion, layers }] : [])
     .map(subject => ({ ...subject, curve: buildMotionCurve(subject.motion) })), [subjects, motion, layers, mask?.id]);
   const active = tracks.find(subject => subject.id === activeSubjectId) ?? tracks[0];
   const ready = !!layers && tracks.length > 0 && !!image && !!mask && subjectKey === subjectKeyOf(image.id, mask.id);
-  const paths = useMemo(() => tracks.map(subject => ({ ...subject,
-    path: subject.curve.length > 0 ? subject.curve.samples.map((point, index) => `${index ? "L" : "M"}${point.x.toFixed(1)} ${point.y.toFixed(1)}`).join("") : "" })), [tracks]);
 
   useEffect(() => {
     const element = overlay.current;
@@ -111,7 +109,7 @@ export function MotionCanvas({ readOnly = false }: { readOnly?: boolean }) {
       if (pose) startDrag(event, { kind: "scale", handle, pose, cursor: handleCursor(handle, pose), pointerId, origin: point, start: pose });
       return;
     }
-    const target = motionTargetAt(tracks, point, playhead, scale);
+    const target = motionTargetAt(tracks, point, playhead, scale, hitsLayers);
     if (!target) { store.selectKey(null); return; }
     store.selectSubject(target.subject.id);
     if (target.kind === "key") {
@@ -144,7 +142,7 @@ export function MotionCanvas({ readOnly = false }: { readOnly?: boolean }) {
     if (!current) {
       const handle = handleAt(point);
       if (handle) { setHover(handleCursor(handle, poseAt(playhead))); return; }
-      const target = motionTargetAt(tracks, point, playhead, scale);
+      const target = motionTargetAt(tracks, point, playhead, scale, hitsLayers);
       setHover(target?.kind === "subject" && target.subject.motion.keys.length === 1 && !scrubbed ? "record" : target?.kind ?? null);
       return;
     }
@@ -174,10 +172,8 @@ export function MotionCanvas({ readOnly = false }: { readOnly?: boolean }) {
 
   const showOverlay = ready && !playing && !recording && !readOnly;
   if (!image) return null;
-  const cursor = drag.current ? (drag.current.kind === "record" ? "crosshair" : drag.current.kind === "scale" ? drag.current.cursor : "grabbing")
-    : hover === "key" ? "grab" : hover === "record" ? "crosshair" : hover === "subject" ? "move" : hover === "path" ? "copy" : hover ?? "default";
+  const cursor = canvasCursor(drag.current, hover);
   const selected = active?.motion.keys.find(key => key.id === selectedKeyId);
-  const size = 6 * scale;
   const box = active && showOverlay && !(playhead === 0 && active.motion.keys.length > 1)
     ? { pose: poseAt(playhead), bounds: active.layers.bounds, anchor: active.motion.anchor } : null;
 
@@ -189,45 +185,13 @@ export function MotionCanvas({ readOnly = false }: { readOnly?: boolean }) {
       style={{ position: "absolute", inset: 0, width: "100%", height: "100%", touchAction: "none", cursor }}
       {...(readOnly ? {} : { onPointerDown, onPointerMove, onPointerUp, onPointerCancel: onPointerUp,
         onPointerLeave: () => { if (!drag.current) setHover(null); } })}>
-      {showOverlay && [...paths].reverse().map(subject => <g key={subject.id} opacity={subject.id === active?.id ? 1 : .65}>
-        {subject.path && <>
-          <path d={subject.path} fill="none" stroke="#211927" strokeOpacity={.7} strokeWidth={5 * scale} strokeLinecap="round" strokeLinejoin="round" />
-          <path d={subject.path} fill="none" stroke={subject.color} strokeWidth={2 * scale} strokeLinecap="round" strokeLinejoin="round" />
-        </>}
-        {subject.motion.keys.map(key => {
-          const start = isStartKey(subject.motion, key.id), selected = subject.id === active?.id && key.id === selectedKeyId;
-          return <rect key={key.id} x={key.x - size} y={key.y - size} width={size * 2} height={size * 2} transform={`rotate(45 ${key.x} ${key.y})`}
-            fill={selected ? subject.color : "#211927"} stroke={selected ? "#f0efed" : subject.color} strokeWidth={2 * scale} opacity={start ? .65 : 1} />;
-        })}
-        {subject.curve.length > 0 && (() => {
-          const point = subject.curve.positionAt(playhead);
-          return <circle cx={point.x} cy={point.y} r={4 * scale} fill="none" stroke={subject.color} strokeWidth={2 * scale} />;
-        })()}
-      </g>)}
-      {box && active && <g pointerEvents="none">
-        <polygon points={BOX_CORNERS.map(handle => handlePoint(box.bounds, box.anchor, box.pose, handle)).map(({ x, y }) => `${x},${y}`).join(" ")}
-          fill="none" stroke={active.color} strokeOpacity={.8} strokeWidth={1.5 * scale} strokeDasharray={`${4 * scale} ${3 * scale}`} />
-        {HANDLES.map(handle => {
-          const { x, y } = handlePoint(box.bounds, box.anchor, box.pose, handle), half = (handle.hx && handle.hy ? 4.5 : 3.5) * scale;
-          return <rect key={`${handle.hx},${handle.hy}`} x={x - half} y={y - half} width={half * 2} height={half * 2}
-            fill="#f0efed" stroke="#211927" strokeWidth={1.5 * scale} />;
-        })}
-      </g>}
+      {showOverlay && <MotionPaths tracks={tracks} activeId={active?.id} selectedKeyId={selectedKeyId} playhead={playhead} scale={scale} />}
+      {box && active && <ResizeBox {...box} color={active.color} scale={scale} />}
     </svg>}
-    {showOverlay && selected && layers && active && <Box sx={{ position: "absolute", left: `${selected.x / layers.width * 100}%`, top: `${selected.y / layers.height * 100}%`,
-      transform: "translate(-50%, calc(-100% - 16px))", pointerEvents: "none", bgcolor: "background.paper", border: "1px solid", borderColor: "divider",
-      borderRadius: 99, px: 1.25, py: .25, whiteSpace: "nowrap" }}>
-      <Typography variant="caption"><Box component="span" sx={{ color: active.color }}>◆</Box> {formatSeconds(selected.frame)}
-        {" · "}{signed(selected.x - active.motion.anchor.x)}, {signed(selected.y - active.motion.anchor.y)}
-        {formatScale(selected) && ` · ${formatScale(selected)}`}</Typography>
-    </Box>}
-    {ready && active && !playing && !recording && !readOnly && active.motion.keys.length === 1 && <Box sx={{ position: "absolute", bottom: 12, left: "50%", transform: "translateX(-50%)",
-      pointerEvents: "none", bgcolor: "background.paper", borderRadius: 99, px: 2, py: .75, maxWidth: "calc(100% - 24px)" }}>
-      <Typography variant="caption">{scrubbed ? `Drag to place a key at ${formatSeconds(playhead)}.` : "Drag to create a path."}</Typography>
-    </Box>}
-    {recording && <Box sx={{ position: "absolute", top: 12, left: 12, bgcolor: "error.main", color: "#fff", borderRadius: 99, px: 1.5, py: .25 }}>
-      <Typography variant="caption" sx={{ fontWeight: 600 }}>● REC</Typography>
-    </Box>}
+    {showOverlay && selected && layers && active && <KeyBadge keyframe={selected} anchor={active.motion.anchor} color={active.color} size={layers} />}
+    {ready && active && !playing && !recording && !readOnly && active.motion.keys.length === 1
+      && <CanvasHint>{scrubbed ? `Drag to place a key at ${formatSeconds(playhead)}.` : "Drag to create a path."}</CanvasHint>}
+    {recording && <RecordingBadge />}
     {!ready && !error && <Box sx={{ position: "absolute", inset: 0, display: "grid", placeItems: "center" }}><CircularProgress size={28} /></Box>}
     {error && <Alert severity="error" sx={{ position: "absolute", left: 12, right: 12, bottom: 12 }}>{error}</Alert>}
   </Box>;

@@ -1,15 +1,18 @@
 import { isStartKey } from "@h3-motion/shared";
-import type { MotionCurve, MotionKey, Point, SubjectMotion } from "@h3-motion/shared";
+import type { MotionCurve, MotionKey, Placement, Point, SubjectMotion } from "@h3-motion/shared";
 import { hitsSubject } from "./subjectLayers";
 import type { SubjectLayers } from "./subjectLayers";
 
-interface HitSubject { motion: SubjectMotion; curve: MotionCurve; layers: SubjectLayers }
+interface HitSubject { motion: SubjectMotion<number>; curve: MotionCurve }
+/** Whether `point` lands on the subject's body when it is placed at `placement`. */
+export type HitsBody<T> = (subject: T, point: Point, placement: Placement) => boolean;
+export const hitsLayers: HitsBody<{ layers: SubjectLayers }> = (subject, point, placement) => hitsSubject(subject.layers, point, placement);
 export type MotionTarget<T> = { subject: T } & (
   | { kind: "key"; key: MotionKey } | { kind: "subject" } | { kind: "path"; length: number });
 
 /** Opaque subjects intercept clicks before keys or paths belonging to obscured subjects. */
-export function motionTargetAt<T extends HitSubject>(subjects: T[], point: Point, frame: number, scale: number): MotionTarget<T> | null {
-  const body = subjects.find(subject => hitsSubject(subject.layers, point, subject.curve.placementAt(frame)));
+export function motionTargetAt<T extends HitSubject>(subjects: T[], point: Point, frame: number, scale: number, hits: HitsBody<T>): MotionTarget<T> | null {
+  const body = subjects.find(subject => hits(subject, point, subject.curve.placementAt(frame)));
   for (const subject of body ? [body] : subjects) {
     for (const key of [...subject.motion.keys].reverse()) {
       if (body && isStartKey(subject.motion, key.id)) continue;

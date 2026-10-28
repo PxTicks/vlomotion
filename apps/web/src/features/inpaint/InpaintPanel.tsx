@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react";
 import { Box, Button, LinearProgress, Stack, Step, StepButton, Stepper, TextField, ToggleButton, ToggleButtonGroup, Typography } from "@mui/material";
-import { FPS } from "@h3-motion/shared";
 import { useInpaintStore } from "./useInpaintStore";
 import { RemoveMediaButton } from "../shell/RemoveMediaButton";
+import { SelectedKeyCard } from "../motion/SelectedKeyCard";
+import { SUBJECT_COLORS } from "../motion/useMotionStore";
 
 export function InpaintPanel() {
   const s = useInpaintStore();
   const busy = s.status !== "idle";
+  const keyCount = s.motion?.keys.length ?? 0;
   const [referenceUrl, setReferenceUrl] = useState<string | null>(null);
   useEffect(() => {
     if (!s.reference) { setReferenceUrl(null); return; }
@@ -15,26 +17,28 @@ export function InpaintPanel() {
   }, [s.reference]);
   return <Stack spacing={2.5}>
     <Stepper activeStep={s.step} alternativeLabel sx={{ mx: -2, ".MuiStepLabel-label": { fontSize: 12 } }}>
-      {["Draw mask", "Animate", "Generate"].map((label, index) => <Step key={label} completed={index === 0 ? !!s.keys.length : index === 1 ? s.step === 2 || s.keys.length > 1 : !!s.result}>
-        <StepButton disabled={busy || (index > 0 && !s.keys.length)} onClick={() => s.visitStep(index as 0 | 1 | 2)}>{label}</StepButton>
+      {["Draw mask", "Animate", "Generate"].map((label, index) => <Step key={label} completed={index === 0 ? !!s.bounds : index === 1 ? s.step === 2 || keyCount > 1 : !!s.result}>
+        <StepButton disabled={busy || s.recording || (index > 0 && !s.bounds)} onClick={() => s.visitStep(index as 0 | 1 | 2)}>{label}</StepButton>
       </Step>)}
     </Stepper>
     {s.step === 0 ? <>
       <Typography variant="h2">Draw a mask</Typography>
-      <Typography variant="body2" color="text.secondary">Drag over the area to inpaint.</Typography>
+      <Typography variant="body2" color="text.secondary">Drag over the area to inpaint. Drag inside the mask to move it, or drag its box corners and edges to resize it.</Typography>
       <ToggleButtonGroup exclusive fullWidth value={s.shape} aria-label="Mask shape" onChange={(_, shape) => { if (shape) s.setShape(shape); }}>
         <ToggleButton value="rectangle">Rectangle</ToggleButton><ToggleButton value="ellipse">Ellipse</ToggleButton>
       </ToggleButtonGroup>
-      <Button variant="contained" disabled={!s.keys.length} onClick={() => s.visitStep(1)}>Animate mask →</Button>
+      <Button variant="contained" disabled={!s.bounds} onClick={() => s.visitStep(1)}>Animate mask →</Button>
     </> : s.step === 1 ? <>
-      <Typography variant="h2">Animate the mask</Typography>
-      <Typography variant="body2" color="text.secondary">Keep one keyframe for a stationary mask, or scrub to a time and move or resize the mask to animate it.</Typography>
-      <Stack direction="row" spacing={1}>
-        <Button variant="outlined" disabled={s.keys.some(key => key.frame === s.playhead)} onClick={s.addKey}>Add keyframe</Button>
-        <Button onClick={() => { s.setPlaying(false); s.setPlayhead(s.frames - 1); }}>Go to end</Button>
+      <Stack spacing={1}>
+        <Typography variant="h2">Animate the mask</Typography>
+        <Typography variant="body2" color="text.secondary">Leave the mask still, or drag it to create a path. Adjust by selecting and dragging ◆ on the video to fix positions, or on the timeline bar to fix timings. Drag the box corners to resize the mask, or its edges to stretch it.</Typography>
       </Stack>
-      <Typography variant="caption" color="text.secondary">{s.keys.length} keyframe{s.keys.length === 1 ? "" : "s"} · {(s.playhead / FPS).toFixed(2)} s</Typography>
-      <Button variant="contained" disabled={!s.keys.length} onClick={() => s.visitStep(2)}>Continue →</Button>
+      {s.notice && <Typography role="status" variant="body2" color="text.secondary">{s.notice}</Typography>}
+      {s.motion && <SelectedKeyCard motion={s.motion} keyId={s.selectedKeyId} color={SUBJECT_COLORS[0]} disabled={s.recording}
+        onRetime={s.retimeKey} onResetScale={s.resetScale} onDelete={s.deleteSelected}
+        startNote="The first key is the mask you drew. Change it in Draw mask." />}
+      <Button variant="outlined" disabled={s.recording || keyCount < 2} onClick={s.clearPath}>Clear path</Button>
+      <Button variant="contained" disabled={s.recording} onClick={() => s.visitStep(2)}>Continue →</Button>
     </> : <>
       <Typography variant="h2">Inpaint the video</Typography>
       <Button component="label" variant="outlined" disabled={busy}>
@@ -60,6 +64,6 @@ export function InpaintPanel() {
       {s.result && <Button component="a" href={s.result.video.url} download="h3-inpaint.mp4" variant="outlined">Download video</Button>}
       <Button disabled={busy} onClick={() => s.visitStep(1)}>Edit mask animation</Button>
     </>}
-    {s.notice && <Typography variant="body2" color="text.secondary" role="status">{s.notice}</Typography>}
+    {s.notice && s.step !== 1 && <Typography variant="body2" color="text.secondary" role="status">{s.notice}</Typography>}
   </Stack>;
 }

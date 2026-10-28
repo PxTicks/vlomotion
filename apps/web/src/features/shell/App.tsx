@@ -74,7 +74,7 @@ export function App() {
     <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={2} sx={{ mb: 4 }}>
       <Stack spacing={1.5}><Typography variant="h1">{workflow === "video" ? "Inpaint a video" : workflow === "image" ? "Move a subject" : "Start with an image or video"}</Typography>
         {workflow === "image" && <Typography color="text.secondary" sx={{ fontSize: { xs: 15, md: 18 } }}>Lift anything out of a photo and drag it into motion.</Typography>}</Stack>
-      {workflow !== "upload" && <Button disabled={busy} onClick={() => { clearError(); useInpaintStore.getState().clearError(); useInpaintStore.getState().setPlaying(false); setWorkflow("upload"); }}>New upload</Button>}
+      {workflow !== "upload" && <Button disabled={busy} onClick={() => { clearError(); useInpaintStore.getState().clearError(); useInpaintStore.getState().leave(); setWorkflow("upload"); }}>New upload</Button>}
       {workflow === "upload" && lastWorkflow && <Button disabled={busy} onClick={() => setWorkflow(lastWorkflow)}>Return to editor</Button>}
     </Stack>
     {startupError && <Alert severity="error" sx={{ mb: 3 }} action={<Button onClick={() => globalThis.location.reload()}>Retry</Button>}>{startupError}</Alert>}
