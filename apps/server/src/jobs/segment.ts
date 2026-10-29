@@ -3,7 +3,7 @@ import type { Comfy } from "@comfyorg/sdk";
 import type { MaskCandidate, SegmentRequest } from "@h3-motion/shared";
 import { buildSegmentWorkflow, SEGMENT_OUTPUT } from "../workflows/templates.js";
 import type { SegmentPrior } from "../workflows/templates.js";
-import { decodeMask, encodeMask } from "../media/masks.js";
+import { decodeOutputMask, encodeMask } from "../media/masks.js";
 import type { Session, SessionStore, StoredImage } from "../sessions.js";
 import { createManagedJob, failJob, runWorkflow, throwIfCancelled } from "./runtime.js";
 import type { ManagedJob } from "./runtime.js";
@@ -22,7 +22,7 @@ export function startSegment(client: Comfy, store: SessionStore, session: Sessio
       const job = await runWorkflow(client, managed, workflow, { stage: "segment", message: "Finding your subject…" });
       const candidates: MaskCandidate[] = [];
       for (const output of job.getOutputs(SEGMENT_OUTPUT)) {
-        const { pixels, bounds } = await decodeMask(await output.toBytes({ timeoutMs: 30_000 }), image.width, image.height);
+        const { pixels, bounds } = await decodeOutputMask(await output.toBytes({ timeoutMs: 30_000 }), image.width, image.height);
         throwIfCancelled(managed);
         if (!bounds) continue;
         const digest = createHash("sha256").update(pixels).digest("hex");

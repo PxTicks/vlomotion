@@ -22,6 +22,9 @@ async function maskPng(x: number, y: number, side: number) {
   for (let row = y; row < y + side; row++) for (let column = x; column < x + side; column++) pixels.fill(255, (row * size + column) * 3, (row * size + column) * 3 + 3);
   return sharp(pixels, { raw: { width: size, height: size, channels: 3 } }).png().toBuffer();
 }
+/** A mask PNG cut short inside its image data, as the API proxy passes on a gzipped one. */
+const truncated = async () => { const png = await maskPng(10, 10, 20); return png.subarray(0, png.length - 40); };
+const INCOMPLETE = "The mask image from ComfyUI arrived cut short, so it can't be read. A gateway in front of ComfyUI that compresses downloads causes this with the API proxy: connect the proxy to ComfyUI directly.";
 const output = (name: string, bytes: Uint8Array) => ({ name, toBytes: async () => bytes }) as unknown as Output;
 
 async function setup(masks?: Output[]) {
@@ -83,6 +86,9 @@ describe("object tracking", () => {
     const missing = await setup([empty, ...Array.from({ length: 123 }, (_, i) => output(`track_${String(i + 2).padStart(5, "0")}_.png`, square))]);
     await missing.upload(); await missing.session.job!.done;
     expect(missing.session.job!.snapshot).toMatchObject({ status: "failed", error: "SAM couldn't find the selected object on the first frame. Select it again." });
+    const cut = await setup([...Array.from({ length: 123 }, (_, i) => output(`track_${String(i + 1).padStart(5, "0")}_.png`, square)), output("track_00124_.png", await truncated())]);
+    await cut.upload(); await cut.session.job!.done;
+    expect(cut.session.job!.snapshot).toMatchObject({ status: "failed", error: INCOMPLETE });
     const short = await setup([output("track_00001_.png", square)]);
     await short.upload(); await short.session.job!.done;
     expect(short.session.job!.snapshot).toMatchObject({ status: "failed", error: "Tracking returned 1 frames instead of 124. Try again." });
@@ -147,6 +153,13 @@ describe("first frame selection", () => {
     await session.job!.done;
     expect(session.job!.snapshot.candidates).toEqual([expect.objectContaining({ bounds: { x: 10, y: 10, width: 20, height: 20 } })]);
     expect(session.video).toBeDefined();
+    const cut = await truncated();
+    submit.mockResolvedValue({ status: "succeeded", result: vi.fn(async () => undefined), cancel: vi.fn(),
+      async *events() { yield { kind: "progress", value: 0.5 }; }, getOutputs: vi.fn(() => [output("segment.png", cut)]) } as unknown as Job);
+    await app.request("/api/jobs/segment", { method: "POST", headers: { cookie, "Content-Type": "application/json" },
+      body: JSON.stringify({ mode: "points", imageId: frame.id, positive: [{ x: 15, y: 15 }], negative: [] }) });
+    await session.job!.done;
+    expect(session.job!.snapshot).toMatchObject({ status: "failed", error: INCOMPLETE });
   });
 });
 

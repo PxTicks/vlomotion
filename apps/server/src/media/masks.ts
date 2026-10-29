@@ -21,13 +21,26 @@ export async function decodeMask(bytes: Uint8Array, width: number, height: numbe
   return { pixels, bounds: maskBounds(pixels, width, height) };
 }
 
+/**
+ * Decodes a mask image a ComfyUI job saved. An image that can't be read arrived cut short, so it is reported as that
+ * rather than as the decoder's error. comfy-api-proxy 0.1.6 does this when a gateway gzips a small /view response with
+ * its length: it passes on the compressed Content-Length with the decompressed body, so the download stops early.
+ * Larger responses the gateway streams without a length arrive whole.
+ */
+export async function decodeOutputMask(bytes: Uint8Array, width: number, height: number) {
+  try { return await decodeMask(bytes, width, height); } catch (error) {
+    if (await sharp(bytes).stats().then(() => true, () => false)) throw error;
+    throw new Error("The mask image from ComfyUI arrived cut short, so it can't be read. A gateway in front of ComfyUI that compresses downloads causes this with the API proxy: connect the proxy to ComfyUI directly.", { cause: error });
+  }
+}
+
 export async function encodeMask(pixels: Uint8Array, width: number, height: number) {
   return sharp(pixels, { raw: { width, height, channels: 1 } }).png().toBuffer();
 }
 
 /** A tracked mask's area, the median of its pixels (at pixel centres) and its bounds, or null if it is empty. */
 export async function measureMask(bytes: Uint8Array, width: number, height: number) {
-  const { pixels, bounds } = await decodeMask(bytes, width, height);
+  const { pixels, bounds } = await decodeOutputMask(bytes, width, height);
   if (!bounds) return null;
   const columns = new Uint32Array(width), rows = new Uint32Array(height);
   let area = 0;
