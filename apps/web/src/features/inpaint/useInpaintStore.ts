@@ -155,7 +155,7 @@ export const useInpaintStore = create<InpaintState>((set, get) => {
       set({ playing: false });
       if (playhead === 0) {
         if (motion.keys.length > 1) {
-          set({ notice: "The first frame keeps the mask you drew. Move the playhead to a later time, or go back to Draw mask to change it." });
+          set({ notice: "The first frame keeps the mask you drew. Move the playhead to a later time first." });
           return null;
         }
         // With no keys yet, the first drag sets where the mask ends up.
@@ -256,8 +256,7 @@ export const useInpaintStore = create<InpaintState>((set, get) => {
         const followed = followTrack(get().motion ?? motion, result.tracking, videoFrame(video), newId);
         if (!followed) throw new Error("SAM couldn't find the object on the first frame. Click on it again.");
         set({ motion: followed.motion, track: result.tracking, ...edited, notice: followed.filled
-          ? `The mask now follows the object. It was lost or unsteady on ${followed.filled} of ${frames} frames, which were filled in from the frames around them.`
-          : "The mask now follows the object. Drag its keys to adjust the path." });
+          ? `The object was lost on ${followed.filled} of ${frames} frames, so those were filled in.` : null });
       } catch (error) {
         set(signal.aborted ? { notice: "Tracking cancelled." } : { error: message(error) });
       } finally { controller = null; set({ status: "idle", task: null, progress: null }); }

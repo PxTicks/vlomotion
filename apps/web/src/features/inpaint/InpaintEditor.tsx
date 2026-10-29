@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import { Box, Stack, ToggleButton, ToggleButtonGroup, Typography } from "@mui/material";
-import { FPS, MAX_SCALE, buildMotionCurve, inpaintSize, isStartKey, placeRect, scaleOf, trackedBounds } from "@h3-motion/shared";
+import { FPS, MAX_SCALE, buildMotionCurve, isStartKey, placeRect, scaleOf, trackedBounds } from "@h3-motion/shared";
 import type { MaskShape, Placement, Point, Pose, Rect, TimedSample } from "@h3-motion/shared";
 import { videoFrame, useInpaintStore } from "./useInpaintStore";
 import { RemoveMediaButton } from "../shell/RemoveMediaButton";
@@ -93,7 +93,7 @@ export function InpaintEditor({ onRemove }: { onRemove(): void }) {
   }, [s.playing, s.video?.id, showResult]);
 
   if (!s.video) return null;
-  const frame = videoFrame(s.video), output = inpaintSize(s.video.width, s.video.height);
+  const frame = videoFrame(s.video);
   const { bounds, motion, shape, step, playhead } = s;
   const editing = !busy && !s.playing && !s.recording;
   // Like the photo in the motion editor, the drawn mask can't change on the first frame once it is animated.
@@ -243,12 +243,12 @@ export function InpaintEditor({ onRemove }: { onRemove(): void }) {
   const tracked = step === 1 && s.track && !s.picking ? trackedBounds(s.track, playhead, frame) : null;
 
   return <Stack spacing={2}>
-    <Stack direction="row" justifyContent="space-between" alignItems="center">
-      <Typography variant="overline" color="text.secondary">{showResult ? "OUTPUT" : "MASK PREVIEW"}</Typography>
-        {s.result && <ToggleButtonGroup exclusive size="small" value={s.view} aria-label="Video view" onChange={(_, value) => { if (value) { s.leave(); s.setView(value); } }}>
-          <ToggleButton value="preview">Preview</ToggleButton><ToggleButton value="result">Result</ToggleButton>
-        </ToggleButtonGroup>}
-    </Stack>
+    {step > 0 && <Typography variant="overline" color="text.secondary">{step === 2 ? "OUTPUT" : "MOTION PREVIEW"}</Typography>}
+    {step === 2 && <ToggleButtonGroup exclusive size="small" value={showResult ? "result" : "preview"} aria-label="Preview" sx={{ alignSelf: "center" }}
+      onChange={(_, value: unknown) => { if (value === "preview" || value === "result") { s.leave(); s.setView(value); } }}>
+      <ToggleButton value="preview" sx={{ px: 2, py: .5, borderRadius: 99 }}>Source</ToggleButton>
+      <ToggleButton value="result" disabled={!s.result} sx={{ px: 2, py: .5, borderRadius: 99 }}>Result</ToggleButton>
+    </ToggleButtonGroup>}
     {showResult ? <Box sx={{ position: "relative", width: "100%", maxWidth: 680 * s.result!.width / s.result!.height, mx: "auto" }}>
         <Box component="video" key={s.result!.video.id} src={s.result!.video.url} controls autoPlay
           sx={{ display: "block", width: "100%", aspectRatio: `${s.result!.width}/${s.result!.height}`, bgcolor: "#19151f", borderRadius: 1 }} />
@@ -277,13 +277,13 @@ export function InpaintEditor({ onRemove }: { onRemove(): void }) {
         </svg>
         {selected && motion && <KeyBadge keyframe={selected} anchor={motion.anchor} color={COLOR} size={frame} />}
         {step === 0 && !bounds && !draft && <CanvasHint>Drag to draw a mask.</CanvasHint>}
-        {s.picking && <CanvasHint>Click the object for the mask to follow.</CanvasHint>}
-        {showPath && motion.keys.length === 1 && <CanvasHint>{s.scrubbed ? `Drag the mask to place a key at ${formatSeconds(playhead)}.` : "Drag the mask to create a path."}</CanvasHint>}
+        {s.picking && <CanvasHint>Click the object to follow.</CanvasHint>}
+        {showPath && motion.keys.length === 1 && <CanvasHint>{s.scrubbed ? `Drag to place a key at ${formatSeconds(playhead)}.` : "Drag to create a path."}</CanvasHint>}
         {s.recording && <RecordingBadge />}
         {step === 0 && <RemoveMediaButton label="Remove video" disabled={busy || s.uploading} onRemove={onRemove} />}
       </Box>}
     {!showResult && step > 0 && motion && <KeyTimeline motion={motion} color={COLOR} playhead={playhead} playing={s.playing} locked={s.recording || s.picking}
       selectedKeyId={s.selectedKeyId} actions={useInpaintStore.getState} startLabel="drawn mask" readOnly={step === 2} />}
-    <Typography variant="caption" color="text.secondary">{output.width} × {output.height} · {(s.frames / FPS).toFixed(1)} s{s.video.duration > s.frames / FPS + 0.1 ? " · using the start of your video" : ""}</Typography>
+    {step === 0 && s.video.duration > s.frames / FPS + 0.1 && <Typography variant="caption" color="text.secondary">Uses the first {(s.frames / FPS).toFixed(1)} s of your video.</Typography>}
   </Stack>;
 }

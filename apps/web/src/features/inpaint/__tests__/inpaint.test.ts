@@ -144,7 +144,7 @@ describe("inpainting editor", () => {
     expect(keys[0]).toEqual(still.keys[0]);
     // 2 px a frame on the prepared frames is 2 × 1920 / 854 video pixels a frame.
     expect(keys.at(-1)).toMatchObject({ frame: 123, x: expect.closeTo(384 + 246 * 1920 / 854, 0), y: expect.closeTo(378, 6), sx: expect.closeTo(1, 6) });
-    expect(state()).toMatchObject({ status: "idle", task: null, picking: false, track: tracking, notice: expect.stringMatching(/now follows the object/) });
+    expect(state()).toMatchObject({ status: "idle", task: null, picking: false, track: tracking, notice: null });
     state().clearPath();
     expect(state().track).toBeNull();
   });
