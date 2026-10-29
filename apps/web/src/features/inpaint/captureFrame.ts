@@ -1,7 +1,8 @@
 import { BlobSource, CanvasSink, Input, MP4, WEBM } from "mediabunny";
 import { FPS } from "@h3-motion/shared";
-import type { FrameSize, MaskBox, MaskShape } from "@h3-motion/shared";
+import type { FrameSize } from "@h3-motion/shared";
 import { drawMask } from "./drawMask";
+import type { ShapedBox } from "./drawMask";
 
 /** Qwen Image edits up to 2K; larger frames are scaled down to this longest side. */
 const MAX_SIDE = 2048;
@@ -33,12 +34,12 @@ async function drawFrame<T>(source: File, frame: number, size: FrameSize, use: (
 /** The source frame at `frame` as a PNG of `size`. */
 export const readFrame = (source: File, frame: number, size: FrameSize) => drawFrame(source, frame, size, png);
 
-/** The source frame at `frame` and the mask on it, as PNGs of `size`. */
-export function captureFrame(request: { source: File; frame: number; size: FrameSize; box: MaskBox; shape: MaskShape }) {
-  const { source, frame, size, box, shape } = request;
+/** The source frame at `frame` and the masks on it, as PNGs of `size`. */
+export function captureFrame(request: { source: File; frame: number; size: FrameSize; masks: ShapedBox[] }) {
+  const { source, frame, size, masks } = request;
   return drawFrame(source, frame, size, async canvas => {
     const mask = new OffscreenCanvas(size.width, size.height);
-    drawMask(mask.getContext("2d")!, size, box, shape);
+    drawMask(mask.getContext("2d")!, size, masks);
     return { image: await png(canvas), mask: await mask.convertToBlob({ type: "image/png" }) };
   });
 }

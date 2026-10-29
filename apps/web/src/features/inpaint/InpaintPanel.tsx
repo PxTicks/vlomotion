@@ -1,13 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, LinearProgress, ListItemText, Menu, MenuItem, Slider, Stack, Step, StepButton, Stepper,
+  Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, ButtonBase, IconButton, LinearProgress, ListItemText, Menu, MenuItem, Slider, Stack, Step, StepButton, Stepper,
   TextField, ToggleButton, ToggleButtonGroup, Tooltip, Typography,
 } from "@mui/material";
 import { MASK_FEATHER, MASK_GROW, VIDEO_TIERS } from "@h3-motion/shared";
-import { audioMode, useInpaintStore } from "./useInpaintStore";
+import { MAX_MASKS, audioMode, useInpaintStore } from "./useInpaintStore";
 import { RemoveMediaButton } from "../shell/RemoveMediaButton";
 import { SelectedKeyCard } from "../motion/SelectedKeyCard";
-import { SUBJECT_COLORS } from "../motion/useMotionStore";
 import { formatSeconds } from "../motion/format";
 import { SelectPanel, SelectionStoreContext } from "../select";
 import type { SelectPanelText } from "../select";
@@ -45,11 +44,38 @@ function FollowPanel() {
   </SelectionStoreContext.Provider>;
 }
 
+/** The masks in the order they were drawn, to select one to edit or animate, or remove it. */
+function MaskList({ disabled }: { disabled: boolean }) {
+  const s = useInpaintStore();
+  return <Stack spacing={1}>
+    <Stack direction="row" justifyContent="space-between" alignItems="baseline">
+      <Typography variant="overline">Masks</Typography>
+      <Typography variant="caption" color="text.secondary">{s.masks.length} of {MAX_MASKS}</Typography>
+    </Stack>
+    {s.masks.map((mask, index) => {
+      const active = mask.id === s.activeMaskId, name = `Mask ${index + 1}`;
+      return <Stack key={mask.id} direction="row" alignItems="center" spacing={.5}
+        sx={{ p: .5, border: "1px solid", borderColor: active ? mask.color : "divider", borderRadius: 1 }}>
+        <ButtonBase disabled={disabled} aria-label={`Select ${name}`} aria-pressed={active} onClick={() => s.selectMask(mask.id)}
+          sx={{ flex: 1, minWidth: 0, gap: 1, justifyContent: "flex-start", p: .5, borderRadius: .5 }}>
+          <Typography sx={{ color: mask.color }} aria-hidden="true">{mask.shape === "ellipse" ? "●" : "■"}</Typography>
+          <Typography variant="body2" noWrap>{name}</Typography>
+          <Typography variant="caption" color="text.secondary" noWrap>
+            {mask.track ? "Follows an object" : mask.motion.keys.length > 1 ? "Moves" : "Still"}
+          </Typography>
+        </ButtonBase>
+        <IconButton size="small" aria-label={`Remove ${name}`} disabled={disabled} onClick={() => s.removeMask(mask.id)}>×</IconButton>
+      </Stack>;
+    })}
+  </Stack>;
+}
+
 export function InpaintPanel() {
   const s = useInpaintStore();
   const followBusy = useFollowSelection(state => state.busy);
   const busy = s.status !== "idle" || followBusy;
   const keyCount = s.motion?.keys.length ?? 0;
+  const several = s.masks.length > 1, color = s.masks.find(mask => mask.id === s.activeMaskId)?.color;
   const audio = audioMode(s.video, s.audio);
   const [referenceUrl, setReferenceUrl] = useState<string | null>(null);
   const [menu, setMenu] = useState<HTMLElement | null>(null);
@@ -66,41 +92,44 @@ export function InpaintPanel() {
   </Stack>;
   return <>
     <Stepper activeStep={s.step} alternativeLabel sx={{ mb: 4, mx: -2, ".MuiStepLabel-label": { fontSize: 12 } }}>
-      {["Draw mask", "Animate", "Generate"].map((label, index) => <Step key={label} completed={index === 0 ? !!s.bounds : index === 1 ? s.step === 2 || keyCount > 1 : !!s.result}>
-        <StepButton disabled={busy || s.recording || (index > 0 && !s.bounds)} onClick={() => s.visitStep(index as 0 | 1 | 2)}>{label}</StepButton>
+      {["Draw masks", "Animate", "Generate"].map((label, index) => <Step key={label}
+        completed={index === 0 ? !!s.masks.length : index === 1 ? s.step === 2 || s.masks.some(mask => mask.motion.keys.length > 1) : !!s.result}>
+        <StepButton disabled={busy || s.recording || (index > 0 && !s.masks.length)} onClick={() => s.visitStep(index as 0 | 1 | 2)}>{label}</StepButton>
       </Step>)}
     </Stepper>
     <Stack spacing={2.5}>
     {s.step === 0 ? <>
       <Stack spacing={1}>
         <Typography variant="h2">What do you want to replace?</Typography>
-        <Typography variant="body2" color="text.secondary">Drag over the area to inpaint.</Typography>
+        <Typography variant="body2" color="text.secondary">Drag over each area to inpaint: drag on the video again to add another mask. Click a mask to select it, then drag it to move it or its box handles to resize it, or press Delete to remove it.</Typography>
       </Stack>
-      <ToggleButtonGroup exclusive size="small" value={s.shape} aria-label="Mask shape" onChange={(_, shape) => { if (shape) s.setShape(shape); }}>
+      <ToggleButtonGroup exclusive size="small" value={s.shape} aria-label={s.activeMaskId ? "Selected mask's shape" : "Mask shape"} onChange={(_, shape) => { if (shape) s.setShape(shape); }}>
         {(["rectangle", "ellipse"] as const).map(shape => <ToggleButton key={shape} value={shape} sx={{ px: 1.5, py: .5, borderRadius: 99, textTransform: "capitalize" }}>{shape}</ToggleButton>)}
       </ToggleButtonGroup>
-      <Button variant="contained" size="large" disabled={!s.bounds} onClick={() => s.visitStep(1)}>Continue →</Button>
+      {s.masks.length > 0 && <MaskList disabled={busy} />}
+      <Button variant="contained" size="large" disabled={!s.masks.length} onClick={() => s.visitStep(1)}>Continue →</Button>
     </> : s.step === 1 && s.picking ? <FollowPanel /> : s.step === 1 ? <>
       <Stack spacing={1}>
-        <Typography variant="h2">Drag it into motion</Typography>
-        <Typography variant="body2" color="text.secondary">Drag to create a path, or follow an object. Adjust by selecting and dragging ◆ on the video to fix positions, or on the timeline bar to fix timings. Drag the box corners to resize the mask, or its edges to stretch it.</Typography>
+        <Typography variant="h2">{several ? "Drag them into motion" : "Drag it into motion"}</Typography>
+        <Typography variant="body2" color="text.secondary">{several ? "Select a mask on the video or in the list to animate it. " : ""}Drag to create a path, or follow an object. Adjust by selecting and dragging ◆ on the video to fix positions, or on the timeline bar to fix timings. Drag the box corners to resize the mask, or its edges to stretch it.</Typography>
       </Stack>
       {s.task === "track" ? <Stack spacing={1} aria-live="polite">
         <Typography variant="body2">{s.status === "preparing" ? "Preparing the video…" : s.status === "uploading" ? "Uploading…" : s.job?.message ?? "Tracking the object…"}</Typography>
         <LinearProgress variant={s.progress === null ? "indeterminate" : "determinate"} value={(s.progress ?? 0) * 100} />
         <Button onClick={() => void s.cancel()}>Cancel</Button>
       </Stack> : <Button variant="outlined" disabled={busy || s.recording || keyCount > 1} onClick={() => void s.startPicking()}>Follow an object</Button>}
+      {several && <MaskList disabled={busy || s.recording} />}
       {s.notice && <Typography role="status" variant="body2" color="text.secondary">{s.notice}</Typography>}
-      {s.motion && <SelectedKeyCard motion={s.motion} keyId={s.selectedKeyId} color={SUBJECT_COLORS[0]} disabled={busy || s.recording}
+      {s.motion && color && <SelectedKeyCard motion={s.motion} keyId={s.selectedKeyId} color={color} disabled={busy || s.recording}
         onRetime={s.retimeKey} onResetScale={s.resetScale} onDelete={s.deleteSelected}
         startNote="The first key is the mask you drew. It stays at 0 s." />}
       <Button variant="outlined" disabled={busy || s.recording || keyCount < 2} onClick={s.clearPath}>Clear path</Button>
       <Button variant="contained" size="large" disabled={busy || s.recording} onClick={() => s.visitStep(2)}>Continue →</Button>
-      <Button disabled={busy || s.recording} onClick={() => s.visitStep(0)}>Edit mask</Button>
+      <Button disabled={busy || s.recording} onClick={() => s.visitStep(0)}>{several ? "Edit masks" : "Edit mask"}</Button>
     </> : <>
       <Stack spacing={1}>
         <Typography variant="h2">Fill it in</Typography>
-        <Typography variant="body2" color="text.secondary">Write a detailed prompt for what should appear in the mask.</Typography>
+        <Typography variant="body2" color="text.secondary">Write a detailed prompt for what should appear in the {several ? "masks" : "mask"}.</Typography>
       </Stack>
       {s.reference ? <Stack spacing={1.5}>
         <Box sx={{ position: "relative", width: "fit-content", maxWidth: "100%", mx: "auto" }}>
@@ -119,7 +148,7 @@ export function InpaintPanel() {
       </Stack> : s.creating ? <Stack spacing={1.5}>
         <Typography variant="overline" color="text.secondary">{s.creating === "object" ? "Create an object" : "Create a frame"}</Typography>
         {s.creating === "frame" && <Typography variant="body2" color="text.secondary">
-          Edits the frame at {formatSeconds(s.playhead)} inside the mask. Move the playhead on the timeline to pick another frame.
+          Edits the frame at {formatSeconds(s.playhead)} inside the {several ? "masks" : "mask"}. Move the playhead on the timeline to pick another frame.
         </Typography>}
         <TextField label={s.creating === "object" ? "Describe the object" : "What should the mask show?"} multiline minRows={2} value={s.referenceText}
           placeholder={s.creating === "object" ? "A red paper lantern with gold tassels" : "A red umbrella, open and tilted to the left"}
@@ -132,7 +161,7 @@ export function InpaintPanel() {
       <Menu anchorEl={menu} open={!!menu} onClose={() => setMenu(null)}>
         {([["upload", "Upload an image", "Use your own picture of what to add."],
           ["object", "Create an object", "Describe it, and Qwen Image draws it."],
-          ["frame", "Create a frame", "Edit the frame at the playhead inside the mask."]] as const).map(([kind, label, detail]) =>
+          ["frame", "Create a frame", `Edit the frame at the playhead inside the ${several ? "masks" : "mask"}.`]] as const).map(([kind, label, detail]) =>
           <MenuItem key={kind} onClick={() => { setMenu(null); if (kind === "upload") upload.current?.click(); else s.openCreator(kind); }}>
             <ListItemText primary={label} secondary={detail} />
           </MenuItem>)}
