@@ -6,7 +6,7 @@ import {
 } from "@h3-motion/shared";
 import type {
   FrameSize, InpaintResult, JobSnapshot, MaskShape, Point, Pose, Rect, ReferenceRequest, ReferenceResult, ReferenceRole, Scale, SubjectMotion,
-  TimedSample, TrackResult, VideoAsset,
+  TimedSample, TrackResult, VideoAsset, VideoTier,
 } from "@h3-motion/shared";
 import { apiRequest, watchJob } from "../../api";
 import { renderInpaintVideos } from "./renderInpaint";
@@ -23,7 +23,9 @@ interface InpaintState {
   playhead: number; playing: boolean; recording: boolean;
   /** The user parked the playhead after the first frame, so a still mask is keyframed there instead of recorded. */
   scrubbed: boolean; selectedKeyId: string | null;
-  prompt: string; reference: File | null; result: InpaintResult | null; view: "preview" | "result";
+  prompt: string; soundEffects: string; music: string; reference: File | null; result: InpaintResult | null; view: "preview" | "result";
+  /** The short edge of the delivered video. */
+  tier: VideoTier;
   /** What the reference is to H3, which decides how the prompt defines it; null without a reference. */
   referenceRole: ReferenceRole | null;
   /** The reference's `subject_definitions` line, prefilled for its role and editable. */
@@ -63,7 +65,8 @@ interface InpaintState {
   startPicking(): void; stopPicking(): void;
   /** Tracks the object under `point` on the first frame, in video pixels, and keys the mask to follow it. Only while picking. */
   followObject(point: Point): Promise<void>;
-  setPrompt(prompt: string): void; setView(view: "preview" | "result"): void;
+  setPrompt(prompt: string): void; setSoundEffects(soundEffects: string): void; setMusic(music: string): void;
+  setTier(tier: VideoTier): void; setView(view: "preview" | "result"): void;
   /** Uses an uploaded image as the reference, as an object; null removes the reference. */
   setReference(file: File | null): void; setDefinition(definition: string): void;
   openCreator(kind: "object" | "frame" | null): void; setReferenceText(text: string): void;
@@ -116,7 +119,7 @@ export const useInpaintStore = create<InpaintState>((set, get) => {
   return {
     source: null, video: null, frames: 124, uploading: false, step: 0, shape: "rectangle", bounds: null, motion: null,
     playhead: 0, playing: false, recording: false, scrubbed: false, selectedKeyId: null,
-    prompt: "", reference: null, result: null, view: "preview", status: "idle", task: null, progress: null, job: null, error: null, notice: null,
+    prompt: "", soundEffects: "", music: "", tier: 768, reference: null, result: null, view: "preview", status: "idle", task: null, progress: null, job: null, error: null, notice: null,
     picking: false, track: null, referenceRole: null, definition: "", creating: null, referenceText: "", created: null,
     upload: async file => {
       if (get().uploading || get().status !== "idle") return false;
@@ -127,7 +130,7 @@ export const useInpaintStore = create<InpaintState>((set, get) => {
         const video = videoAssetSchema.parse(await apiRequest("/videos", { method: "POST", body: form }));
         set({ source: file, video, frames: inpaintFrames(video.duration), step: 0, bounds: null, motion: null, picking: false, track: null,
           playhead: 0, playing: false, recording: false, scrubbed: false, selectedKeyId: null,
-          shape: "rectangle", prompt: "", reference: null, referenceRole: null, definition: "", creating: null, referenceText: "", created: null,
+          shape: "rectangle", prompt: "", soundEffects: "", music: "", reference: null, referenceRole: null, definition: "", creating: null, referenceText: "", created: null,
           result: null, job: null, progress: null, ...edited });
         return true;
       } catch (error) { set({ error: message(error) }); return false; }
@@ -284,6 +287,9 @@ export const useInpaintStore = create<InpaintState>((set, get) => {
       } finally { controller = null; set({ status: "idle", task: null, progress: null }); }
     },
     setPrompt: prompt => { if (get().status === "idle") set({ prompt, ...edited }); },
+    setSoundEffects: soundEffects => { if (get().status === "idle") set({ soundEffects, ...edited }); },
+    setMusic: music => { if (get().status === "idle") set({ music, ...edited }); },
+    setTier: tier => { if (get().status === "idle") set({ tier, ...edited }); },
     setReference: reference => {
       if (get().status !== "idle") return;
       const role: ReferenceRole | null = reference && { kind: "object" };
@@ -336,19 +342,19 @@ export const useInpaintStore = create<InpaintState>((set, get) => {
     },
     setView: view => set({ view }), clearError: () => set({ error: null }),
     generate: async () => {
-      const { source, video, frames, bounds, motion, shape, prompt, reference, referenceRole, definition, status } = get();
+      const { source, video, frames, bounds, motion, shape, prompt, soundEffects, music, tier, reference, referenceRole, definition, status } = get();
       if (status !== "idle" || !source || !video || !bounds || !motion || !prompt.trim()) return;
       controller = new AbortController();
       const { signal } = controller;
       set({ task: "inpaint", status: "preparing", progress: 0, picking: false, error: null, notice: null, job: null, playing: false });
       try {
-        const size = inpaintSize(video.width, video.height);
+        const size = inpaintSize(video.width, video.height, tier);
         const boxes = maskBoxes(bounds, motion, videoFrame(video));
         const videos = await renderInpaintVideos({ source, frames, boxes, shape, size }, progress => set({ progress }), signal);
         signal.throwIfAborted();
         if (!videos.mask) throw new Error("Could not prepare the mask video.");
         const form = new FormData();
-        const text = composeInpaintPrompt(prompt, reference && referenceRole ? { role: referenceRole, definition } : undefined);
+        const text = composeInpaintPrompt(prompt, reference && referenceRole ? { role: referenceRole, definition } : undefined, { soundEffects, music });
         form.set("request", JSON.stringify({ videoId: video.id, ...size, frames, prompt: text }));
         form.set("source", videos.source, `source.${videos.container}`);
         form.set("mask", videos.mask, `mask.${videos.container}`);

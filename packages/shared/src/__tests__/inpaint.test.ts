@@ -37,6 +37,8 @@ describe("inpainting geometry", () => {
     expect(inpaintSize(1920, 1080)).toEqual({ width: 854, height: 480 });
     expect(inpaintSize(1080, 1920)).toEqual({ width: 480, height: 854 });
     expect(inpaintSize(400, 400)).toEqual({ width: 480, height: 480 });
+    expect(inpaintSize(1920, 1080, 768)).toEqual({ width: 1366, height: 768 });
+    expect(inpaintSize(1080, 1920, 768)).toEqual({ width: 768, height: 1366 });
   });
   it("uses a complete 17k+5 frame sequence without extending the source", () => {
     for (const seconds of [0.21, 1, 2, 5, 5.1666666, 7.3, 10, 90]) {

@@ -52,6 +52,20 @@ describe("video inpainting", () => {
     expect(graph["34"].inputs).toMatchObject({ width: 686, height: 480, crop: "disabled" });
     expect(session.job!.snapshot).toMatchObject({ status: "completed", inpainting: { width: 686, height: 480 } });
   });
+  it("generates at 768p on H3's 768p canvas, and rejects sizes that match no tier", async () => {
+    const { app, cookie, session, request, upload, submit, remote } = await setup();
+    const large = new Uint8Array(await readFile(new URL("./fixtures/black-768-124.mp4", import.meta.url)));
+    submit.mockResolvedValue({ ...remote, getOutputs: () => [{ toBytes: async () => large }] } as unknown as Job);
+    expect((await upload({ ...request, width: 640, height: 640 })).status).toBe(400);
+    const data = new FormData(); data.set("request", JSON.stringify({ ...request, width: 768, height: 768 }));
+    data.set("source", new File([large], "source.mp4")); data.set("mask", new File([large], "mask.mp4"));
+    expect((await app.request("/api/jobs/inpaint", { method: "POST", headers: { cookie }, body: data })).status).toBe(202);
+    await session.job!.done;
+    const graph = submit.mock.calls[0][0].json as ApiGraph;
+    expect(graph["14"].inputs).toMatchObject({ width: 768, height: 768 });
+    expect(graph["34"].inputs).toMatchObject({ width: 768, height: 768 });
+    expect(session.job!.snapshot).toMatchObject({ status: "completed", inpainting: { width: 768, height: 768 } });
+  });
   it("rejects a result that was not restored to the delivered dimensions", async () => {
     const { session, upload, submit, remote } = await setup(true);
     const square = new Uint8Array(await fixture());

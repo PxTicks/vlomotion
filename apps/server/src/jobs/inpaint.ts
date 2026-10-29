@@ -17,7 +17,7 @@ export function startInpaint(client: Comfy, store: SessionStore, session: Sessio
   managed.done = (async () => {
     try {
       const seed = request.seed ?? randomInt(0, 2 ** 48 - 1);
-      const modelSize = videoGeometry(video!).generation;
+      const modelSize = videoGeometry(video!, Math.min(request.width, request.height)).generation;
       const workflow = await buildInpaintWorkflow(client, { ...inputs, ...request, size: request, modelSize, seed,
         sol: options.sol ?? SOL_ENABLED });
       const job = await runWorkflow(client, managed, workflow, { stage: "inpaint", message: "Inpainting with MiniMax H3…", to: 0.95 });

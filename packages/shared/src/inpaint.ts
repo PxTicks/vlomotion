@@ -15,8 +15,9 @@ export const videoAssetSchema = z.object({
 });
 export type VideoAsset = z.infer<typeof videoAssetSchema>;
 
-export function inpaintSize(width: number, height: number) {
-  return videoGeometry({ width, height }).output;
+/** The prepared and delivered size at `tier`'s short edge, keeping the source's ratio. */
+export function inpaintSize(width: number, height: number, tier = 480) {
+  return videoGeometry({ width, height }, tier).output;
 }
 export function inpaintFrames(duration: number) {
   const available = Math.min(243, Math.floor(duration * FPS + 0.001));
@@ -55,7 +56,7 @@ export function rebaseMask(motion: SubjectMotion<number>, from: Rect, to: Rect):
 }
 export const inpaintRequestSchema = z.object({
   videoId: z.uuid(), width: videoDimensionSchema, height: videoDimensionSchema, frames: inpaintFramesSchema,
-  prompt: z.string().trim().min(1).max(6000), seed: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional(),
+  prompt: z.string().trim().min(1).max(8000), seed: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional(),
 });
 export type InpaintRequest = z.infer<typeof inpaintRequestSchema>;
 export const inpaintResultSchema = inpaintRequestSchema.extend({

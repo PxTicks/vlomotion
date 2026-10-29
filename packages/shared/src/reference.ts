@@ -46,11 +46,12 @@ export function frameInstruction(description: string): string {
  * The inpaint prompt. Without a reference it is the user's text. With one, it is laid out in the guide's full-reference
  * sections, so H3 reads `<Picture 1>` in its role: the definition, a summary and retention line for that role, then the
  * user's text as the description of [Shot 1]. The source video reaches H3 as the sampled latent rather than as a
- * reference, so no `<Video 1>` label exists to cite. A prompt already in that layout is sent as written.
+ * reference, so no `<Video 1>` label exists to cite. A prompt already in that layout is sent as written. Sound effects
+ * and music close the prompt in the guide's sound sections, either way.
  */
-export function composeInpaintPrompt(prompt: string, reference?: { role: ReferenceRole; definition: string }): string {
-  const text = prompt.trim();
-  if (!reference || /^subject_definitions:/m.test(text)) return text;
+export function composeInpaintPrompt(prompt: string, reference?: { role: ReferenceRole; definition: string }, audio?: InpaintAudio): string {
+  const text = prompt.trim(), sounds = audioSections(text, audio);
+  if (!reference || /^subject_definitions:/m.test(text)) return [text, ...sounds].join("\n\n");
   const { role } = reference, anchor = role.kind === "frame" ? anchorOf(role) : null;
   const definition = reference.definition.trim() || referenceDefinition(role);
   // A user who split the description into shots keeps them; otherwise it is all [Shot 1].
@@ -65,5 +66,17 @@ export function composeInpaintPrompt(prompt: string, reference?: { role: Referen
     description: `${shots} ${anchor.sentence}`,
   };
   return [`subject_definitions:\n${definition}`, `summary:\n${sections.summary}`,
-    `retention_analysis:\n${sections.retention}`, `detailed_description:\n${sections.description}`].join("\n\n");
+    `retention_analysis:\n${sections.retention}`, `detailed_description:\n${sections.description}`, ...sounds].join("\n\n");
+}
+
+export interface InpaintAudio { soundEffects: string; music: string }
+
+/**
+ * The guide's `overall_soundscape` and `non_diegetic_music` sections, for the fields filled in. A blank field is left
+ * out rather than sent as N/A, so H3 still chooses that sound, and a prompt that already has sound sections keeps its own.
+ */
+function audioSections(text: string, audio?: InpaintAudio): string[] {
+  if (!audio || /^(?:overall_soundscape|non_diegetic_music):/m.test(text)) return [];
+  const soundEffects = audio.soundEffects.trim(), music = audio.music.trim();
+  return [...(soundEffects ? [`overall_soundscape:\n${soundEffects}`] : []), ...(music ? [`non_diegetic_music:\n${music}`] : [])];
 }

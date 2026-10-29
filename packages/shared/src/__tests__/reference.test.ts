@@ -39,6 +39,15 @@ describe("inpaint reference prompts", () => {
       .toContain("detailed_description:\n[Shot 1] It opens. The shot begins from <Picture 1>.");
     expect(composeInpaintPrompt("It closes.", { role: { ...keyframe, frame: 123 }, definition: "d" })).toContain("The shot ends on <Picture 1>.");
   });
+  it("closes the prompt with the filled sound sections, in either layout", () => {
+    expect(composeInpaintPrompt("A bird flies.", undefined, { soundEffects: "", music: " " })).toBe("A bird flies.");
+    expect(composeInpaintPrompt("A bird flies.", undefined, { soundEffects: "", music: "Soft strings." }))
+      .toBe("A bird flies.\n\nnon_diegetic_music:\nSoft strings.");
+    expect(composeInpaintPrompt("A lantern sways.", { role: { kind: "object" }, definition: "d" }, { soundEffects: "Wind.", music: "Piano." }))
+      .toMatch(/detailed_description:\n\[Shot 1\] A lantern sways\.\n\noverall_soundscape:\nWind\.\n\nnon_diegetic_music:\nPiano\.$/);
+    const written = "A bird flies.\n\noverall_soundscape:\nBirdsong.";
+    expect(composeInpaintPrompt(written, undefined, { soundEffects: "Wind.", music: "Piano." })).toBe(written);
+  });
   it("asks Qwen Image for a clean object, or for an edit placed by the highlight", () => {
     expect(objectInstruction("a red lantern.")).toMatch(/^A reference photo of a red lantern: .*plain white background/);
     expect(frameInstruction("a red umbrella")).toMatch(/^In <image1>, make the area highlighted in yellow in <image2> show a red umbrella\. /);

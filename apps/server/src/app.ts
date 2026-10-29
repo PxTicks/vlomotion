@@ -224,8 +224,11 @@ export function createApp(options: AppOptions = {}) {
     const request = inpaintRequestSchema.parse(JSON.parse(String(form.get("request") ?? "")));
     const video = session.video;
     if (!video || video.id !== request.videoId) throw new HTTPException(409, { message: "The source video changed. Upload it again." });
-    const size = inpaintSize(video.width, video.height);
-    if (request.width !== size.width || request.height !== size.height || request.frames !== inpaintFrames(video.duration)) {
+    const sized = VIDEO_TIERS.some(tier => {
+      const size = inpaintSize(video.width, video.height, tier);
+      return size.width === request.width && size.height === request.height;
+    });
+    if (!sized || request.frames !== inpaintFrames(video.duration)) {
       throw new HTTPException(400, { message: "The prepared video doesn't match the source video." });
     }
     const source = await readVideoUpload(form.get("source"), request, "source");
