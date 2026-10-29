@@ -5,7 +5,7 @@ import {
   videoAssetSchema,
 } from "@h3-motion/shared";
 import type {
-  FrameSize, InpaintResult, JobSnapshot, MaskShape, Point, Pose, Rect, ReferenceRequest, ReferenceResult, ReferenceRole, Scale, SubjectMotion,
+  FrameSize, InpaintAudioMode, InpaintResult, JobSnapshot, MaskShape, Point, Pose, Rect, ReferenceRequest, ReferenceResult, ReferenceRole, Scale, SubjectMotion,
   TimedSample, TrackResult, VideoAsset, VideoTier,
 } from "@h3-motion/shared";
 import { apiRequest, watchJob } from "../../api";
@@ -28,6 +28,8 @@ interface InpaintState {
   tier: VideoTier;
   /** How far the mask is grown, and how softly the patch is blended in, in delivered-video pixels. */
   grow: number; feather: number;
+  /** What happens to the source's sound, when it has any; a source without sound is always `replace`d. */
+  audio: InpaintAudioMode;
   /** What the reference is to H3, which decides how the prompt defines it; null without a reference. */
   referenceRole: ReferenceRole | null;
   /** The reference's `subject_definitions` line, prefilled for its role and editable. */
@@ -68,7 +70,7 @@ interface InpaintState {
   /** Tracks the object under `point` on the first frame, in video pixels, and keys the mask to follow it. Only while picking. */
   followObject(point: Point): Promise<void>;
   setPrompt(prompt: string): void; setSoundEffects(soundEffects: string): void; setMusic(music: string): void;
-  setTier(tier: VideoTier): void; setGrow(grow: number): void; setFeather(feather: number): void; setView(view: "preview" | "result"): void;
+  setTier(tier: VideoTier): void; setGrow(grow: number): void; setFeather(feather: number): void; setAudio(audio: InpaintAudioMode): void; setView(view: "preview" | "result"): void;
   /** Uses an uploaded image as the reference, as an object; null removes the reference. */
   setReference(file: File | null): void; setDefinition(definition: string): void;
   openCreator(kind: "object" | "frame" | null): void; setReferenceText(text: string): void;
@@ -85,6 +87,8 @@ const newId = () => globalThis.crypto.randomUUID();
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 const stepped = (value: number, range: { min: number; max: number; step: number }) => clamp(Math.round(value / range.step) * range.step, range.min, range.max);
 export const videoFrame = (video: Pick<VideoAsset, "width" | "height">): FrameSize => ({ width: video.width, height: video.height });
+/** What happens to the video's sound: the chosen option, unless it has none to keep or reference. */
+export const audioMode = (video: Pick<VideoAsset, "audio"> | null, audio: InpaintAudioMode): InpaintAudioMode => video?.audio ? audio : "replace";
 
 /** The key nearest `to` among those passed moving the playhead from `from` to `to`, excluding where it started. */
 function lastCrossed(motion: SubjectMotion<number>, from: number, to: number) {
@@ -122,7 +126,7 @@ export const useInpaintStore = create<InpaintState>((set, get) => {
   return {
     source: null, video: null, frames: 124, uploading: false, step: 0, shape: "rectangle", bounds: null, motion: null,
     playhead: 0, playing: false, recording: false, scrubbed: false, selectedKeyId: null,
-    prompt: "", soundEffects: "", music: "", tier: 768, grow: MASK_GROW.default, feather: MASK_FEATHER.default, reference: null, result: null, view: "preview", status: "idle", task: null, progress: null, job: null, error: null, notice: null,
+    prompt: "", soundEffects: "", music: "", tier: 768, grow: MASK_GROW.default, feather: MASK_FEATHER.default, audio: "reference", reference: null, result: null, view: "preview", status: "idle", task: null, progress: null, job: null, error: null, notice: null,
     picking: false, track: null, referenceRole: null, definition: "", creating: null, referenceText: "", created: null,
     upload: async file => {
       if (get().uploading || get().status !== "idle") return false;
@@ -295,6 +299,7 @@ export const useInpaintStore = create<InpaintState>((set, get) => {
     setTier: tier => { if (get().status === "idle") set({ tier, ...edited }); },
     setGrow: grow => { if (get().status === "idle") set({ grow: stepped(grow, MASK_GROW), ...edited }); },
     setFeather: feather => { if (get().status === "idle") set({ feather: stepped(feather, MASK_FEATHER), ...edited }); },
+    setAudio: audio => { if (get().status === "idle") set({ audio, ...edited }); },
     setReference: reference => {
       if (get().status !== "idle") return;
       const role: ReferenceRole | null = reference && { kind: "object" };
@@ -348,6 +353,7 @@ export const useInpaintStore = create<InpaintState>((set, get) => {
     setView: view => set({ view }), clearError: () => set({ error: null }),
     generate: async () => {
       const { source, video, frames, bounds, motion, shape, prompt, soundEffects, music, tier, grow, feather, reference, referenceRole, definition, status } = get();
+      const audio = audioMode(video, get().audio);
       if (status !== "idle" || !source || !video || !bounds || !motion || !prompt.trim()) return;
       controller = new AbortController();
       const { signal } = controller;
@@ -355,12 +361,13 @@ export const useInpaintStore = create<InpaintState>((set, get) => {
       try {
         const size = inpaintSize(video.width, video.height, tier);
         const boxes = maskBoxes(bounds, motion, videoFrame(video));
-        const videos = await renderInpaintVideos({ source, frames, boxes, shape, size, grow }, progress => set({ progress }), signal);
+        // A replaced sound is left out of the source, so H3 never hears it.
+        const videos = await renderInpaintVideos({ source, frames, boxes, shape, size, grow, audio: audio !== "replace" }, progress => set({ progress }), signal);
         signal.throwIfAborted();
         if (!videos.mask) throw new Error("Could not prepare the mask video.");
         const form = new FormData();
-        const text = composeInpaintPrompt(prompt, reference && referenceRole ? { role: referenceRole, definition } : undefined, { soundEffects, music });
-        form.set("request", JSON.stringify({ videoId: video.id, ...size, frames, prompt: text, feather }));
+        const text = composeInpaintPrompt(prompt, reference && referenceRole ? { role: referenceRole, definition } : undefined, { soundEffects, music, mode: audio });
+        form.set("request", JSON.stringify({ videoId: video.id, ...size, frames, prompt: text, feather, audio }));
         form.set("source", videos.source, `source.${videos.container}`);
         form.set("mask", videos.mask, `mask.${videos.container}`);
         if (reference) form.set("reference", reference);

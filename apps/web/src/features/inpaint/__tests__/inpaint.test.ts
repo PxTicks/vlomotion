@@ -10,14 +10,14 @@ vi.mock("../../../api", () => ({ apiRequest: vi.fn(), watchJob: vi.fn() }));
 vi.mock("../renderInpaint", () => ({ renderInpaintVideos: vi.fn() }));
 vi.mock("../captureFrame", async original => ({ ...await original<typeof import("../captureFrame")>(), captureFrame: vi.fn() }));
 const source = new File(["video"], "source.mp4", { type: "video/mp4" });
-const video = { id: "d8d80a5e-0d7d-4e20-984d-d4b3dd09d6ec", url: "/api/files/source", width: 1920, height: 1080, frames: 124, startTime: 0, duration: 124 / 24 };
+const video = { id: "d8d80a5e-0d7d-4e20-984d-d4b3dd09d6ec", url: "/api/files/source", width: 1920, height: 1080, frames: 124, startTime: 0, duration: 124 / 24, audio: false };
 const bounds = { x: 192, y: 216, width: 384, height: 324 };
 const still = createMaskMotion(bounds, 124);
 const moving = { ...still, keys: [...still.keys, { id: "end", frame: 123, x: 1344, y: 378, sx: 1, sy: 1 }] };
 const state = () => useInpaintStore.getState();
 const queued = { id: "43194a97-8a46-41bb-9b9e-5c82899b1d9a", status: "queued" as const, message: "Preparing…", candidates: [], progress: null, error: null };
 const videos = { kind: "done" as const, source: new Blob(), mask: new Blob(), container: "mp4" as const };
-const result = { videoId: video.id, video: { id: crypto.randomUUID(), url: "/api/files/result" }, width: 854, height: 480, frames: 124, seed: 7, prompt: "A bird flies.", feather: 16 };
+const result = { videoId: video.id, video: { id: crypto.randomUUID(), url: "/api/files/result" }, width: 854, height: 480, frames: 124, seed: 7, prompt: "A bird flies.", feather: 16, audio: "replace" as const };
 
 beforeEach(() => {
   vi.resetAllMocks();
@@ -107,12 +107,12 @@ describe("inpainting editor", () => {
     vi.mocked(apiRequest).mockResolvedValue(queued);
     vi.mocked(watchJob).mockResolvedValue({ ...queued, status: "completed", inpainting: result });
     await state().generate();
-    expect(renderInpaintVideos).toHaveBeenCalledWith(expect.objectContaining({ source, shape: "ellipse", boxes: maskBoxes(bounds, motion, video), size: { width: 1366, height: 768 }, grow: 24 }), expect.any(Function), expect.any(AbortSignal));
+    expect(renderInpaintVideos).toHaveBeenCalledWith(expect.objectContaining({ source, shape: "ellipse", boxes: maskBoxes(bounds, motion, video), size: { width: 1366, height: 768 }, grow: 24, audio: false }), expect.any(Function), expect.any(AbortSignal));
     const boxes = vi.mocked(renderInpaintVideos).mock.calls[0][0].boxes!;
     expect(boxes).toHaveLength(124);
     expect(boxes[0]).toEqual({ x: 0.1, y: 0.2, width: 0.2, height: 0.3 });
     const form = vi.mocked(apiRequest).mock.calls[0][1]!.body as FormData;
-    expect(JSON.parse(form.get("request") as string)).toEqual({ videoId: video.id, width: 1366, height: 768, frames: 124, prompt: "A bird from <Picture 1> flies.", feather: 16 });
+    expect(JSON.parse(form.get("request") as string)).toEqual({ videoId: video.id, width: 1366, height: 768, frames: 124, prompt: "A bird from <Picture 1> flies.", feather: 16, audio: "replace" });
     expect(form.get("reference")).toBe(reference);
     expect(state()).toMatchObject({ status: "idle", view: "result", result });
   });
@@ -130,8 +130,30 @@ describe("inpainting editor", () => {
     await state().generate();
     expect(renderInpaintVideos).toHaveBeenCalledWith(expect.objectContaining({ size: { width: 854, height: 480 }, grow: 0 }), expect.any(Function), expect.any(AbortSignal));
     const form = vi.mocked(apiRequest).mock.calls[0][1]!.body as FormData;
-    expect(JSON.parse(form.get("request") as string)).toEqual({ videoId: video.id, width: 854, height: 480, frames: 124, feather: 0,
+    expect(JSON.parse(form.get("request") as string)).toEqual({ videoId: video.id, width: 854, height: 480, frames: 124, feather: 0, audio: "replace",
       prompt: "A bird flies.\n\noverall_soundscape:\nWings flapping.\n\nnon_diegetic_music:\nSoft strings." });
+  });
+  it.each([["reference", true], ["preserve", true], ["replace", false]] as const)("keeps the sound in the source to %s it", async (audio, kept) => {
+    useInpaintStore.setState({ source, video: { ...video, audio: true }, bounds, motion: still, prompt: "A bird flies.", step: 2 });
+    expect(state().audio).toBe("reference");
+    state().setAudio(audio);
+    vi.mocked(renderInpaintVideos).mockResolvedValue(videos);
+    vi.mocked(apiRequest).mockResolvedValue(queued);
+    vi.mocked(watchJob).mockResolvedValue({ ...queued, status: "completed", inpainting: { ...result, audio } });
+    await state().generate();
+    expect(renderInpaintVideos).toHaveBeenCalledWith(expect.objectContaining({ audio: kept }), expect.any(Function), expect.any(AbortSignal));
+    const request = JSON.parse((vi.mocked(apiRequest).mock.calls[0][1]!.body as FormData).get("request") as string);
+    expect(request.audio).toBe(audio);
+    expect(request.prompt.includes("<Audio 1>")).toBe(kept);
+  });
+  it("replaces the sound of a video without any, whatever was chosen", async () => {
+    useInpaintStore.setState({ source, video, bounds, motion: still, prompt: "A bird flies.", step: 2, audio: "preserve" });
+    vi.mocked(renderInpaintVideos).mockResolvedValue(videos);
+    vi.mocked(apiRequest).mockResolvedValue(queued);
+    vi.mocked(watchJob).mockResolvedValue({ ...queued, status: "completed", inpainting: result });
+    await state().generate();
+    expect(renderInpaintVideos).toHaveBeenCalledWith(expect.objectContaining({ audio: false }), expect.any(Function), expect.any(AbortSignal));
+    expect(JSON.parse((vi.mocked(apiRequest).mock.calls[0][1]!.body as FormData).get("request") as string)).toMatchObject({ audio: "replace", prompt: "A bird flies." });
   });
   it("defines an uploaded reference as an object and lays the prompt out around it", async () => {
     const reference = new File(["ref"], "ref.png", { type: "image/png" });

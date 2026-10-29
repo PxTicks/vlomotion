@@ -48,6 +48,23 @@ describe("inpaint reference prompts", () => {
     const written = "A bird flies.\n\noverall_soundscape:\nBirdsong.";
     expect(composeInpaintPrompt(written, undefined, { soundEffects: "Wind.", music: "Piano." })).toBe(written);
   });
+  it("defines the source's sound as <Audio 1> when H3 hears it", () => {
+    expect(composeInpaintPrompt("A bird flies.", undefined, { soundEffects: "Wings flap.", music: "Piano.", mode: "reference" })).toBe([
+      "subject_definitions:\n<Audio 1> is the original audio track of the source video.",
+      "summary:\n[video editing + audio reference] The target video is an edited version of the source video.",
+      "retention_analysis:\n<Audio 1>: reference - its ambience, sound texture and music style guide the target video's audio without copying the original signal.",
+      "detailed_description:\n[Shot 1] A bird flies.",
+      "overall_soundscape:\nThe ambience and sound texture of <Audio 1> carry on throughout the target video. Wings flap.",
+      "non_diegetic_music:\nPiano.",
+    ].join("\n\n"));
+    const kept = composeInpaintPrompt("A lantern sways.", { role: { kind: "object" }, definition: "d" }, { soundEffects: "Wind.", music: "Piano.", mode: "preserve" });
+    expect(kept).toContain("subject_definitions:\nd\n<Audio 1> is the original audio track of the source video.");
+    expect(kept).toContain("summary:\n[video editing + reference generation + audio reuse] The target video is an edited version of the source video in which <Subject 1> appears.");
+    expect(kept).toContain("fully_preserved - the appearance of <Subject 1> from <Picture 1> is retained.\n<Audio 1>: fully_copy - ");
+    // Kept unchanged, the source's sound is the whole track, so the sound fields are left out.
+    expect(kept).toMatch(/\n\noverall_soundscape:\n<Audio 1> is reused unchanged as the complete audio track of the target video\.$/);
+    expect(composeInpaintPrompt("A bird flies.", undefined, { soundEffects: "", music: "", mode: "replace" })).toBe("A bird flies.");
+  });
   it("asks Qwen Image for a clean object, or for an edit placed by the highlight", () => {
     expect(objectInstruction("a red lantern.")).toMatch(/^A reference photo of a red lantern: .*plain white background/);
     expect(frameInstruction("a red umbrella")).toMatch(/^In <image1>, make the area highlighted in yellow in <image2> show a red umbrella\. /);

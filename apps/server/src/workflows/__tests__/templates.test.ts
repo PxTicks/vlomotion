@@ -23,7 +23,7 @@ describe("workflow contracts", () => {
   it("restores inpainted pixels before compositing into the source at its original ratio", async () => {
     const { output: size, generation: modelSize } = videoGeometry({ width: 701, height: 1000 });
     const graph = (await buildInpaintWorkflow(new Comfy(), { sourcePath: "/tmp/source.mp4", maskPath: "/tmp/mask.mp4",
-      size, modelSize, frames: 124, prompt: "A bird flies.", seed: 42, feather: 0 })).json as ApiGraph;
+      size, modelSize, frames: 124, prompt: "A bird flies.", seed: 42, feather: 0, audio: "replace" })).json as ApiGraph;
     expect(graph["14"].inputs).toMatchObject(modelSize);
     expect(graph["30"]).toMatchObject({ class_type: "ImageScale", inputs: { ...modelSize, image: ["6", 0], crop: "disabled" } });
     expect(graph["31"]).toMatchObject({ class_type: "ImageScale", inputs: { ...modelSize, image: ["8", 0], crop: "disabled", upscale_method: "nearest-exact" } });
@@ -38,12 +38,25 @@ describe("workflow contracts", () => {
   });
   it.each([{ feather: 16, radius: 16, sigma: 16 / 3 }, { feather: 32, radius: 31, sigma: 10 }])("feathers only the composite mask with $feather px, within ComfyUI's limits", async ({ feather, radius, sigma }) => {
     const graph = (await buildInpaintWorkflow(new Comfy(), { sourcePath: "/tmp/source.mp4", maskPath: "/tmp/mask.mp4",
-      size: { width: 854, height: 480 }, modelSize: { width: 864, height: 480 }, frames: 124, prompt: "A bird flies.", seed: 42, feather })).json as ApiGraph;
+      size: { width: 854, height: 480 }, modelSize: { width: 864, height: 480 }, frames: 124, prompt: "A bird flies.", seed: 42, feather, audio: "replace" })).json as ApiGraph;
     expect(graph.feather_image).toMatchObject({ class_type: "MaskToImage", inputs: { mask: ["10", 0] } });
     expect(graph.feather_blur).toMatchObject({ class_type: "ImageBlur", inputs: { image: ["feather_image", 0], blur_radius: radius, sigma } });
     expect(graph.feather_mask).toMatchObject({ class_type: "ImageToMask", inputs: { image: ["feather_blur", 0], channel: "red" } });
     expect(graph["27"].inputs.mask).toEqual(["feather_mask", 0]);
     expect(graph["17"].inputs.masks).toEqual(["33", 0]);
+  });
+  it("lets H3 hear the source's sound unless it is replaced, and delivers it when it is kept", async () => {
+    const options = { sourcePath: "/tmp/source.mp4", maskPath: "/tmp/mask.mp4", size: { width: 854, height: 480 },
+      modelSize: { width: 864, height: 480 }, frames: 124, prompt: "A bird flies.", seed: 42, feather: 0 };
+    const replaced = (await buildInpaintWorkflow(new Comfy(), { ...options, audio: "replace" })).json as ApiGraph;
+    expect(replaced["14"].inputs).not.toHaveProperty("ref_audios.ref_audio_1");
+    expect(replaced["28"].inputs.audio).toEqual(["26", 0]);
+    const referenced = (await buildInpaintWorkflow(new Comfy(), { ...options, audio: "reference" })).json as ApiGraph;
+    expect(referenced["14"].inputs["ref_audios.ref_audio_1"]).toEqual(["6", 1]);
+    expect(referenced["28"].inputs.audio).toEqual(["26", 0]);
+    const kept = (await buildInpaintWorkflow(new Comfy(), { ...options, audio: "preserve" })).json as ApiGraph;
+    expect(kept["14"].inputs["ref_audios.ref_audio_1"]).toEqual(["6", 1]);
+    expect(kept["28"].inputs.audio).toEqual(["6", 1]);
   });
   it("validates inpaint bindings and rejects changed node ids, classes and inputs", async () => {
     const graph = await loadTemplate("inpaint");
@@ -61,7 +74,7 @@ describe("workflow contracts", () => {
       expect(() => assertBindings(missingInput, [binding])).toThrow("Workflow binding changed:");
     }
     const workflow = await buildInpaintWorkflow(new Comfy(), { sourcePath: "/tmp/source.mp4", maskPath: "/tmp/mask.mp4",
-      size: { width: 480, height: 864 }, modelSize: { width: 480, height: 864 }, frames: 107, prompt: "A bird flies.", seed: 42, feather: 0 });
+      size: { width: 480, height: 864 }, modelSize: { width: 480, height: 864 }, frames: 107, prompt: "A bird flies.", seed: 42, feather: 0, audio: "replace" });
     expect(workflow.json["13"]).toMatchObject({ inputs: { pixels: ["30", 0] } });
     expect(Object.values(workflow.json as ApiGraph).some(node => node.class_type === "EmptyImage")).toBe(false);
     expect(workflow.json["14"]).toMatchObject({ inputs: { width: 480, height: 864, length: 107, prompt: "A bird flies." } });
@@ -69,7 +82,7 @@ describe("workflow contracts", () => {
   });
   it("encodes original source pixels and composites only after generation", async () => {
     const workflow = await buildInpaintWorkflow(new Comfy(), { sourcePath: "/tmp/source.mp4", maskPath: "/tmp/mask.mp4",
-      size: { width: 480, height: 864 }, modelSize: { width: 480, height: 864 }, frames: 107, prompt: "A bird flies.", seed: 42, feather: 0 });
+      size: { width: 480, height: 864 }, modelSize: { width: 480, height: 864 }, frames: 107, prompt: "A bird flies.", seed: 42, feather: 0, audio: "replace" });
     const graph = workflow.json as ApiGraph;
     expect(graph["13"].inputs.pixels).toEqual(["30", 0]);
     expect(Object.values(graph).some(node => node.class_type === "EmptyImage")).toBe(false);
@@ -222,7 +235,7 @@ describe("workflow contracts", () => {
     expect(graph["19"].inputs.attention).toBe("comfy kitchen attention");
     expect(graph["35"]).toMatchObject({ class_type: "BlockSparseAttention", inputs: { model: ["19", 0], selection: "sol-attn" } });
     const options = { sourcePath: "/tmp/source.mp4", maskPath: "/tmp/mask.mp4",
-      size: { width: 864, height: 480 }, modelSize: { width: 864, height: 480 }, frames: 124, prompt: "A bird flies.", seed: 42, feather: 16 };
+      size: { width: 864, height: 480 }, modelSize: { width: 864, height: 480 }, frames: 124, prompt: "A bird flies.", seed: 42, feather: 16, audio: "replace" as const };
     const sol = (await buildInpaintWorkflow(new Comfy(), options)).json as ApiGraph;
     expect(sol[INPAINT_MODEL.guider.node].inputs.model).toEqual(["35", 0]);
     expect(sol[INPAINT_MODEL.scheduler.node].inputs.model).toEqual(["35", 0]);

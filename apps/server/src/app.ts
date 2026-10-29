@@ -42,7 +42,7 @@ async function readVideoUpload(value: FormDataEntryValue | null, request: Pick<A
   if (info.width !== request.width || info.height !== request.height || info.frames !== request.frames) {
     throw new HTTPException(400, { message: `The ${label} video must be ${request.width} × ${request.height} with exactly ${request.frames} frames; it is ${info.width} × ${info.height} with ${info.frames}.` });
   }
-  return { bytes, container: info.container };
+  return { bytes, container: info.container, audio: info.audio };
 }
 
 /**
@@ -130,7 +130,7 @@ export function createApp(options: AppOptions = {}) {
     if (isBusy(session)) throw new HTTPException(409, { message: "A job is already running." });
     const saved = await store.saveFile(session, bytes, info.container);
     if (isBusy(session)) throw new HTTPException(409, { message: "A job started while uploading. Try again when it finishes." });
-    const video = { id: saved.id, url: saved.url, width: info.width, height: info.height, frames: info.frames, startTime: info.startTime, duration: info.duration };
+    const video = { id: saved.id, url: saved.url, width: info.width, height: info.height, frames: info.frames, startTime: info.startTime, duration: info.duration, audio: info.audio };
     session.video = { ...video, path: saved.path }; session.inpainting = undefined;
     session.image = undefined; session.selection = undefined; session.candidates.clear(); session.job = undefined;
     clearIsolation(session);
@@ -232,6 +232,11 @@ export function createApp(options: AppOptions = {}) {
       throw new HTTPException(400, { message: "The prepared video doesn't match the source video." });
     }
     const source = await readVideoUpload(form.get("source"), request, "source");
+    // Replacing the sound keeps it from H3 altogether, so it mustn't be uploaded; keeping or referencing it needs it.
+    if (source.audio !== (request.audio !== "replace")) {
+      throw new HTTPException(400, { message: source.audio ? "Replacing the sound needs a source video without it."
+        : "The source video has no sound to keep or reference. Choose Replace under Advanced." });
+    }
     const mask = await readVideoUpload(form.get("mask"), request, "mask");
     let reference: Buffer | undefined;
     const file = form.get("reference");

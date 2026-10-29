@@ -4,7 +4,7 @@ import { z } from "zod";
 import type { Comfy, Workflow } from "@comfyorg/sdk";
 import type { Point, SegmentRequest } from "@h3-motion/shared";
 import { pythonRound } from "@h3-motion/shared";
-import type { FrameSize } from "@h3-motion/shared";
+import type { FrameSize, InpaintAudioMode } from "@h3-motion/shared";
 import { REPO_ROOT } from "../config.js";
 
 const graphSchema = z.record(z.string(), z.object({ class_type: z.string(), inputs: z.record(z.string(), z.unknown()) }));
@@ -97,6 +97,10 @@ export const INPAINT_BINDINGS = {
 export const INPAINT_OUTPUT = "29";
 /** The composite's mask, a hard threshold of the mask video at the delivered size, which feathering softens. */
 export const INPAINT_COMPOSITE = { node: "27", input: "mask", classType: "ImageCompositeMasked" } satisfies Binding;
+/** The source video's frames and sound. */
+const INPAINT_SOURCE_COMPONENTS = "6";
+/** The delivered video's sound, the generated sound unless the source's is kept. */
+const INPAINT_VIDEO = { node: "28", input: "audio", classType: "CreateVideo" } satisfies Binding;
 
 /** SAM segments the first frame from the points, then its video tracker follows that mask through the clip. */
 export const TRACK_BINDINGS = {
@@ -139,10 +143,12 @@ export async function buildInpaintWorkflow(client: Comfy, options: {
   sourcePath: string; maskPath: string; referencePath?: string; size: FrameSize; modelSize: FrameSize; frames: number; prompt: string; seed: number;
   /** The composite's blur radius in delivered pixels; 0 keeps a hard edge. */
   feather: number; sol?: boolean;
+  /** What happens to the source's sound; it is only in the source video when it is kept or referenced. */
+  audio: InpaintAudioMode;
 }): Promise<Workflow> {
   const graph = await loadTemplate("inpaint");
-  assertBindings(graph, [...Object.values(INPAINT_BINDINGS), ...Object.values(INPAINT_MODEL), INPAINT_COMPOSITE,
-    { node: INPAINT_OUTPUT, input: "video", classType: "SaveVideo" }]);
+  assertBindings(graph, [...Object.values(INPAINT_BINDINGS), ...Object.values(INPAINT_MODEL), INPAINT_COMPOSITE, INPAINT_VIDEO,
+    { node: INPAINT_SOURCE_COMPONENTS, input: "video", classType: "GetVideoComponents" }, { node: INPAINT_OUTPUT, input: "video", classType: "SaveVideo" }]);
   setVideoGeometry(graph, ["30", "31"], "34", options.modelSize, options.size);
   if (options.sol === false) bypassSol(graph, INPAINT_MODEL, [INPAINT_MODEL.guider, INPAINT_MODEL.scheduler]);
   if (options.feather > 0) {
@@ -153,6 +159,11 @@ export async function buildInpaintWorkflow(client: Comfy, options: {
     graph.feather_blur = { class_type: "ImageBlur", inputs: { image: ["feather_image", 0], blur_radius: Math.min(31, feather), sigma: Math.min(10, feather / 3) } };
     graph.feather_mask = { class_type: "ImageToMask", inputs: { image: ["feather_blur", 0], channel: "red" } };
     graph[INPAINT_COMPOSITE.node].inputs[INPAINT_COMPOSITE.input] = ["feather_mask", 0];
+  }
+  if (options.audio !== "replace") {
+    // H3 hears the source's sound as <Audio 1>; kept, it also replaces the generated sound in the delivered video.
+    graph[INPAINT_BINDINGS.prompt.node].inputs["ref_audios.ref_audio_1"] = [INPAINT_SOURCE_COMPONENTS, 1];
+    if (options.audio === "preserve") graph[INPAINT_VIDEO.node].inputs[INPAINT_VIDEO.input] = [INPAINT_SOURCE_COMPONENTS, 1];
   }
   if (options.referencePath) {
     graph.reference = { class_type: "LoadImage", inputs: { image: "reference.png" } };

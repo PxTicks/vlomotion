@@ -1,3 +1,4 @@
+import type { InpaintAudioMode } from "./inpaint.js";
 import { FPS } from "./media.js";
 
 /**
@@ -44,39 +45,67 @@ export function frameInstruction(description: string): string {
 
 /**
  * The inpaint prompt. Without a reference it is the user's text. With one, it is laid out in the guide's full-reference
- * sections, so H3 reads `<Picture 1>` in its role: the definition, a summary and retention line for that role, then the
- * user's text as the description of [Shot 1]. The source video reaches H3 as the sampled latent rather than as a
- * reference, so no `<Video 1>` label exists to cite. A prompt already in that layout is sent as written. Sound effects
- * and music close the prompt in the guide's sound sections, either way.
+ * sections, so H3 reads each reference in its role: the definitions, a summary and retention lines for those roles, then
+ * the user's text as the description of [Shot 1]. The reference image is `<Picture 1>`, and the source's sound, when H3
+ * hears it, is `<Audio 1>`. The source video reaches H3 as the sampled latent rather than as a reference, so no
+ * `<Video 1>` label exists to cite. A prompt already in that layout is sent as written. Sound effects and music close
+ * the prompt in the guide's sound sections, either way.
  */
 export function composeInpaintPrompt(prompt: string, reference?: { role: ReferenceRole; definition: string }, audio?: InpaintAudio): string {
   const text = prompt.trim(), sounds = audioSections(text, audio);
-  if (!reference || /^subject_definitions:/m.test(text)) return [text, ...sounds].join("\n\n");
-  const { role } = reference, anchor = role.kind === "frame" ? anchorOf(role) : null;
-  const definition = reference.definition.trim() || referenceDefinition(role);
+  const source = audio?.mode === "reference" || audio?.mode === "preserve" ? SOURCE_AUDIO[audio.mode] : null;
+  if ((!reference && !source) || /^subject_definitions:/m.test(text)) return [text, ...sounds].join("\n\n");
   // A user who split the description into shots keeps them; otherwise it is all [Shot 1].
   const shots = /^\[Shot \d+\]/m.test(text) ? text : `[Shot 1] ${text}`;
-  const sections = !anchor ? {
-    summary: "[video editing + reference generation] The target video is an edited version of the source video in which <Subject 1> appears.",
+  const role = reference?.role, anchor = role?.kind === "frame" ? anchorOf(role) : null;
+  const definition = reference && (reference.definition.trim() || referenceDefinition(reference.role));
+  const picture = !reference ? null : !anchor ? {
+    definition, tag: "reference generation",
+    summary: "The target video is an edited version of the source video in which <Subject 1> appears.",
     retention: "<Subject 1> (appears in [Shot 1]): fully_preserved - the appearance of <Subject 1> from <Picture 1> is retained.",
     description: shots,
   } : {
-    summary: `[video editing + keyframe completion] The target video is an edited version of the source video, with <Picture 1> as the edited ${anchor.phrase}.`,
+    definition, tag: "keyframe completion",
+    summary: `The target video is an edited version of the source video, with <Picture 1> as the edited ${anchor.phrase}.`,
     retention: `<Picture 1> ([Shot 1] ${anchor.scope}): fully_preserved - the edited frame is retained.`,
     description: `${shots} ${anchor.sentence}`,
   };
-  return [`subject_definitions:\n${definition}`, `summary:\n${sections.summary}`,
-    `retention_analysis:\n${sections.retention}`, `detailed_description:\n${sections.description}`, ...sounds].join("\n\n");
+  const tags = ["video editing", picture?.tag, source?.tag].filter(Boolean).join(" + ");
+  return [
+    `subject_definitions:\n${[picture?.definition, source && SOURCE_AUDIO_DEFINITION].filter(Boolean).join("\n")}`,
+    `summary:\n[${tags}] ${picture?.summary ?? "The target video is an edited version of the source video."}`,
+    `retention_analysis:\n${[picture?.retention, source?.retention].filter(Boolean).join("\n")}`,
+    `detailed_description:\n${picture?.description ?? shots}`, ...sounds,
+  ].join("\n\n");
 }
 
-export interface InpaintAudio { soundEffects: string; music: string }
+/** `mode` is what happens to the source's sound; without it the prompt says nothing about that sound. */
+export interface InpaintAudio { soundEffects: string; music: string; mode?: InpaintAudioMode }
+
+const SOURCE_AUDIO_DEFINITION = "<Audio 1> is the original audio track of the source video.";
+/** The guide's words for H3 hearing the source's sound: its summary tag, retention line, and `overall_soundscape` line. */
+const SOURCE_AUDIO = {
+  reference: {
+    tag: "audio reference",
+    retention: "<Audio 1>: reference - its ambience, sound texture and music style guide the target video's audio without copying the original signal.",
+    soundscape: "The ambience and sound texture of <Audio 1> carry on throughout the target video.",
+  },
+  preserve: {
+    tag: "audio reuse",
+    retention: "<Audio 1>: fully_copy - <Audio 1> is reused 1:1 as the target video's complete final audio track.",
+    soundscape: "<Audio 1> is reused unchanged as the complete audio track of the target video.",
+  },
+} as const;
 
 /**
  * The guide's `overall_soundscape` and `non_diegetic_music` sections, for the fields filled in. A blank field is left
  * out rather than sent as N/A, so H3 still chooses that sound, and a prompt that already has sound sections keeps its own.
+ * The source's sound, when H3 hears it, opens the soundscape; kept unchanged, it is the only sound, so the fields don't apply.
  */
 function audioSections(text: string, audio?: InpaintAudio): string[] {
   if (!audio || /^(?:overall_soundscape|non_diegetic_music):/m.test(text)) return [];
-  const soundEffects = audio.soundEffects.trim(), music = audio.music.trim();
+  if (audio.mode === "preserve") return [`overall_soundscape:\n${SOURCE_AUDIO.preserve.soundscape}`];
+  const opening = audio.mode === "reference" ? SOURCE_AUDIO.reference.soundscape : "";
+  const soundEffects = [opening, audio.soundEffects.trim()].filter(Boolean).join(" "), music = audio.music.trim();
   return [...(soundEffects ? [`overall_soundscape:\n${soundEffects}`] : []), ...(music ? [`non_diegetic_music:\n${music}`] : [])];
 }

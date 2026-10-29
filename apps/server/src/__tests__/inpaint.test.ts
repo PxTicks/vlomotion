@@ -26,15 +26,15 @@ async function setup(arbitraryRatio = false) {
   expect(response.status).toBe(201);
   const video = await response.json();
   const session = [...store.sessions.values()][0];
-  const request = { videoId: video.id, width: video.width, height: video.height, frames: 124, prompt: "A red balloon follows the moving area.", feather: 16, seed: 7 };
+  const request = { videoId: video.id, width: video.width, height: video.height, frames: 124, prompt: "A red balloon follows the moving area.", feather: 16, audio: "replace", seed: 7 };
   const remote = { status: "succeeded", result: vi.fn(async () => undefined), cancel: vi.fn(async () => undefined),
     async *events() { yield { kind: "progress", value: 0.5, step: 10, steps: 20 }; },
     getOutputs: vi.fn((id: string) => id === INPAINT_OUTPUT ? [{ toBytes: async () => bytes }] : []),
   } as unknown as Job;
   const submit = vi.spyOn(client, "submit").mockResolvedValue(remote);
-  const upload = async (settings: unknown = request, options: { mask?: Uint8Array; reference?: Uint8Array; signal?: AbortSignal } = {}) => {
+  const upload = async (settings: unknown = request, options: { source?: Uint8Array; mask?: Uint8Array; reference?: Uint8Array; signal?: AbortSignal } = {}) => {
     const data = new FormData(); data.set("request", JSON.stringify(settings));
-    data.set("source", new File([bytes], "source.mp4"));
+    data.set("source", new File([new Uint8Array(options.source ?? bytes)], "source.mp4"));
     data.set("mask", new File([new Uint8Array(options.mask ?? bytes)], "mask.mp4"));
     if (options.reference) data.set("reference", new File([new Uint8Array(options.reference)], "reference.png"));
     return app.request("/api/jobs/inpaint", { method: "POST", headers: { cookie }, body: data, signal: options.signal });
@@ -77,7 +77,7 @@ describe("video inpainting", () => {
   });
   it("uploads video metadata and runs one masked-latent sampling pass without a reference", async () => {
     const { session, request, upload, submit, app, cookie } = await setup();
-    expect(session.video).toMatchObject({ width: 480, height: 480, frames: 124, duration: expect.closeTo(124 / 24) });
+    expect(session.video).toMatchObject({ width: 480, height: 480, frames: 124, duration: expect.closeTo(124 / 24), audio: false });
     expect((await upload()).status).toBe(202);
     await session.job!.done;
     const graph = submit.mock.calls[0][0].json as ApiGraph;
@@ -104,6 +104,23 @@ describe("video inpainting", () => {
     expect(Object.values(graph).filter(node => node.class_type === "ImageCompositeMasked")).toHaveLength(1);
     expect(graph["27"].inputs).toMatchObject({ destination: ["6", 0], source: ["34", 0], mask: ["feather_mask", 0] });
     expect(session.inpainting).not.toHaveProperty("fillMaskedArea");
+  });
+  it("only accepts the source's sound when it is kept or referenced, and lets H3 hear it then", async () => {
+    const { request, upload, submit, session } = await setup();
+    const sounding = new Uint8Array(await readFile(new URL("./fixtures/black-480-124-audio.mp4", import.meta.url)));
+    expect(await (await upload({ ...request, audio: "replace" }, { source: sounding })).json())
+      .toMatchObject({ error: "Replacing the sound needs a source video without it." });
+    for (const audio of ["reference", "preserve", undefined]) {
+      expect(await (await upload({ ...request, audio })).json())
+        .toMatchObject({ error: "The source video has no sound to keep or reference. Choose Replace under Advanced." });
+    }
+    expect(submit).not.toHaveBeenCalled();
+    expect((await upload({ ...request, audio: "preserve" }, { source: sounding })).status).toBe(202);
+    await session.job!.done;
+    const graph = submit.mock.calls[0][0].json as ApiGraph;
+    expect(graph["14"].inputs["ref_audios.ref_audio_1"]).toEqual(["6", 1]);
+    expect(graph["28"].inputs.audio).toEqual(["6", 1]);
+    expect(session.inpainting).toMatchObject({ audio: "preserve" });
   });
   it("normalizes and binds the optional image as Picture 1", async () => {
     const { upload, session, submit } = await setup();

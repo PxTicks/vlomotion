@@ -4,7 +4,7 @@ import {
   TextField, ToggleButton, ToggleButtonGroup, Tooltip, Typography,
 } from "@mui/material";
 import { MASK_FEATHER, MASK_GROW, VIDEO_TIERS } from "@h3-motion/shared";
-import { useInpaintStore } from "./useInpaintStore";
+import { audioMode, useInpaintStore } from "./useInpaintStore";
 import { RemoveMediaButton } from "../shell/RemoveMediaButton";
 import { SelectedKeyCard } from "../motion/SelectedKeyCard";
 import { SUBJECT_COLORS } from "../motion/useMotionStore";
@@ -12,11 +12,17 @@ import { formatSeconds } from "../motion/format";
 
 const GROW_HELP = "How far the mask is widened on every side before generating. More room lets the new content blend into its surroundings, and covers edges of what you're replacing that stick out of the mask.";
 const FEATHER_HELP = "How softly the generated patch fades into the original video at the mask's edge. Higher values hide the seam, but blur the boundary further on each side of it.";
+const AUDIO_OPTIONS = [
+  ["preserve", "Preserve", "Keeps the original sound unchanged in the output. MiniMax H3 still hears it, so the new content can match it."],
+  ["replace", "Replace", "Generates new sound from your prompt. The original sound is never sent to MiniMax H3, so it can't influence the result."],
+  ["reference", "Reference", "Generates new sound, using the original sound as a reference for its ambience and style."],
+] as const;
 
 export function InpaintPanel() {
   const s = useInpaintStore();
   const busy = s.status !== "idle";
   const keyCount = s.motion?.keys.length ?? 0;
+  const audio = audioMode(s.video, s.audio);
   const [referenceUrl, setReferenceUrl] = useState<string | null>(null);
   const [menu, setMenu] = useState<HTMLElement | null>(null);
   const upload = useRef<HTMLInputElement>(null);
@@ -111,10 +117,13 @@ export function InpaintPanel() {
       <TextField label="Main prompt" multiline minRows={6} value={s.prompt} disabled={busy}
         onChange={event => s.setPrompt(event.target.value)} slotProps={{ htmlInput: { maxLength: 4000 } }}
         helperText={s.referenceRole?.kind === "object" ? "Use <Subject 1> for your reference." : s.referenceRole ? "Describe the whole shot." : undefined} />
-      <TextField label="Sound effects [Optional]" multiline minRows={3} value={s.soundEffects} disabled={busy}
-        onChange={event => s.setSoundEffects(event.target.value)} slotProps={{ htmlInput: { maxLength: 500 } }} />
-      <TextField label="Music [Optional]" multiline minRows={3} value={s.music} disabled={busy}
-        onChange={event => s.setMusic(event.target.value)} slotProps={{ htmlInput: { maxLength: 250 } }} />
+      {/* A preserved sound is the whole soundtrack, so there is no new sound to describe. */}
+      {audio !== "preserve" && <>
+        <TextField label="Sound effects [Optional]" multiline minRows={3} value={s.soundEffects} disabled={busy}
+          onChange={event => s.setSoundEffects(event.target.value)} slotProps={{ htmlInput: { maxLength: 500 } }} />
+        <TextField label="Music [Optional]" multiline minRows={3} value={s.music} disabled={busy}
+          onChange={event => s.setMusic(event.target.value)} slotProps={{ htmlInput: { maxLength: 250 } }} />
+      </>}
       <Stack spacing={1}>
         <Typography variant="caption" color="text.secondary">Resolution</Typography>
         <ToggleButtonGroup exclusive size="small" value={s.tier} disabled={busy} aria-label="Resolution"
@@ -137,6 +146,16 @@ export function InpaintPanel() {
         <AccordionSummary expandIcon={<Typography color="text.secondary">▾</Typography>}><Typography variant="overline">Advanced</Typography></AccordionSummary>
         <AccordionDetails>
           <Stack spacing={2.5}>
+            <Stack spacing={1}>
+              <Typography variant="caption" color="text.secondary">Original sound</Typography>
+              <ToggleButtonGroup exclusive size="small" value={audio} disabled={busy || !s.video?.audio} aria-label="Original sound"
+                onChange={(_, value: unknown) => { const next = AUDIO_OPTIONS.find(([option]) => option === value); if (next) s.setAudio(next[0]); }}>
+                {AUDIO_OPTIONS.map(([value, label]) => <ToggleButton key={value} value={value} sx={{ px: 1.5, py: .5, borderRadius: 99 }}>{label}</ToggleButton>)}
+              </ToggleButtonGroup>
+              <Typography variant="body2" color="text.secondary">
+                {s.video?.audio ? AUDIO_OPTIONS.find(([value]) => value === audio)![2] : "This video has no sound, so MiniMax H3 generates new sound from your prompt."}
+              </Typography>
+            </Stack>
             {([["Mask grow", GROW_HELP, s.grow, MASK_GROW, s.setGrow], ["Mask feather", FEATHER_HELP, s.feather, MASK_FEATHER, s.setFeather]] as const)
               .map(([label, help, value, range, setValue]) => <Box key={label}>
                 <Stack direction="row" justifyContent="space-between" alignItems="center">

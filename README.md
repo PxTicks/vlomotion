@@ -24,7 +24,17 @@ the seam-correction pass is omitted. Source pixels are resized onto the model
 canvas and VAE encoded without a prefill step. The browser grows the animated mask
 (24 px by default) before it drives both the latent mask and the composite. Generated
 pixels are resized back and composited into the source through that mask, blurred
-by the feather radius (16 px by default). The output includes generated audio.
+by the feather radius (16 px by default).
+
+**Original sound** under Advanced decides what happens to the source's sound. **Reference**
+(the default) sends it to H3 as `<Audio 1>` (`ref_audio_1`), so the generated sound takes
+on its ambience and style; the prompt defines it with an `audio reference` retention line.
+**Preserve** also lets H3 hear it, as `audio reuse`, but the delivered video keeps the
+original sound unchanged instead of the generated one, so the sound effect and music boxes
+are hidden. **Replace** leaves the sound out of the prepared source video altogether, so H3
+never hears it and generates sound from the prompt alone; the server rejects a source that
+doesn't match the chosen option. For Reference and Preserve, the browser trims the sound to
+the prepared frames and re-encodes it as AAC or Opus. A video without sound is always replaced.
 
 Compared with vlo's reference-based inpainting workflow, this shares the ref2va
 model, source-video VAE encoding, a joint video/audio latent, `vloMaskToLatentMask`,

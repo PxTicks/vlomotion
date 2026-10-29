@@ -12,6 +12,8 @@ export const videoAssetSchema = z.object({
   id: z.uuid(), url: z.string(), width: z.number().int().positive(), height: z.number().int().positive(),
   startTime: z.number().finite().nonnegative().default(0),
   duration: z.number().finite().positive(), frames: z.number().int().positive(),
+  /** Whether the video has a sound track. */
+  audio: z.boolean().default(false),
 });
 export type VideoAsset = z.infer<typeof videoAssetSchema>;
 
@@ -62,10 +64,18 @@ const MASK_EDGE = { min: 0, max: 32, step: 2 } as const;
 export const MASK_GROW = { ...MASK_EDGE, default: 24 } as const;
 /** The blur radius softening the composite's edge: the patch fades in over this distance on each side of the grown edge. */
 export const MASK_FEATHER = { ...MASK_EDGE, default: 16 } as const;
+/**
+ * What happens to the source's sound: H3 hears it as `<Audio 1>` and generates new sound like it (`reference`), or
+ * hears it and the delivered video keeps it unchanged (`preserve`); with `replace` it is left out of the source video,
+ * so H3 never hears it and generates sound from the prompt alone. A source without sound can only be `replace`d.
+ */
+export const inpaintAudioModeSchema = z.enum(["reference", "preserve", "replace"]);
+export type InpaintAudioMode = z.infer<typeof inpaintAudioModeSchema>;
 export const inpaintRequestSchema = z.object({
   videoId: z.uuid(), width: videoDimensionSchema, height: videoDimensionSchema, frames: inpaintFramesSchema,
   prompt: z.string().trim().min(1).max(8000),
-  feather: z.number().int().min(MASK_FEATHER.min).max(MASK_FEATHER.max).multipleOf(MASK_FEATHER.step), seed: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional(),
+  feather: z.number().int().min(MASK_FEATHER.min).max(MASK_FEATHER.max).multipleOf(MASK_FEATHER.step),
+  audio: inpaintAudioModeSchema.default("reference"), seed: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional(),
 });
 export type InpaintRequest = z.infer<typeof inpaintRequestSchema>;
 export const inpaintResultSchema = inpaintRequestSchema.extend({
