@@ -320,20 +320,25 @@ export function setClipFrames(motion: SubjectMotion, frames: FrameCount): Subjec
 
 type FrameSample = Point & { frame: number; z: number };
 
-function rdp(points: FrameSample[], epsilon: number): FrameSample[] {
+/**
+ * Ramer–Douglas–Peucker over points in any number of dimensions: keeps the endpoints and every point that
+ * lies further than `epsilon` from the chord between the points kept either side of it.
+ */
+export function simplifyPath<T>(points: T[], vector: (point: T) => number[], epsilon: number): T[] {
   if (points.length <= 2) return points;
-  const a = points[0], b = points[points.length - 1];
-  const ab = [b.x - a.x, b.y - a.y, b.z - a.z], span = ab[0] ** 2 + ab[1] ** 2 + ab[2] ** 2;
+  const a = vector(points[0]), b = vector(points[points.length - 1]);
+  const ab = b.map((value, i) => value - a[i]), span = ab.reduce((sum, value) => sum + value * value, 0);
   let index = 0, max = 0;
   for (let i = 1; i < points.length - 1; i++) {
-    const p = points[i], ap = [p.x - a.x, p.y - a.y, p.z - a.z];
-    const t = span ? clamp((ap[0] * ab[0] + ap[1] * ab[1] + ap[2] * ab[2]) / span, 0, 1) : 0;
-    const d = Math.hypot(ap[0] - t * ab[0], ap[1] - t * ab[1], ap[2] - t * ab[2]);
+    const ap = vector(points[i]).map((value, j) => value - a[j]);
+    const t = span ? clamp(ap.reduce((sum, value, j) => sum + value * ab[j], 0) / span, 0, 1) : 0;
+    const d = Math.hypot(...ap.map((value, j) => value - t * ab[j]));
     if (d > max) { max = d; index = i; }
   }
-  if (max <= epsilon) return [a, b];
-  return [...rdp(points.slice(0, index + 1), epsilon).slice(0, -1), ...rdp(points.slice(index), epsilon)];
+  if (max <= epsilon) return [points[0], points[points.length - 1]];
+  return [...simplifyPath(points.slice(0, index + 1), vector, epsilon).slice(0, -1), ...simplifyPath(points.slice(index), vector, epsilon)];
 }
+const rdp = (points: FrameSample[], epsilon: number) => simplifyPath(points, ({ x, y, z }) => [x, y, z], epsilon);
 
 /**
  * Turns a recorded drag into keys from `startFrame` to the end of the clip, following vlo: the take's

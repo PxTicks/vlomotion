@@ -1,13 +1,15 @@
 import { create } from "zustand";
 import {
-  MAX_VIDEO_UPLOAD_BYTES, applyRecording, buildMotionCurve, createMaskMotion, deleteKey, fitMask, inpaintFrames, inpaintSize, insertKeyAtLength,
+  MAX_VIDEO_UPLOAD_BYTES, applyRecording, buildMotionCurve, createMaskMotion, deleteKey, fitMask, followTrack, inpaintFrames, inpaintSize, insertKeyAtLength,
   isStartKey, jobSnapshotSchema, lastFrame, maskBoxes, moveKey, rebaseMask, retimeKey, upsertKey, videoAssetSchema,
 } from "@h3-motion/shared";
-import type { FrameSize, InpaintResult, JobSnapshot, MaskShape, Point, Pose, Rect, Scale, SubjectMotion, TimedSample, VideoAsset } from "@h3-motion/shared";
+import type { FrameSize, InpaintResult, JobSnapshot, MaskShape, Point, Pose, Rect, Scale, SubjectMotion, TimedSample, TrackResult, VideoAsset } from "@h3-motion/shared";
 import { apiRequest, watchJob } from "../../api";
 import { renderInpaintVideos } from "./renderInpaint";
 
 type Status = "idle" | "preparing" | "uploading" | "generating";
+/** What the running job does: inpaint the video, or track an object for the mask to follow. */
+type Task = "inpaint" | "track";
 interface InpaintState {
   source: File | null; video: VideoAsset | null; frames: number; uploading: boolean;
   step: 0 | 1 | 2; shape: MaskShape;
@@ -17,7 +19,11 @@ interface InpaintState {
   /** The user parked the playhead after the first frame, so a still mask is keyframed there instead of recorded. */
   scrubbed: boolean; selectedKeyId: string | null;
   prompt: string; reference: File | null; result: InpaintResult | null; view: "preview" | "result";
-  status: Status; progress: number | null; job: JobSnapshot | null; error: string | null; notice: string | null;
+  status: Status; task: Task | null; progress: number | null; job: JobSnapshot | null; error: string | null; notice: string | null;
+  /** Waiting for a click on the object the mask should follow. */
+  picking: boolean;
+  /** The object the mask last followed, for showing where it was tracked. */
+  track: TrackResult | null;
   upload(file: File): Promise<boolean>; visitStep(step: 0 | 1 | 2): void; setShape(shape: MaskShape): void;
   /** Draws or redraws the first-frame mask. Later keys keep their position and size on screen. */
   drawMask(rect: Rect): void;
@@ -40,6 +46,10 @@ interface InpaintState {
   startRecording(): number | null;
   /** Applies a take, timed to fill the clip from the playhead where it started. */
   finishRecording(samples: TimedSample[]): void;
+  /** Waits for a click on an object for a still mask to follow. The playhead goes to the first frame, where tracking starts, and stays there. */
+  startPicking(): void; stopPicking(): void;
+  /** Tracks the object under `point` on the first frame, in video pixels, and keys the mask to follow it. Only while picking. */
+  followObject(point: Point): Promise<void>;
   setPrompt(prompt: string): void; setReference(file: File | null): void; setView(view: "preview" | "result"): void;
   clearError(): void; generate(): Promise<void>; cancel(): Promise<void>;
 }
@@ -58,6 +68,16 @@ function lastCrossed(motion: SubjectMotion<number>, from: number, to: number) {
 
 export const useInpaintStore = create<InpaintState>((set, get) => {
   let playStart = 0;
+  /** Uploads a prepared job and follows it to the end. Returns its final snapshot, or null if it was cancelled. */
+  async function runJob(path: string, form: FormData, signal: AbortSignal): Promise<JobSnapshot | null> {
+    set({ status: "uploading", progress: null });
+    const initial = jobSnapshotSchema.parse(await apiRequest(path, { method: "POST", body: form, signal }));
+    set({ status: "generating", job: initial });
+    if (signal.aborted && ["queued", "running"].includes(initial.status)) await get().cancel();
+    const result = await watchJob(initial, job => set({ job, progress: job.progress }));
+    if (result.status === "failed") throw new Error(result.error ?? result.message);
+    return result.status === "cancelled" ? null : result;
+  }
   /** The mask's motion while it can be animated: idle, on the Animate step. */
   function animating() {
     const { motion, status, step } = get();
@@ -75,7 +95,8 @@ export const useInpaintStore = create<InpaintState>((set, get) => {
   return {
     source: null, video: null, frames: 124, uploading: false, step: 0, shape: "rectangle", bounds: null, motion: null,
     playhead: 0, playing: false, recording: false, scrubbed: false, selectedKeyId: null,
-    prompt: "", reference: null, result: null, view: "preview", status: "idle", progress: null, job: null, error: null, notice: null,
+    prompt: "", reference: null, result: null, view: "preview", status: "idle", task: null, progress: null, job: null, error: null, notice: null,
+    picking: false, track: null,
     upload: async file => {
       if (get().uploading || get().status !== "idle") return false;
       set({ uploading: true, error: null });
@@ -83,7 +104,7 @@ export const useInpaintStore = create<InpaintState>((set, get) => {
         if (file.size > MAX_VIDEO_UPLOAD_BYTES) throw new Error("Choose a video up to 200 MB.");
         const form = new FormData(); form.set("video", file);
         const video = videoAssetSchema.parse(await apiRequest("/videos", { method: "POST", body: form }));
-        set({ source: file, video, frames: inpaintFrames(video.duration), step: 0, bounds: null, motion: null,
+        set({ source: file, video, frames: inpaintFrames(video.duration), step: 0, bounds: null, motion: null, picking: false, track: null,
           playhead: 0, playing: false, recording: false, scrubbed: false, selectedKeyId: null,
           shape: "rectangle", prompt: "", reference: null, result: null, job: null, progress: null, ...edited });
         return true;
@@ -92,7 +113,7 @@ export const useInpaintStore = create<InpaintState>((set, get) => {
     },
     visitStep: step => {
       if (get().status !== "idle" || get().recording || (step > 0 && !get().bounds)) return;
-      set({ step, playing: false, view: "preview", ...(step === 0 ? { playhead: 0, scrubbed: false, selectedKeyId: null } : {}) });
+      set({ step, playing: false, picking: false, view: "preview", ...(step === 0 ? { playhead: 0, scrubbed: false, selectedKeyId: null } : {}) });
     },
     setShape: shape => { if (get().status === "idle") set({ shape, ...edited }); },
     drawMask: rect => {
@@ -102,7 +123,8 @@ export const useInpaintStore = create<InpaintState>((set, get) => {
       set({ bounds: next, motion: motion && bounds ? rebaseMask(motion, bounds, next) : createMaskMotion(next, frames), ...edited });
     },
     setPlayhead: frame => {
-      if (get().recording) return;
+      // While picking, the video must stay on the first frame, where tracking starts.
+      if (get().recording || get().picking) return;
       const playhead = clamp(Math.round(frame), 0, get().frames - 1);
       set({ playhead, playing: false, scrubbed: playhead > 0 });
     },
@@ -114,8 +136,8 @@ export const useInpaintStore = create<InpaintState>((set, get) => {
       if (key) set({ selectedKeyId: key.id });
     },
     togglePlay: () => {
-      const { motion, playing, playhead, recording, frames, pause } = get();
-      if (!motion || recording) return;
+      const { motion, playing, playhead, recording, picking, frames, pause } = get();
+      if (!motion || recording || picking) return;
       if (playing) { pause(); return; }
       playStart = playhead >= frames - 1 ? 0 : playhead;
       set({ playing: true, scrubbed: false, playhead: playStart });
@@ -190,7 +212,7 @@ export const useInpaintStore = create<InpaintState>((set, get) => {
     clearPath: () => {
       const motion = animating(), { bounds } = get();
       if (!motion || !bounds || get().recording) return;
-      edit(createMaskMotion(bounds, motion.frames), { playhead: 0, playing: false, scrubbed: false, selectedKeyId: null });
+      edit(createMaskMotion(bounds, motion.frames), { playhead: 0, playing: false, scrubbed: false, selectedKeyId: null, track: null });
     },
     startRecording: () => {
       const motion = animating(), { recording, scrubbed, playhead } = get();
@@ -206,6 +228,40 @@ export const useInpaintStore = create<InpaintState>((set, get) => {
       set({ motion: next, recording: false, playing: false, ...edited,
         notice: next === motion ? "Nothing was recorded. Press on the mask and drag it along its path." : null });
     },
+    startPicking: () => {
+      const motion = animating();
+      if (!motion || get().recording || motion.keys.length > 1) return;
+      set({ picking: true, playing: false, playhead: 0, scrubbed: false, selectedKeyId: null, notice: null });
+    },
+    stopPicking: () => set({ picking: false }),
+    followObject: async point => {
+      const { source, video, frames, shape, recording, picking, playhead } = get(), motion = animating();
+      // The click must be on the first frame, shown while picking, since that is where SAM segments the object.
+      if (!picking || playhead !== 0 || !source || !video || !motion || recording || motion.keys.length > 1) return;
+      controller = new AbortController();
+      const { signal } = controller;
+      set({ task: "track", status: "preparing", progress: 0, picking: false, playing: false, playhead: 0, selectedKeyId: null, error: null, notice: null, job: null });
+      try {
+        const size = inpaintSize(video.width, video.height);
+        const prepared = await renderInpaintVideos({ source, frames, boxes: null, shape, size }, progress => set({ progress }), signal);
+        signal.throwIfAborted();
+        // Tracking runs on the prepared frames, so the click moves onto them too.
+        const at = { x: clamp(point.x * size.width / video.width, 0, size.width - 1), y: clamp(point.y * size.height / video.height, 0, size.height - 1) };
+        const form = new FormData();
+        form.set("request", JSON.stringify({ videoId: video.id, ...size, frames, positive: [at] }));
+        form.set("source", prepared.source, `source.${prepared.container}`);
+        const result = await runJob("/jobs/track", form, signal);
+        if (!result) { set({ notice: "Tracking cancelled." }); return; }
+        if (!result.tracking) throw new Error("Tracking completed without a track.");
+        const followed = followTrack(get().motion ?? motion, result.tracking, videoFrame(video), newId);
+        if (!followed) throw new Error("SAM couldn't find the object on the first frame. Click on it again.");
+        set({ motion: followed.motion, track: result.tracking, ...edited, notice: followed.filled
+          ? `The mask now follows the object. It was lost or unsteady on ${followed.filled} of ${frames} frames, which were filled in from the frames around them.`
+          : "The mask now follows the object. Drag its keys to adjust the path." });
+      } catch (error) {
+        set(signal.aborted ? { notice: "Tracking cancelled." } : { error: message(error) });
+      } finally { controller = null; set({ status: "idle", task: null, progress: null }); }
+    },
     setPrompt: prompt => { if (get().status === "idle") set({ prompt, ...edited }); },
     setReference: reference => { if (get().status === "idle") set({ reference, ...edited }); },
     setView: view => set({ view }), clearError: () => set({ error: null }),
@@ -214,29 +270,25 @@ export const useInpaintStore = create<InpaintState>((set, get) => {
       if (status !== "idle" || !source || !video || !bounds || !motion || !prompt.trim()) return;
       controller = new AbortController();
       const { signal } = controller;
-      set({ status: "preparing", progress: 0, error: null, notice: null, job: null, playing: false });
+      set({ task: "inpaint", status: "preparing", progress: 0, picking: false, error: null, notice: null, job: null, playing: false });
       try {
         const size = inpaintSize(video.width, video.height);
         const boxes = maskBoxes(bounds, motion, videoFrame(video));
         const videos = await renderInpaintVideos({ source, frames, boxes, shape, size }, progress => set({ progress }), signal);
         signal.throwIfAborted();
-        set({ status: "uploading", progress: null });
+        if (!videos.mask) throw new Error("Could not prepare the mask video.");
         const form = new FormData();
         form.set("request", JSON.stringify({ videoId: video.id, ...size, frames, prompt }));
         form.set("source", videos.source, `source.${videos.container}`);
         form.set("mask", videos.mask, `mask.${videos.container}`);
         if (reference) form.set("reference", reference);
-        const initial = jobSnapshotSchema.parse(await apiRequest("/jobs/inpaint", { method: "POST", body: form, signal }));
-        set({ status: "generating", job: initial });
-        if (signal.aborted && ["queued", "running"].includes(initial.status)) await get().cancel();
-        const result = await watchJob(initial, job => set({ job, progress: job.progress }));
-        if (result.status === "failed") throw new Error(result.error ?? result.message);
-        if (result.status === "cancelled") { set({ notice: "Inpainting cancelled." }); return; }
+        const result = await runJob("/jobs/inpaint", form, signal);
+        if (!result) { set({ notice: "Inpainting cancelled." }); return; }
         if (!result.inpainting) throw new Error("Inpainting completed without a video.");
         set({ result: result.inpainting, view: "result", notice: null });
       } catch (error) {
         set(signal.aborted ? { notice: "Inpainting cancelled." } : { error: message(error) });
-      } finally { controller = null; set({ status: "idle", progress: null }); }
+      } finally { controller = null; set({ status: "idle", task: null, progress: null }); }
     },
     cancel: async () => {
       const { status, job } = get();

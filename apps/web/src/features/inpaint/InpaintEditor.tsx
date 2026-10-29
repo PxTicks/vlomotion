@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import { Box, Stack, ToggleButton, ToggleButtonGroup, Typography } from "@mui/material";
-import { FPS, MAX_SCALE, buildMotionCurve, inpaintSize, isStartKey, placeRect, scaleOf } from "@h3-motion/shared";
+import { FPS, MAX_SCALE, buildMotionCurve, inpaintSize, isStartKey, placeRect, scaleOf, trackedBounds } from "@h3-motion/shared";
 import type { MaskShape, Placement, Point, Pose, Rect, TimedSample } from "@h3-motion/shared";
 import { videoFrame, useInpaintStore } from "./useInpaintStore";
 import { RemoveMediaButton } from "../shell/RemoveMediaButton";
@@ -16,7 +16,7 @@ import { useMotionShortcuts } from "../motion/useMotionShortcuts";
 import { SUBJECT_COLORS } from "../motion/useMotionStore";
 import { formatSeconds } from "../motion/format";
 
-const COLOR = SUBJECT_COLORS[0];
+const COLOR = SUBJECT_COLORS[0], TRACK_COLOR = SUBJECT_COLORS[1];
 type Drag = { pointerId: number; origin: Point; start: Point } & (
   | { kind: "draw" } | { kind: "subject" } | { kind: "key"; id: string } | { kind: "record"; startTime: number }
   | { kind: "scale"; handle: Handle; pose: Pose; cursor: ResizeCursor });
@@ -55,6 +55,12 @@ export function InpaintEditor({ onRemove }: { onRemove(): void }) {
   const tracks = useMemo<OverlayTrack[]>(() => s.motion && curve ? [{ id: "mask", color: COLOR, motion: s.motion, curve }] : [], [s.motion, curve]);
   useMotionShortcuts(useInpaintStore.getState, { enabled: s.step > 0 && !showResult, readOnly: s.step === 2 });
   useEffect(() => () => useInpaintStore.getState().leave(), []);
+  useEffect(() => {
+    if (!s.picking) return;
+    const onKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape") useInpaintStore.getState().stopPicking(); };
+    globalThis.addEventListener("keydown", onKeyDown);
+    return () => globalThis.removeEventListener("keydown", onKeyDown);
+  }, [s.picking]);
 
   useEffect(() => {
     const element = overlay.current;
@@ -101,7 +107,7 @@ export function InpaintEditor({ onRemove }: { onRemove(): void }) {
   const current: Rect | null = draft ?? (!bounds ? null : step === 0 || !motion || !curve ? bounds
     : placeRect(bounds, live ? { anchor: motion.anchor, offset: { x: live.x - motion.anchor.x, y: live.y - motion.anchor.y }, ...curve.scaleAt(playhead) }
       : curve.placementAt(playhead)));
-  const box = !editing || !bounds || !motion || draft || step === 2 || (step === 1 && lockedStart) ? null
+  const box = !editing || s.picking || !bounds || !motion || draft || step === 2 || (step === 1 && lockedStart) ? null
     : step === 0 ? { bounds, anchor: centreOf(bounds), pose: atRest(bounds) } : { bounds, anchor: motion.anchor, pose: poseAt(playhead) };
 
   function toImage(event: ReactPointerEvent): Point {
@@ -125,6 +131,7 @@ export function InpaintEditor({ onRemove }: { onRemove(): void }) {
     if (!editing || step === 2 || event.button !== 0 || drag.current) return;
     event.preventDefault();
     const store = useInpaintStore.getState(), point = toImage(event), { pointerId } = event;
+    if (s.picking) { void store.followObject(point); return; }
     const handle = handleAt(point);
     if (step === 0) {
       if (handle && bounds) startDrag(event, { kind: "scale", handle, pose: atRest(bounds), cursor: handleCursor(handle, atRest(bounds)), pointerId, origin: point, start: point });
@@ -182,7 +189,7 @@ export function InpaintEditor({ onRemove }: { onRemove(): void }) {
   function onPointerMove(event: ReactPointerEvent<SVGSVGElement>) {
     const point = toImage(event), current = drag.current;
     if (!current) {
-      if (!editing || step === 2) { setHover(null); return; }
+      if (!editing || step === 2 || s.picking) { setHover(null); return; }
       const handle = handleAt(point);
       if (handle && box) { setHover(handleCursor(handle, box.pose)); return; }
       if (step === 0) { setHover(bounds && insideMask(shape, bounds, point) ? "subject" : null); return; }
@@ -228,11 +235,12 @@ export function InpaintEditor({ onRemove }: { onRemove(): void }) {
     drag.current = null; setDraft(null);
   }
 
-  const showPath = editing && step === 1 && !!motion;
+  const showPath = editing && step === 1 && !!motion && !s.picking;
   const selected = showPath ? motion.keys.find(key => key.id === s.selectedKeyId) : undefined;
   const ghosts = showPath && bounds && curve ? motion.keys.map(key => placeRect(bounds, { anchor: motion.anchor, offset: { x: key.x - motion.anchor.x, y: key.y - motion.anchor.y }, ...scaleOf(key) }))
     .filter(rect => !current || rect.x !== current.x || rect.y !== current.y || rect.width !== current.width || rect.height !== current.height) : [];
-  const cursor = step === 2 || busy ? "default" : canvasCursor(drag.current, hover, step === 0 ? "crosshair" : "default");
+  const cursor = step === 2 || busy ? "default" : s.picking ? "crosshair" : canvasCursor(drag.current, hover, step === 0 ? "crosshair" : "default");
+  const tracked = step === 1 && s.track && !s.picking ? trackedBounds(s.track, playhead, frame) : null;
 
   return <Stack spacing={2}>
     <Stack direction="row" justifyContent="space-between" alignItems="center">
@@ -260,6 +268,8 @@ export function InpaintEditor({ onRemove }: { onRemove(): void }) {
           style={{ position: "absolute", inset: 0, width: "100%", height: "100%", touchAction: "none", cursor }}
           onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerCancel}
           onPointerLeave={() => { if (!drag.current) setHover(null); }}>
+          {tracked && <rect x={tracked.x} y={tracked.y} width={tracked.width} height={tracked.height} fill="none" stroke={TRACK_COLOR}
+            strokeOpacity={.8} strokeWidth={1.5 * scale} strokeDasharray={`${2 * scale} ${3 * scale}`} pointerEvents="none" />}
           {ghosts.map((rect, index) => <MaskShapeView key={index} shape={shape} rect={rect} scale={scale} ghost />)}
           {current && <MaskShapeView shape={shape} rect={current} scale={scale} />}
           {showPath && <MotionPaths tracks={tracks} activeId="mask" selectedKeyId={s.selectedKeyId} playhead={playhead} scale={scale} />}
@@ -267,11 +277,12 @@ export function InpaintEditor({ onRemove }: { onRemove(): void }) {
         </svg>
         {selected && motion && <KeyBadge keyframe={selected} anchor={motion.anchor} color={COLOR} size={frame} />}
         {step === 0 && !bounds && !draft && <CanvasHint>Drag to draw a mask.</CanvasHint>}
+        {s.picking && <CanvasHint>Click the object for the mask to follow.</CanvasHint>}
         {showPath && motion.keys.length === 1 && <CanvasHint>{s.scrubbed ? `Drag the mask to place a key at ${formatSeconds(playhead)}.` : "Drag the mask to create a path."}</CanvasHint>}
         {s.recording && <RecordingBadge />}
         {step === 0 && <RemoveMediaButton label="Remove video" disabled={busy || s.uploading} onRemove={onRemove} />}
       </Box>}
-    {!showResult && step > 0 && motion && <KeyTimeline motion={motion} color={COLOR} playhead={playhead} playing={s.playing} recording={s.recording}
+    {!showResult && step > 0 && motion && <KeyTimeline motion={motion} color={COLOR} playhead={playhead} playing={s.playing} locked={s.recording || s.picking}
       selectedKeyId={s.selectedKeyId} actions={useInpaintStore.getState} startLabel="drawn mask" readOnly={step === 2} />}
     <Typography variant="caption" color="text.secondary">{output.width} × {output.height} · {(s.frames / FPS).toFixed(1)} s{s.video.duration > s.frames / FPS + 0.1 ? " · using the start of your video" : ""}</Typography>
   </Stack>;

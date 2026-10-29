@@ -106,13 +106,61 @@ describe("inpainting editor", () => {
     vi.mocked(watchJob).mockResolvedValue({ ...queued, status: "completed", inpainting: result });
     await state().generate();
     expect(renderInpaintVideos).toHaveBeenCalledWith(expect.objectContaining({ source, shape: "ellipse", boxes: maskBoxes(bounds, motion, video), size: { width: 854, height: 480 } }), expect.any(Function), expect.any(AbortSignal));
-    const { boxes } = vi.mocked(renderInpaintVideos).mock.calls[0][0];
+    const boxes = vi.mocked(renderInpaintVideos).mock.calls[0][0].boxes!;
     expect(boxes).toHaveLength(124);
     expect(boxes[0]).toEqual({ x: 0.1, y: 0.2, width: 0.2, height: 0.3 });
     const form = vi.mocked(apiRequest).mock.calls[0][1]!.body as FormData;
     expect(JSON.parse(form.get("request") as string)).toEqual({ videoId: video.id, width: 854, height: 480, frames: 124, prompt: "A bird from <Picture 1> flies." });
     expect(form.get("reference")).toBe(reference);
     expect(state()).toMatchObject({ status: "idle", view: "result", result });
+  });
+  it("only picks an object to follow for a still mask, starting from the first frame", () => {
+    useInpaintStore.setState({ video, bounds, motion: moving, step: 1, playhead: 50 });
+    state().startPicking();
+    expect(state().picking).toBe(false);
+    useInpaintStore.setState({ motion: still });
+    state().startPicking();
+    expect(state()).toMatchObject({ picking: true, playhead: 0 });
+    // The click has to land on the first frame, so the playhead can't leave it while picking.
+    state().setPlayhead(40); state().scrub(60); state().togglePlay();
+    expect(state()).toMatchObject({ picking: true, playhead: 0, playing: false });
+    state().visitStep(2);
+    expect(state().picking).toBe(false);
+  });
+  it("tracks the clicked object on the prepared frames and keys the mask to follow it", async () => {
+    useInpaintStore.setState({ source, video, bounds, motion: still, step: 1, picking: true });
+    vi.mocked(renderInpaintVideos).mockResolvedValue({ ...videos, mask: null });
+    // On the 854 × 480 prepared frames, the object starts under the mask and drifts right 2 px a frame.
+    const frames = Array.from({ length: 124 }, (_, i) => ({ area: 1600, x: 170 + 2 * i, y: 200, bounds: { x: 150 + 2 * i, y: 180, width: 40, height: 40 } }));
+    const tracking = { videoId: video.id, width: 854, height: 480, frames };
+    vi.mocked(apiRequest).mockResolvedValue(queued);
+    vi.mocked(watchJob).mockResolvedValue({ ...queued, status: "completed", tracking });
+    await state().followObject({ x: 960, y: 540 });
+    expect(renderInpaintVideos).toHaveBeenCalledWith(expect.objectContaining({ source, boxes: null, size: { width: 854, height: 480 } }), expect.any(Function), expect.any(AbortSignal));
+    const [path, init] = vi.mocked(apiRequest).mock.calls[0];
+    expect(path).toBe("/jobs/track");
+    expect(JSON.parse((init!.body as FormData).get("request") as string)).toEqual({ videoId: video.id, width: 854, height: 480, frames: 124, positive: [{ x: 427, y: 240 }] });
+    const keys = state().motion!.keys;
+    expect(keys[0]).toEqual(still.keys[0]);
+    // 2 px a frame on the prepared frames is 2 × 1920 / 854 video pixels a frame.
+    expect(keys.at(-1)).toMatchObject({ frame: 123, x: expect.closeTo(384 + 246 * 1920 / 854, 0), y: expect.closeTo(378, 6), sx: expect.closeTo(1, 6) });
+    expect(state()).toMatchObject({ status: "idle", task: null, picking: false, track: tracking, notice: expect.stringMatching(/now follows the object/) });
+    state().clearPath();
+    expect(state().track).toBeNull();
+  });
+  it("only follows an object clicked while picking", async () => {
+    useInpaintStore.setState({ source, video, bounds, motion: still, step: 1, playhead: 30 });
+    await state().followObject({ x: 960, y: 540 });
+    expect(renderInpaintVideos).not.toHaveBeenCalled();
+    expect(state()).toMatchObject({ status: "idle", task: null, motion: still });
+  });
+  it("reports a track that misses the first frame and keeps the still mask", async () => {
+    useInpaintStore.setState({ source, video, bounds, motion: still, step: 1, picking: true });
+    vi.mocked(renderInpaintVideos).mockResolvedValue({ ...videos, mask: null });
+    vi.mocked(apiRequest).mockResolvedValue(queued);
+    vi.mocked(watchJob).mockResolvedValue({ ...queued, status: "completed", tracking: { videoId: video.id, width: 854, height: 480, frames: Array(124).fill(null) } });
+    await state().followObject({ x: 10, y: 10 });
+    expect(state()).toMatchObject({ motion: still, track: null, error: "SAM couldn't find the object on the first frame. Click on it again." });
   });
   it("keeps the last result when replacement generation fails", async () => {
     useInpaintStore.setState({ source, video, bounds, motion: still, prompt: "A bird flies.", step: 2, result });

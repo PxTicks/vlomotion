@@ -31,14 +31,22 @@ export function InpaintPanel() {
     </> : s.step === 1 ? <>
       <Stack spacing={1}>
         <Typography variant="h2">Animate the mask</Typography>
-        <Typography variant="body2" color="text.secondary">Leave the mask still, or drag it to create a path. Adjust by selecting and dragging ◆ on the video to fix positions, or on the timeline bar to fix timings. Drag the box corners to resize the mask, or its edges to stretch it.</Typography>
+        <Typography variant="body2" color="text.secondary">Leave the mask still, drag it to create a path, or have it follow an object. Adjust by selecting and dragging ◆ on the video to fix positions, or on the timeline bar to fix timings. Drag the box corners to resize the mask, or its edges to stretch it.</Typography>
       </Stack>
+      {s.task === "track" ? <Stack spacing={1} aria-live="polite">
+        <Typography variant="body2">{s.status === "preparing" ? "Preparing the video…" : s.status === "uploading" ? "Uploading…" : s.job?.message ?? "Tracking the object…"}</Typography>
+        <LinearProgress variant={s.progress === null ? "indeterminate" : "determinate"} value={(s.progress ?? 0) * 100} />
+        <Button onClick={() => void s.cancel()}>Cancel</Button>
+      </Stack> : s.picking ? <Stack direction="row" alignItems="center" justifyContent="space-between" gap={1}>
+        <Typography variant="body2">Click the object on the video. The mask keeps its place beside it and grows or shrinks with it.</Typography>
+        <Button onClick={s.stopPicking}>Cancel</Button>
+      </Stack> : <Button variant="outlined" disabled={busy || s.recording || keyCount > 1} onClick={s.startPicking}>Follow an object</Button>}
       {s.notice && <Typography role="status" variant="body2" color="text.secondary">{s.notice}</Typography>}
-      {s.motion && <SelectedKeyCard motion={s.motion} keyId={s.selectedKeyId} color={SUBJECT_COLORS[0]} disabled={s.recording}
+      {s.motion && <SelectedKeyCard motion={s.motion} keyId={s.selectedKeyId} color={SUBJECT_COLORS[0]} disabled={busy || s.recording}
         onRetime={s.retimeKey} onResetScale={s.resetScale} onDelete={s.deleteSelected}
         startNote="The first key is the mask you drew. Change it in Draw mask." />}
-      <Button variant="outlined" disabled={s.recording || keyCount < 2} onClick={s.clearPath}>Clear path</Button>
-      <Button variant="contained" disabled={s.recording} onClick={() => s.visitStep(2)}>Continue →</Button>
+      <Button variant="outlined" disabled={busy || s.recording || keyCount < 2} onClick={s.clearPath}>Clear path</Button>
+      <Button variant="contained" disabled={busy || s.recording || s.picking} onClick={() => s.visitStep(2)}>Continue →</Button>
     </> : <>
       <Typography variant="h2">Inpaint the video</Typography>
       <Button component="label" variant="outlined" disabled={busy}>

@@ -24,3 +24,25 @@ export async function decodeMask(bytes: Uint8Array, width: number, height: numbe
 export async function encodeMask(pixels: Uint8Array, width: number, height: number) {
   return sharp(pixels, { raw: { width, height, channels: 1 } }).png().toBuffer();
 }
+
+/** A tracked mask's area, the median of its pixels (at pixel centres) and its bounds, or null if it is empty. */
+export async function measureMask(bytes: Uint8Array, width: number, height: number) {
+  const { pixels, bounds } = await decodeMask(bytes, width, height);
+  if (!bounds) return null;
+  const columns = new Uint32Array(width), rows = new Uint32Array(height);
+  let area = 0;
+  for (let y = bounds.y; y < bounds.y + bounds.height; y++) {
+    for (let x = bounds.x; x < bounds.x + bounds.width; x++) {
+      if (pixels[y * width + x] < 128) continue;
+      columns[x]++; rows[y]++; area++;
+    }
+  }
+  /** The centre of the row or column holding the `rank`th pixel, counting from 1. */
+  const holding = (counts: Uint32Array, rank: number) => {
+    let total = 0, index = 0;
+    while (total + counts[index] < rank) total += counts[index++];
+    return index + 0.5;
+  };
+  const medianOf = (counts: Uint32Array) => (holding(counts, Math.ceil(area / 2)) + holding(counts, Math.floor(area / 2) + 1)) / 2;
+  return { area, x: medianOf(columns), y: medianOf(rows), bounds };
+}

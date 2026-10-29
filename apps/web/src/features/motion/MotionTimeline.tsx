@@ -14,7 +14,7 @@ export function MotionTimeline({ readOnly = false }: { readOnly?: boolean }) {
   const setFrames = useMotionStore(s => s.setFrames);
   if (!motion) return null;
 
-  return <KeyTimeline motion={motion} color={color} playhead={playhead} playing={playing} recording={recording} selectedKeyId={selectedKeyId}
+  return <KeyTimeline motion={motion} color={color} playhead={playhead} playing={playing} locked={recording} selectedKeyId={selectedKeyId}
     actions={useMotionStore.getState} startLabel="photo" readOnly={readOnly}>
     {!readOnly && <Stack direction="row" alignItems="center" gap={1}>
       <ToggleButtonGroup exclusive size="small" value={motion.frames} disabled={recording} aria-label="Clip length"

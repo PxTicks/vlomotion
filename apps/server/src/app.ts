@@ -9,7 +9,7 @@ import { serveStatic } from "@hono/node-server/serve-static";
 import { ZodError } from "zod";
 import sharp from "sharp";
 import type { Comfy } from "@comfyorg/sdk";
-import { MAX_VIDEO_UPLOAD_BYTES, VIDEO_TIERS, animateRequestSchema, videoGeometry, inpaintFrames, inpaintRequestSchema, inpaintSize, isolateRequestSchema, segmentRequestSchema, selectionRequestSchema } from "@h3-motion/shared";
+import { MAX_VIDEO_UPLOAD_BYTES, VIDEO_TIERS, animateRequestSchema, videoGeometry, inpaintFrames, inpaintRequestSchema, inpaintSize, isolateRequestSchema, segmentRequestSchema, selectionRequestSchema, trackRequestSchema } from "@h3-motion/shared";
 import type { AnimateRequest } from "@h3-motion/shared";
 import { comfy, checkComfyHealth } from "./comfy.js";
 import { REPO_ROOT } from "./config.js";
@@ -19,7 +19,9 @@ import { startSegment } from "./jobs/segment.js";
 import { startIsolate } from "./jobs/isolate.js";
 import { startAnimate } from "./jobs/animate.js";
 import { startInpaint } from "./jobs/inpaint.js";
+import { startTrack } from "./jobs/track.js";
 import { cancelJob } from "./jobs/runtime.js";
+import type { ManagedJob } from "./jobs/runtime.js";
 import { decodeMask, encodeMask } from "./media/masks.js";
 import { inspectVideo } from "./media/video.js";
 
@@ -42,6 +44,19 @@ async function readVideoUpload(value: FormDataEntryValue | null, request: Pick<A
   return { bytes, container: info.container };
 }
 
+/**
+ * Starts a GPU job for an upload unless the client has already gone, and cancels it if the client goes while it
+ * is being submitted: the browser reports a cancelled upload as cancelled, so its job mustn't keep running.
+ */
+function startWhileConnected(signal: AbortSignal, operation: string, start: () => ManagedJob): ManagedJob {
+  if (signal.aborted) throw new HTTPException(400, { message: `${operation} cancelled.` });
+  const job = start();
+  const abort = () => { void cancelJob(job).catch(error => console.error(`Could not cancel ${operation.toLowerCase()} after upload was aborted`, error)); };
+  signal.addEventListener("abort", abort, { once: true });
+  void job.done.then(() => signal.removeEventListener("abort", abort));
+  return job;
+}
+
 export function createApp(options: AppOptions = {}) {
   const store = options.store ?? new SessionStore();
   const client = options.client ?? comfy;
@@ -52,7 +67,7 @@ export function createApp(options: AppOptions = {}) {
   // Bound multipart framing separately from the combined file size.
   const videoLimit = bodyLimit({ maxSize: MAX_VIDEO_UPLOAD_BYTES + 1024 * 1024,
     onError: c => c.json({ error: "Choose a video upload up to 200 MB." }, 413) });
-  app.use("/api/*", (c, next) => (["/api/jobs/animate", "/api/jobs/inpaint", "/api/videos"].includes(c.req.path) ? videoLimit : photoLimit)(c, next));
+  app.use("/api/*", (c, next) => (["/api/jobs/animate", "/api/jobs/inpaint", "/api/jobs/track", "/api/videos"].includes(c.req.path) ? videoLimit : photoLimit)(c, next));
   app.use("/api/*", async (c, next) => {
     c.header("Cache-Control", "no-store");
     c.header("X-Content-Type-Options", "nosniff");
@@ -229,14 +244,31 @@ export function createApp(options: AppOptions = {}) {
       reference ? store.savePng(session, reference) : undefined,
     ]);
     if (!unchanged()) throw new HTTPException(409, { message: "The video changed while uploading. Try again." });
-    const signal = c.req.raw.signal;
-    if (signal.aborted) throw new HTTPException(400, { message: "Inpainting cancelled." });
-    const job = startInpaint(client, store, session, request,
-      { sourcePath: sourceFile.path, maskPath: maskFile.path, referencePath: referenceFile?.path });
-    const abort = () => { void cancelJob(job).catch(error => console.error("Could not cancel inpainting after upload was aborted", error)); };
-    signal.addEventListener("abort", abort, { once: true });
-    void job.done.then(() => signal.removeEventListener("abort", abort));
+    const job = startWhileConnected(c.req.raw.signal, "Inpainting", () => startInpaint(client, store, session, request,
+      { sourcePath: sourceFile.path, maskPath: maskFile.path, referencePath: referenceFile?.path }));
     return c.json(job.snapshot, 202);
+  });
+  app.post("/api/jobs/track", async c => {
+    const session = c.get("session");
+    if (isBusy(session)) throw new HTTPException(409, { message: "A job is already running in this session." });
+    const form = await c.req.formData().catch(() => { throw new HTTPException(400, { message: "Send the video as a multipart form." }); });
+    assertVideoUploadSize(form);
+    const request = trackRequestSchema.parse(JSON.parse(String(form.get("request") ?? "")));
+    const video = session.video;
+    if (!video || video.id !== request.videoId) throw new HTTPException(409, { message: "The source video changed. Upload it again." });
+    const size = inpaintSize(video.width, video.height);
+    if (request.width !== size.width || request.height !== size.height || request.frames !== inpaintFrames(video.duration)) {
+      throw new HTTPException(400, { message: "The prepared video doesn't match the source video." });
+    }
+    if ([...request.positive, ...request.negative].some(point => point.x >= request.width || point.y >= request.height)) {
+      throw new HTTPException(400, { message: "Tracking points must be inside the video." });
+    }
+    const source = await readVideoUpload(form.get("source"), request, "source");
+    const unchanged = () => !isBusy(session) && session.video === video;
+    if (!unchanged()) throw new HTTPException(409, { message: "The video changed while uploading. Try again." });
+    const file = await store.saveFile(session, source.bytes, source.container);
+    if (!unchanged()) throw new HTTPException(409, { message: "The video changed while uploading. Try again." });
+    return c.json(startWhileConnected(c.req.raw.signal, "Tracking", () => startTrack(client, session, request, file.path)).snapshot, 202);
   });
   app.get("/api/jobs/:id", c => {
     const job = c.get("session").job;

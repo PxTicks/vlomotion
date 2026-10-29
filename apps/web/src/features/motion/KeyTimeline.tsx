@@ -15,8 +15,10 @@ export interface TimelineActions {
 type TrackDrag = { pointerId: number } & ({ kind: "scrub" } | { kind: "key"; id: string });
 
 /** Read-only, the timeline only plays and scrubs: keys are shown but can't be moved, added or recorded. */
-export function KeyTimeline({ motion, color, playhead, playing, recording, selectedKeyId, actions, startLabel, readOnly = false, children }: {
-  motion: SubjectMotion<number>; color: string; playhead: number; playing: boolean; recording: boolean; selectedKeyId: string | null;
+export function KeyTimeline({ motion, color, playhead, playing, locked, selectedKeyId, actions, startLabel, readOnly = false, children }: {
+  motion: SubjectMotion<number>; color: string; playhead: number; playing: boolean; selectedKeyId: string | null;
+  /** While a take records or the editor waits on a frame, the timeline can't play, scrub or add keys. */
+  locked: boolean;
   /** Reads the store's current actions, so drags never act on a stale render. */
   actions: () => TimelineActions; readOnly?: boolean;
   /** What the fixed first key stands for, e.g. the photo. */
@@ -35,7 +37,7 @@ export function KeyTimeline({ motion, color, playhead, playing, recording, selec
   }
 
   function onPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
-    if (recording || event.button !== 0) return;
+    if (locked || event.button !== 0) return;
     const store = actions();
     const keyId = readOnly ? null : (event.target as HTMLElement).closest("[data-key-id]")?.getAttribute("data-key-id");
     // Stops the press selecting nearby text, which the browser would then start dragging and cancel this drag.
@@ -67,7 +69,7 @@ export function KeyTimeline({ motion, color, playhead, playing, recording, selec
 
   return <Stack spacing={1.5}>
     <Stack direction="row" alignItems="center" spacing={1.5}>
-      <IconButton aria-label={playing ? "Pause" : "Play"} onClick={() => actions().togglePlay()} disabled={recording}
+      <IconButton aria-label={playing ? "Pause" : "Play"} onClick={() => actions().togglePlay()} disabled={locked}
         sx={{ bgcolor: "primary.main", color: "primary.contrastText", width: 40, height: 40, fontSize: 14, "&:hover": { bgcolor: "#e2ef4c" } }}>
         {playing ? "❚❚" : "▶"}
       </IconButton>
@@ -82,7 +84,7 @@ export function KeyTimeline({ motion, color, playhead, playing, recording, selec
           if (next === null) return;
           event.preventDefault(); event.stopPropagation(); actions().setPlayhead(next);
         }}
-        sx={{ position: "relative", flex: 1, height: 44, mx: 1, cursor: recording ? "default" : "pointer", touchAction: "none", userSelect: "none",
+        sx={{ position: "relative", flex: 1, height: 44, mx: 1, cursor: locked ? "default" : "pointer", touchAction: "none", userSelect: "none",
           "&:focus-visible": { outline: "2px solid", outlineColor: "primary.main", outlineOffset: 4, borderRadius: 1 } }}>
         <Box sx={{ position: "absolute", left: 0, right: 0, top: "50%", height: 4, mt: "-2px", borderRadius: 99, bgcolor: "rgba(255,255,255,.12)" }} />
         {ticks.map(second => <Box key={second} sx={{ position: "absolute", left: percent(second * FPS), bottom: 0, width: "1px", height: 6, bgcolor: "rgba(255,255,255,.2)" }} />)}
@@ -95,7 +97,7 @@ export function KeyTimeline({ motion, color, playhead, playing, recording, selec
               borderColor: active ? "#f0efed" : color, cursor: readOnly ? "inherit" : start ? "pointer" : "ew-resize" }} />;
         })}
       </Box>
-      {!readOnly && <Button variant="outlined" size="small" onClick={() => actions().addKey()} disabled={recording || playhead === 0 || keyAtPlayhead} sx={{ minWidth: 0, px: 1.5 }}>◆ Key</Button>}
+      {!readOnly && <Button variant="outlined" size="small" onClick={() => actions().addKey()} disabled={locked || playhead === 0 || keyAtPlayhead} sx={{ minWidth: 0, px: 1.5 }}>◆ Key</Button>}
     </Stack>
     <Stack direction="row" alignItems="center" justifyContent="space-between" flexWrap="wrap" gap={1}>
       <Typography variant="caption" color="text.secondary" sx={{ fontVariantNumeric: "tabular-nums" }}>

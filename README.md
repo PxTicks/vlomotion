@@ -5,9 +5,9 @@ using the Comfy SDK and self-hosted ComfyUI. This is an early implementation.
 
 Start by uploading an image or video. Images open the existing Select → Isolate →
 Move → Generate workflow. MP4/WebM videos open Draw mask → Animate → Generate:
-draw a rectangle or ellipse, scrub and move/resize it to add keyframes, then add a
-prompt and optional reference image (`<Picture 1>`). Mask position and size
-interpolate between keyframes. Video preparation keeps the source ratio at a
+draw a rectangle or ellipse, then animate it with the same path, key and resize
+tools as Move, or have it follow an object, then add a prompt and optional
+reference image (`<Picture 1>`). Video preparation keeps the source ratio at a
 480p short edge, at 24 fps and up to the first 243 frames, trimmed to H3's 17k+5
 frame grid. ComfyUI stretches source and mask onto a nearby model-valid canvas,
 then restores the output ratio before saving.
@@ -219,6 +219,16 @@ change, `if_core_changed=native` uses its native segmentation method instead.
 The mask guides SAM; it does not guarantee that every previously selected pixel
 remains selected. Update ComfyUI-vlo and restart ComfyUI if the refinement node
 is missing. No app-specific custom nodes need installing.
+
+Following an object in the video workflow segments the clicked object on the
+prepared first frame with `vloSAM3RefineMask`, then propagates it with core
+`SAM3_VideoTrack` and `SAM3_TrackToMask`, saving one mask per frame. The server
+measures each frame's area, pixel median and bounds. The app then rejects frames
+whose area or position jumps from their neighbours, holds the size and follows
+the visible side while the object is clipped by the frame edge, fills gaps
+(coasting briefly at the end), smooths with a zero-lag local quadratic fit and
+simplifies the result into editable mask keys. The mask keeps its offset from the
+object and scales with it.
 
 Start ComfyUI on `8188`, then install and run the
 [v2 proxy](https://github.com/Comfy-Org/comfy-api-proxy) manually if you prefer.
