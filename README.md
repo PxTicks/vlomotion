@@ -13,7 +13,7 @@ frame at the playhead, edited by Qwen Image inside the mask. With a reference,
 the prompt is laid out in MiniMax's full-reference sections: an object is
 defined as `<Subject 1>`, and an edited frame as a `<Picture 1>` keyframe anchor
 of the shot. Video preparation keeps the source ratio at a
-480p short edge, at 24 fps and up to the first 243 frames, trimmed to H3's 17k+5
+480p short edge, at 24 fps and up to the first 362 frames (15 s), trimmed to H3's 17k+5
 frame grid. ComfyUI stretches source and mask onto a nearby model-valid canvas,
 then restores the output ratio before saving.
 

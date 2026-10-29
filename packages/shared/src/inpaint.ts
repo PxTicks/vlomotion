@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { FPS, videoDimensionSchema, videoGeometry } from "./media.js";
+import { CLIP_FRAMES, FPS, videoDimensionSchema, videoGeometry } from "./media.js";
 import type { FrameSize } from "./media.js";
 import { buildMotionCurve, createMotion, placeRect, scaleOf } from "./motion.js";
 import type { Rect, SubjectMotion } from "./motion.js";
@@ -7,7 +7,9 @@ import type { Rect, SubjectMotion } from "./motion.js";
 export const maskShapeSchema = z.enum(["rectangle", "ellipse"]);
 export type MaskShape = z.infer<typeof maskShapeSchema>;
 export interface MaskBox { x: number; y: number; width: number; height: number }
-export const inpaintFramesSchema = z.number().int().min(5).max(243).refine(n => (n - 5) % 17 === 0, "Invalid H3 frame count.");
+/** Videos share the image clips' 15 s cap. */
+export const MAX_VIDEO_SECONDS = Math.floor(CLIP_FRAMES.max / FPS);
+export const inpaintFramesSchema = z.number().int().min(5).max(CLIP_FRAMES.max).refine(n => (n - 5) % 17 === 0, "Invalid H3 frame count.");
 export const videoAssetSchema = z.object({
   id: z.uuid(), url: z.string(), width: z.number().int().positive(), height: z.number().int().positive(),
   startTime: z.number().finite().nonnegative().default(0),
@@ -22,7 +24,7 @@ export function inpaintSize(width: number, height: number, tier = 480) {
   return videoGeometry({ width, height }, tier).output;
 }
 export function inpaintFrames(duration: number) {
-  const available = Math.min(243, Math.floor(duration * FPS + 0.001));
+  const available = Math.min(CLIP_FRAMES.max, Math.floor(duration * FPS + 0.001));
   return Math.max(5, available - ((available - 5) % 17));
 }
 export function clampMask(box: MaskBox): MaskBox {

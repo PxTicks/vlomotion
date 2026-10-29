@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
-import { Box, Stack, ToggleButton, ToggleButtonGroup, Typography } from "@mui/material";
-import { FPS, MAX_SCALE, buildMotionCurve, isStartKey, placeRect, scaleOf, trackedBounds } from "@h3-motion/shared";
+import { Alert, Box, Stack, ToggleButton, ToggleButtonGroup, Typography } from "@mui/material";
+import { CLIP_FRAMES, FPS, MAX_SCALE, MAX_VIDEO_SECONDS, buildMotionCurve, isStartKey, placeRect, scaleOf, trackedBounds } from "@h3-motion/shared";
 import type { MaskShape, Placement, Point, Pose, Rect, TimedSample } from "@h3-motion/shared";
 import { MAX_MASKS, nextMaskColor, videoFrame, useInpaintStore } from "./useInpaintStore";
 import type { InpaintMask } from "./useInpaintStore";
@@ -338,6 +338,8 @@ export function InpaintEditor({ onRemove }: { onRemove(): void }) {
       </Box>}
     {!showResult && step > 0 && motion && <KeyTimeline motion={motion} color={color} playhead={playhead} playing={s.playing} locked={s.recording || s.picking}
       selectedKeyId={s.selectedKeyId} actions={useInpaintStore.getState} startLabel="drawn mask" readOnly={step === 2} />}
-    {step === 0 && s.video.duration > s.frames / FPS + 0.1 && <Typography variant="caption" color="text.secondary">Uses the first {(s.frames / FPS).toFixed(1)} s of your video.</Typography>}
+    {step === 0 && s.frames === CLIP_FRAMES.max && s.video.duration > s.frames / FPS + 0.1
+      ? <Alert severity="warning">Videos can be at most {MAX_VIDEO_SECONDS} s long. Only the first {MAX_VIDEO_SECONDS} s of yours ({s.video.duration.toFixed(1)} s) will be used.</Alert>
+      : step === 0 && s.video.duration > s.frames / FPS + 0.1 && <Typography variant="caption" color="text.secondary">Uses the first {(s.frames / FPS).toFixed(1)} s of your video.</Typography>}
   </Stack>;
 }

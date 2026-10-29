@@ -48,6 +48,7 @@ describe("inpainting geometry", () => {
     }
     expect(inpaintFrames(5)).toBe(107);
     expect(inpaintFrames(124 / 24)).toBe(124);
-    expect(inpaintFrames(60)).toBe(243);
+    expect(inpaintFrames(12)).toBe(277);
+    expect(inpaintFrames(60)).toBe(362);
   });
 });

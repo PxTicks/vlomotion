@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import { Alert, Box, Button, CircularProgress, Stack, Typography } from "@mui/material";
+import { MAX_VIDEO_SECONDS } from "@h3-motion/shared";
 import { useSelectionStore } from "../select";
 import { useInpaintStore } from "../inpaint/useInpaintStore";
 
@@ -36,7 +37,7 @@ export function MediaUpload({ onUploaded }: { onUploaded(workflow: Workflow): vo
         <Typography variant="h2">Upload an image or video</Typography>
         <Typography variant="body2" color="text.secondary">Image → animate a subject · Video → inpaint a moving area</Typography>
         <Button variant="contained" disabled={busy} onClick={() => input.current?.click()}>{busy ? "Uploading…" : "Choose a file"}</Button>
-        <Typography variant="caption" color="text.secondary">JPEG, PNG, WebP · MP4, WebM</Typography>
+        <Typography variant="caption" color="text.secondary">JPEG, PNG, WebP · MP4, WebM up to {MAX_VIDEO_SECONDS} s</Typography>
       </Stack>
     </Box>
     <input hidden ref={input} type="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/webm" aria-label="Upload an image or video"
