@@ -79,7 +79,7 @@ export function App() {
         <Typography sx={{ letterSpacing: ".14em", fontSize: 14, fontWeight: 600, flexShrink: 0 }}>H3 <Box component="span" sx={{ color: "primary.main" }}>MOTION</Box></Typography>
         {workflow !== "upload" && <>
           <Typography aria-hidden="true" color="text.secondary" sx={{ fontSize: 14 }}>/</Typography>
-          <Typography component="h1" noWrap sx={{ fontSize: 14, fontWeight: 500 }}>{workflow === "video" ? "Inpaint a video" : "Move a subject"}</Typography>
+          <Typography component="h1" noWrap sx={{ fontSize: 14, fontWeight: 500 }}>{workflow === "video" ? "Paint in motion" : "Make it move"}</Typography>
         </>}
       </Stack>
       <Stack direction="row" alignItems="center" spacing={1.5} sx={{ flexShrink: 0 }}>
