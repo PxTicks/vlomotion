@@ -6,7 +6,7 @@ import { useSelectionStore } from "../../select";
 import { layersKeyOf, subjectKeyOf, useMotionStore } from "../../motion";
 import type { SubjectLayers } from "../../motion";
 import { currentParts, resolveInputs } from "../inputs";
-import { useGenerateStore } from "../useGenerateStore";
+import { promptSettings, useGenerateStore } from "../useGenerateStore";
 import { renderMotionVideos } from "../renderMotion";
 import type { MotionVideos } from "../renderMotion";
 
@@ -101,6 +101,66 @@ describe("generation inputs", () => {
     expect(reordered.signature).not.toBe(changed.signature);
     expect(reordered.subjects.map(subject => subject.id)).toEqual(["second", "first"]);
     expect(reordered.layers.subjects![0].layers).toBe(secondLayers);
+  });
+});
+
+describe("raw prompt", () => {
+  const store = () => useGenerateStore.getState();
+  it("starts from the formatted prompt, uploads it as written, and returns to the fields unchanged", async () => {
+    store().setSoundEffects("Soft rolling sounds.");
+    const formatted = resolveInputs(currentParts(settings))!.prompt;
+    store().setPromptMode("raw");
+    expect(store()).toMatchObject({ promptMode: "raw", rawPrompt: resolveInputs(currentParts({ ...settings, soundEffects: "Soft rolling sounds." }))!.prompt });
+    expect(store().rawPrompt).not.toBe(formatted);
+    store().setRawPrompt("A red ball rolls. Written by hand.");
+    vi.mocked(renderMotionVideos).mockResolvedValue(videos);
+    vi.mocked(apiRequest).mockResolvedValue(queued);
+    vi.mocked(watchJob).mockResolvedValue({ ...queued, status: "cancelled" });
+    await store().generate();
+    expect(JSON.parse((vi.mocked(apiRequest).mock.calls[0][1]!.body as FormData).get("request") as string).prompt).toBe("A red ball rolls. Written by hand.");
+  });
+  it("signs a raw result with the raw prompt, so it is current until that prompt changes", async () => {
+    store().setPromptMode("raw");
+    store().setRawPrompt("A red ball rolls.");
+    vi.mocked(renderMotionVideos).mockResolvedValue(videos);
+    vi.mocked(apiRequest).mockResolvedValue(queued);
+    vi.mocked(watchJob).mockResolvedValue({ ...queued, status: "completed", animation: { imageId: image.id, maskId: mask.id, plateId: isolation.plate.id,
+      width: 864, height: 480, frames: 124, prompt: "A red ball rolls.", lockIn: 6, edgeFreedom: 16, seed: 1, video: { id: crypto.randomUUID(), url: "/api/files/out" } } });
+    await store().generate();
+    const signature = () => resolveInputs(currentParts(promptSettings(store())))!.signature;
+    expect(store().result?.signature).toBe(signature());
+    store().setRawPrompt("A red ball bounces.");
+    expect(store().result?.signature).not.toBe(signature());
+  });
+  it("splits an edited raw prompt back into the fields, leaving untouched ones automatic", () => {
+    store().setPromptMode("raw");
+    store().setRawPrompt(store().rawPrompt.replace("non_diegetic_music: N/A", "non_diegetic_music: Gentle piano."));
+    store().setPromptMode("formatted");
+    expect(store()).toMatchObject({ promptMode: "formatted", unformattable: false, prompt: null, soundEffects: null, music: "Gentle piano." });
+    store().setPromptMode("raw");
+    store().setRawPrompt(store().rawPrompt.replace("rolls to the right", "bounces to the right"));
+    store().setPromptMode("formatted");
+    expect(store().prompt).toContain("the red ball in <Picture 1> bounces to the right");
+  });
+  it("offers to reset a raw prompt that no longer follows the format to the formatted prompt it started from", () => {
+    store().setPrompt("A ball rolls.");
+    store().setPromptMode("raw");
+    store().setRawPrompt("Just a ball, rolling.");
+    store().setPromptMode("formatted");
+    expect(store()).toMatchObject({ promptMode: "raw", unformattable: true, rawPrompt: "Just a ball, rolling." });
+    store().keepRawPrompt();
+    expect(store()).toMatchObject({ promptMode: "raw", unformattable: false });
+    store().setPromptMode("formatted");
+    store().resetPrompt();
+    expect(store()).toMatchObject({ promptMode: "formatted", unformattable: false, prompt: "A ball rolls." });
+    expect(resolveInputs(currentParts(promptSettings(store())))!.prompt).toContain("[Shot 1] A ball rolls.");
+  });
+  it("refuses to generate from a blank raw prompt", async () => {
+    store().setPromptMode("raw");
+    store().setRawPrompt("  ");
+    await store().generate();
+    expect(store().error).toBe("Write a prompt before generating.");
+    expect(renderMotionVideos).not.toHaveBeenCalled();
   });
 });
 

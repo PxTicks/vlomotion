@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { composeInpaintPrompt, formatTimestamp, frameInstruction, objectInstruction, referenceDefinition } from "../reference.js";
+import { composeInpaintPrompt, formatTimestamp, frameInstruction, objectInstruction, parseInpaintPrompt, referenceDefinition } from "../reference.js";
+import type { ReferenceRole } from "../reference.js";
+import type { InpaintAudioMode } from "../inpaint.js";
 
 const keyframe = { kind: "frame" as const, frame: 49, frames: 124 };
 
@@ -68,5 +70,38 @@ describe("inpaint reference prompts", () => {
   it("asks Qwen Image for a clean object, or for an edit placed by the highlight", () => {
     expect(objectInstruction("a red lantern.")).toMatch(/^A reference photo of a red lantern: .*plain white background/);
     expect(frameInstruction("a red umbrella")).toMatch(/^In <image1>, make the area highlighted in yellow in <image2> show a red umbrella\. /);
+  });
+  it.each([
+    ["no reference", undefined, "replace"], ["no sound mode", undefined, undefined], ["an object", { kind: "object" }, "replace"],
+    ["a keyframe", keyframe, "replace"], ["a first frame", { ...keyframe, frame: 0 }, undefined],
+    ["a referenced sound", undefined, "reference"], ["an object and a referenced sound", { kind: "object" }, "reference"],
+    ["a keyframe and a preserved sound", keyframe, "preserve"],
+  ] as [string, ReferenceRole | undefined, InpaintAudioMode | undefined][])("reads the fields back from a raw prompt with %s", (_, role, mode) => {
+    const fields = { prompt: "A lantern sways.\n\nIt glows.", definition: role ? "<Subject 1> is the lantern in <Picture 1>." : "", soundEffects: "Wind.", music: "Piano." };
+    const prompt = composeInpaintPrompt(fields.prompt, role && { role, definition: fields.definition }, { ...fields, mode });
+    expect(parseInpaintPrompt(prompt, role, mode)).toEqual(mode === "preserve" ? { prompt: fields.prompt, definition: fields.definition } : fields);
+  });
+  it("reads back blank sound fields, shots the user wrote, and a default definition", () => {
+    expect(parseInpaintPrompt("A bird flies.", undefined, "replace")).toEqual({ prompt: "A bird flies.", definition: "", soundEffects: "", music: "" });
+    const shots = "[Shot 1] It opens.\n[Shot 2] It closes.";
+    expect(parseInpaintPrompt(composeInpaintPrompt(shots, { role: keyframe, definition: "" }), keyframe)?.prompt).toBe(shots);
+    expect(parseInpaintPrompt(composeInpaintPrompt("It sways.", { role: { kind: "object" }, definition: "" }), { kind: "object" })?.definition)
+      .toBe(referenceDefinition({ kind: "object" }));
+  });
+  it.each([
+    ["a removed section", (prompt: string) => prompt.replace(/summary:\n.*\n\n/, "")],
+    ["an edited summary", (prompt: string) => prompt.replace("+ reference generation", "+ inpainting")],
+    ["an edited soundscape opening", (prompt: string) => prompt.replace("carry on throughout", "fade out over")],
+    ["a removed soundscape", (prompt: string) => prompt.replace(/\n\noverall_soundscape:[\s\S]*$/, "")],
+    ["a blank description", (prompt: string) => prompt.replace("[Shot 1] A lantern sways.", "[Shot 1]")],
+  ])("can't read the fields back from a raw prompt with %s", (_, edit) => {
+    const role = { kind: "object" } as const;
+    const prompt = composeInpaintPrompt("A lantern sways.", { role, definition: "d" }, { soundEffects: "Wind.", music: "", mode: "reference" });
+    expect(parseInpaintPrompt(prompt, role, "reference")).not.toBeNull();
+    expect(parseInpaintPrompt(edit(prompt), role, "reference")).toBeNull();
+  });
+  it("can't read a prompt laid out for a reference that has since been removed", () => {
+    const prompt = composeInpaintPrompt("A lantern sways.", { role: { kind: "object" }, definition: "d" });
+    expect(parseInpaintPrompt(prompt, keyframe)).toBeNull();
   });
 });

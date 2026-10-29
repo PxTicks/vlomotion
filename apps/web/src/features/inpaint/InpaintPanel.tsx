@@ -4,7 +4,8 @@ import {
   TextField, ToggleButton, ToggleButtonGroup, Tooltip, Typography,
 } from "@mui/material";
 import { MASK_FEATHER, MASK_GROW, VIDEO_TIERS } from "@h3-motion/shared";
-import { MAX_MASKS, audioMode, useInpaintStore } from "./useInpaintStore";
+import { MAX_MASKS, audioMode, inpaintPrompt, useInpaintStore } from "./useInpaintStore";
+import { PromptModeToggle } from "../shell/PromptModeToggle";
 import { RemoveMediaButton } from "../shell/RemoveMediaButton";
 import { SelectedKeyCard } from "../motion/SelectedKeyCard";
 import { formatSeconds } from "../motion/format";
@@ -76,7 +77,7 @@ export function InpaintPanel() {
   const busy = s.status !== "idle" || followBusy;
   const keyCount = s.motion?.keys.length ?? 0;
   const several = s.masks.length > 1, color = s.masks.find(mask => mask.id === s.activeMaskId)?.color;
-  const audio = audioMode(s.video, s.audio);
+  const audio = audioMode(s.video, s.audio), raw = s.promptMode === "raw";
   const [referenceUrl, setReferenceUrl] = useState<string | null>(null);
   const [menu, setMenu] = useState<HTMLElement | null>(null);
   const upload = useRef<HTMLInputElement>(null);
@@ -141,10 +142,11 @@ export function InpaintPanel() {
         </Typography>
         {s.task === "reference" ? referenceProgress
           : s.created && <Button size="small" disabled={busy} onClick={() => void s.recreateReference()} sx={{ alignSelf: "center" }}>Try again</Button>}
-        <TextField label="Reference definition" multiline minRows={2} value={s.definition} disabled={busy}
+        {/* The raw prompt holds the definition. */}
+        {!raw && <TextField label="Reference definition" multiline minRows={2} value={s.definition} disabled={busy}
           onChange={event => s.setDefinition(event.target.value)} slotProps={{ htmlInput: { maxLength: 1000 } }}
           helperText={s.referenceRole?.kind === "frame" ? "Describe the edited frame. The shot is anchored to it."
-            : "Describe what <Picture 1> shows. Use <Subject 1> in the prompt."} />
+            : "Describe what <Picture 1> shows. Use <Subject 1> in the prompt."} />}
       </Stack> : s.creating ? <Stack spacing={1.5}>
         <Typography variant="overline" color="text.secondary">{s.creating === "object" ? "Create an object" : "Create a frame"}</Typography>
         {s.creating === "frame" && <Typography variant="body2" color="text.secondary">
@@ -171,11 +173,14 @@ export function InpaintPanel() {
         if (file && file.size > 20 * 1024 * 1024) { useInpaintStore.setState({ error: "Choose a reference image under 20 MB." }); return; }
         if (file) s.setReference(file);
       }} />
-      <TextField label="Main prompt" multiline minRows={6} value={s.prompt} disabled={busy}
+      {raw ? <TextField label="Raw prompt" multiline minRows={12} value={s.rawPrompt} disabled={busy}
+        onChange={event => s.setRawPrompt(event.target.value)} slotProps={{ htmlInput: { maxLength: 8000 } }}
+        helperText="Sent as written, so changing the reference or original sound doesn't change it." />
+      : <TextField label="Main prompt" multiline minRows={6} value={s.prompt} disabled={busy}
         onChange={event => s.setPrompt(event.target.value)} slotProps={{ htmlInput: { maxLength: 4000 } }}
-        helperText={s.referenceRole?.kind === "object" ? "Use <Subject 1> for your reference." : s.referenceRole ? "Describe the whole shot." : undefined} />
+        helperText={s.referenceRole?.kind === "object" ? "Use <Subject 1> for your reference." : s.referenceRole ? "Describe the whole shot." : undefined} />}
       {/* A preserved sound is the whole soundtrack, so there is no new sound to describe. */}
-      {audio !== "preserve" && <>
+      {!raw && audio !== "preserve" && <>
         <TextField label="Sound effects [Optional]" multiline minRows={3} value={s.soundEffects} disabled={busy}
           onChange={event => s.setSoundEffects(event.target.value)} slotProps={{ htmlInput: { maxLength: 500 } }} />
         <TextField label="Music [Optional]" multiline minRows={3} value={s.music} disabled={busy}
@@ -192,7 +197,7 @@ export function InpaintPanel() {
         <Typography variant="body2">{s.status === "preparing" ? "Preparing video and mask…" : s.status === "uploading" ? "Uploading…" : s.job?.message ?? "Inpainting…"}</Typography>
         <LinearProgress variant={s.progress === null ? "indeterminate" : "determinate"} value={(s.progress ?? 0) * 100} />
         <Button onClick={() => void s.cancel()}>Cancel</Button>
-      </Stack> : <Button variant="contained" size="large" fullWidth disabled={busy || !s.prompt.trim()} onClick={() => void s.generate()}
+      </Stack> : <Button variant="contained" size="large" fullWidth disabled={busy || !inpaintPrompt(s)} onClick={() => void s.generate()}
         sx={{ minHeight: 56, fontFamily: "Barlow Condensed, sans-serif", fontSize: 22, letterSpacing: ".14em" }}>GENERATE</Button>}
       {s.notice && !busy && <Typography variant="body2" color="text.secondary" role="status">{s.notice}</Typography>}
       {s.result && <Stack spacing={1}>
@@ -203,6 +208,8 @@ export function InpaintPanel() {
         <AccordionSummary expandIcon={<Typography color="text.secondary">▾</Typography>}><Typography variant="overline">Advanced</Typography></AccordionSummary>
         <AccordionDetails>
           <Stack spacing={2.5}>
+            <PromptModeToggle mode={s.promptMode} unformattable={s.unformattable} disabled={busy}
+              onChange={s.setPromptMode} onReset={s.resetPrompt} onKeep={s.keepRawPrompt} />
             <Stack spacing={1}>
               <Typography variant="caption" color="text.secondary">Original sound</Typography>
               <ToggleButtonGroup exclusive size="small" value={audio} disabled={busy || !s.video?.audio} aria-label="Original sound"

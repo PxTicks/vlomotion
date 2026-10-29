@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import {
   MASK_FEATHER, MASK_GROW, MAX_VIDEO_UPLOAD_BYTES, applyRecording, buildMotionCurve, composeInpaintPrompt, createMaskMotion, deleteKey, fitMask, followTrack, imageAssetSchema, inpaintFrames,
-  inpaintSize, insertKeyAtLength, isStartKey, jobSnapshotSchema, lastFrame, maskBoxes, moveKey, rebaseMask, referenceDefinition, retimeKey, upsertKey,
+  inpaintSize, insertKeyAtLength, isStartKey, jobSnapshotSchema, lastFrame, maskBoxes, moveKey, parseInpaintPrompt, rebaseMask, referenceDefinition, retimeKey, upsertKey,
   videoAssetSchema,
 } from "@h3-motion/shared";
 import type {
@@ -13,6 +13,7 @@ import { renderInpaintVideos } from "./renderInpaint";
 import { captureFrame, readFrame, referenceFrameSize } from "./captureFrame";
 import { resetFollowSelection, useFollowSelection } from "./useFollowSelection";
 import { hasPendingPoints } from "../select/useSelectionStore";
+import type { PromptMode } from "../shell/PromptModeToggle";
 import { SUBJECT_COLORS } from "../motion/useMotionStore";
 
 type Status = "idle" | "preparing" | "uploading" | "generating";
@@ -44,6 +45,10 @@ interface InpaintState {
   /** The user parked the playhead after the first frame, so a still mask is keyframed there instead of recorded. */
   scrubbed: boolean; selectedKeyId: string | null;
   prompt: string; soundEffects: string; music: string; reference: File | null; result: InpaintResult | null; view: "preview" | "result";
+  /** In raw mode `rawPrompt` is sent as written; the fields keep the formatted prompt it started from. */
+  promptMode: PromptMode; rawPrompt: string;
+  /** The raw prompt couldn't be split back into the fields when formatted mode was chosen. */
+  unformattable: boolean;
   /** The short edge of the delivered video. */
   tier: VideoTier;
   /** How far the mask is grown, and how softly the patch is blended in, in delivered-video pixels. */
@@ -101,6 +106,10 @@ interface InpaintState {
   /** Tracks the subjects ticked in `useFollowSelection` and keys the active mask to follow them. Only while picking. */
   followObject(): Promise<void>;
   setPrompt(prompt: string): void; setSoundEffects(soundEffects: string): void; setMusic(music: string): void;
+  /** Raw starts from the formatted prompt. Formatted splits the raw prompt back into the fields, or flags it `unformattable`. */
+  setPromptMode(mode: PromptMode): void; setRawPrompt(rawPrompt: string): void;
+  /** Drops the raw prompt and returns to the formatted prompt it started from. */
+  resetPrompt(): void; keepRawPrompt(): void;
   setTier(tier: VideoTier): void; setGrow(grow: number): void; setFeather(feather: number): void; setAudio(audio: InpaintAudioMode): void; setView(view: "preview" | "result"): void;
   /** Uses an uploaded image as the reference, as an object; null removes the reference. */
   setReference(file: File | null): void; setDefinition(definition: string): void;
@@ -120,6 +129,13 @@ const stepped = (value: number, range: { min: number; max: number; step: number 
 export const videoFrame = (video: Pick<VideoAsset, "width" | "height">): FrameSize => ({ width: video.width, height: video.height });
 /** What happens to the video's sound: the chosen option, unless it has none to keep or reference. */
 export const audioMode = (video: Pick<VideoAsset, "audio"> | null, audio: InpaintAudioMode): InpaintAudioMode => video?.audio ? audio : "replace";
+type PromptState = Pick<InpaintState, "prompt" | "soundEffects" | "music" | "reference" | "referenceRole" | "definition" | "video" | "audio" | "promptMode" | "rawPrompt">;
+/** The fields laid out around the reference and sound, as formatted mode sends them. */
+const formattedPrompt = ({ prompt, soundEffects, music, reference, referenceRole, definition, video, audio }: PromptState) =>
+  composeInpaintPrompt(prompt, reference && referenceRole ? { role: referenceRole, definition } : undefined, { soundEffects, music, mode: audioMode(video, audio) });
+/** The prompt as sent: the raw prompt in raw mode, or the formatted one. Blank without a main prompt, even though a layout would surround it. */
+export const inpaintPrompt = (state: PromptState) =>
+  state.promptMode === "raw" ? state.rawPrompt.trim() : state.prompt.trim() ? formattedPrompt(state) : "";
 /** The colour the next mask drawn gets: the first one no mask uses. */
 export const nextMaskColor = (masks: Pick<InpaintMask, "color">[]) => SUBJECT_COLORS.find(color => !masks.some(mask => mask.color === color)) ?? SUBJECT_COLORS[0];
 /** The fields that mirror the active mask, or are cleared without one; `shape` is kept for the next mask drawn. */
@@ -184,7 +200,7 @@ export const useInpaintStore = create<InpaintState>((set, get) => {
   return {
     source: null, video: null, frames: 124, uploading: false, step: 0, masks: [], activeMaskId: null, shape: "rectangle", bounds: null, motion: null,
     playhead: 0, playing: false, recording: false, scrubbed: false, selectedKeyId: null,
-    prompt: "", soundEffects: "", music: "", tier: 768, grow: MASK_GROW.default, feather: MASK_FEATHER.default, audio: "reference", reference: null, result: null, view: "preview", status: "idle", task: null, progress: null, job: null, error: null, notice: null,
+    prompt: "", soundEffects: "", music: "", promptMode: "formatted", rawPrompt: "", unformattable: false, tier: 768, grow: MASK_GROW.default, feather: MASK_FEATHER.default, audio: "reference", reference: null, result: null, view: "preview", status: "idle", task: null, progress: null, job: null, error: null, notice: null,
     picking: false, track: null, referenceRole: null, definition: "", creating: null, referenceText: "", created: null,
     upload: async file => {
       if (get().uploading || get().status !== "idle") return false;
@@ -196,7 +212,7 @@ export const useInpaintStore = create<InpaintState>((set, get) => {
         resetFollowSelection();
         set({ source: file, video, frames: inpaintFrames(video.duration), step: 0, ...mirror([], null), picking: false,
           playhead: 0, playing: false, recording: false, scrubbed: false, selectedKeyId: null,
-          shape: "rectangle", prompt: "", soundEffects: "", music: "", reference: null, referenceRole: null, definition: "", creating: null, referenceText: "", created: null,
+          shape: "rectangle", prompt: "", soundEffects: "", music: "", promptMode: "formatted", rawPrompt: "", unformattable: false, reference: null, referenceRole: null, definition: "", creating: null, referenceText: "", created: null,
           result: null, job: null, progress: null, ...edited });
         return true;
       } catch (error) { set({ error: message(error) }); return false; }
@@ -404,6 +420,21 @@ export const useInpaintStore = create<InpaintState>((set, get) => {
     setPrompt: prompt => { if (get().status === "idle") set({ prompt, ...edited }); },
     setSoundEffects: soundEffects => { if (get().status === "idle") set({ soundEffects, ...edited }); },
     setMusic: music => { if (get().status === "idle") set({ music, ...edited }); },
+    setPromptMode: mode => {
+      const state = get();
+      if (state.status !== "idle" || mode === state.promptMode) return;
+      const formatted = formattedPrompt(state).trim();
+      if (mode === "raw") { set({ promptMode: "raw", rawPrompt: formatted, unformattable: false }); return; }
+      if (state.rawPrompt.trim() === formatted) { set({ promptMode: "formatted", unformattable: false }); return; }
+      const role = state.reference ? state.referenceRole ?? undefined : undefined;
+      const fields = parseInpaintPrompt(state.rawPrompt, role, audioMode(state.video, state.audio));
+      if (!fields) { set({ unformattable: true }); return; }
+      const { definition, ...rest } = fields;
+      set({ promptMode: "formatted", unformattable: false, ...rest, ...(role ? { definition } : {}), ...edited });
+    },
+    setRawPrompt: rawPrompt => { if (get().status === "idle") set({ rawPrompt, unformattable: false, ...edited }); },
+    resetPrompt: () => { if (get().status === "idle") set({ promptMode: "formatted", unformattable: false, ...edited }); },
+    keepRawPrompt: () => set({ unformattable: false }),
     setTier: tier => { if (get().status === "idle") set({ tier, ...edited }); },
     setGrow: grow => { if (get().status === "idle") set({ grow: stepped(grow, MASK_GROW), ...edited }); },
     setFeather: feather => { if (get().status === "idle") set({ feather: stepped(feather, MASK_FEATHER), ...edited }); },
@@ -460,9 +491,9 @@ export const useInpaintStore = create<InpaintState>((set, get) => {
     },
     setView: view => set({ view }), clearError: () => set({ error: null }),
     generate: async () => {
-      const { source, video, frames, masks, prompt, soundEffects, music, tier, grow, feather, reference, referenceRole, definition, status } = get();
-      const audio = audioMode(video, get().audio);
-      if (status !== "idle" || !source || !video || !masks.length || !prompt.trim()) return;
+      const { source, video, frames, masks, tier, grow, feather, reference, status } = get();
+      const audio = audioMode(video, get().audio), text = inpaintPrompt(get());
+      if (status !== "idle" || !source || !video || !masks.length || !text) return;
       controller = new AbortController();
       const { signal } = controller;
       set({ task: "inpaint", status: "preparing", progress: 0, picking: false, error: null, notice: null, job: null, playing: false });
@@ -473,7 +504,6 @@ export const useInpaintStore = create<InpaintState>((set, get) => {
         signal.throwIfAborted();
         if (!videos.mask) throw new Error("Could not prepare the mask video.");
         const form = new FormData();
-        const text = composeInpaintPrompt(prompt, reference && referenceRole ? { role: referenceRole, definition } : undefined, { soundEffects, music, mode: audio });
         form.set("request", JSON.stringify({ videoId: video.id, ...size, frames, prompt: text, feather, audio }));
         form.set("source", videos.source, `source.${videos.container}`);
         form.set("mask", videos.mask, `mask.${videos.container}`);

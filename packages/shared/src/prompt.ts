@@ -134,6 +134,20 @@ export function composeH3Prompt(fields: H3PromptFields): string {
   ].join("\n\n");
 }
 
+const H3_LAYOUT = /^For the target video, at 0\.00 seconds into the target video, <Picture 1> \(from \[Shot 1\]\) is fully referenced\.\n\nintegrated_multimodal_description: \[Shot 1\] ([\s\S]*?)\n\noverall_soundscape: ([\s\S]*?)\n\nnon_diegetic_music: ([\s\S]*)$/;
+
+/**
+ * The editable fields of a prompt in the I2VA format, for a raw prompt returned to the formatted fields; null when the
+ * text isn't exactly what `composeH3Prompt` would write for some fields, so nothing written into it is lost.
+ */
+export function parseH3Prompt(prompt: string): H3PromptFields | null {
+  const text = prompt.trim(), match = H3_LAYOUT.exec(text);
+  if (!match) return null;
+  const optional = (section: string) => section.trim() === "N/A" ? "" : section.trim();
+  const fields = { mainPrompt: match[1].trim(), soundEffects: optional(match[2]), music: optional(match[3]) };
+  return fields.mainPrompt && composeH3Prompt(fields) === text ? fields : null;
+}
+
 export function buildH3Prompt(caption: Caption, motionPhrase: string): string {
   return composeH3Prompt(buildH3PromptFields(caption, motionPhrase));
 }

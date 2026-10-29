@@ -2,7 +2,8 @@ import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, Line
 import { EDGE_FREEDOM, LOCK_IN, VIDEO_TIERS } from "@h3-motion/shared";
 import { useSelectionStore } from "../select";
 import { useGenerationInputs } from "./inputs";
-import { useCurrentResult, useGenerateStore } from "./useGenerateStore";
+import { useCurrentResult, useGenerateStore, usePromptSettings } from "./useGenerateStore";
+import { PromptModeToggle } from "../shell/PromptModeToggle";
 
 const LOCK_IN_HELP = "How long the subject is held to your path. Higher values follow the path more tightly, but leave the model less room to blend the cut-out into the scene.";
 const EDGE_FREEDOM_HELP = "How far inside its outline the subject is released from your animation. More freedom lets the model redraw the subject's edges, which helps when part of it is cut off, such as an arm reaching in from off-screen.";
@@ -15,14 +16,18 @@ export function GeneratePanel() {
   const prompt = useGenerateStore(s => s.prompt);
   const soundEffects = useGenerateStore(s => s.soundEffects);
   const music = useGenerateStore(s => s.music);
+  const promptMode = useGenerateStore(s => s.promptMode);
+  const rawPrompt = useGenerateStore(s => s.rawPrompt);
+  const unformattable = useGenerateStore(s => s.unformattable);
   const status = useGenerateStore(s => s.status);
   const progress = useGenerateStore(s => s.progress);
   const job = useGenerateStore(s => s.job);
   const error = useGenerateStore(s => s.error);
   const notice = useGenerateStore(s => s.notice);
-  const { setLockIn, setEdgeFreedom, setTier, setSeed, setPrompt, setSoundEffects, setMusic, generate, cancel, clearError } = useGenerateStore.getState();
+  const { setLockIn, setEdgeFreedom, setTier, setSeed, setPrompt, setSoundEffects, setMusic, setPromptMode, setRawPrompt, resetPrompt, keepRawPrompt,
+    generate, cancel, clearError } = useGenerateStore.getState();
   const visitPhase = useSelectionStore(s => s.visitPhase);
-  const inputs = useGenerationInputs({ tier, lockIn, edgeFreedom, prompt, soundEffects, music });
+  const inputs = useGenerationInputs(usePromptSettings());
   const result = useCurrentResult();
   const busy = status !== "idle";
   const statusText = status === "rendering" ? `Rendering motion frames… ${Math.round((progress ?? 0) * 100)}%`
@@ -47,12 +52,16 @@ export function GeneratePanel() {
         <Typography variant="caption" color="text.secondary">Locked</Typography>
       </Stack>
     </Box>
-    <TextField multiline minRows={6} label="Main prompt" value={prompt ?? inputs?.promptFields.mainPrompt ?? ""} disabled={busy || !inputs}
-      onChange={event => setPrompt(event.target.value)} slotProps={{ htmlInput: { maxLength: 3000 } }} />
-    <TextField multiline minRows={3} label="Sound effects [Optional]" value={soundEffects ?? inputs?.promptFields.soundEffects ?? ""} disabled={busy || !inputs}
-      onChange={event => setSoundEffects(event.target.value)} slotProps={{ htmlInput: { maxLength: 500 } }} />
-    <TextField multiline minRows={3} label="Music [Optional]" value={music} disabled={busy || !inputs}
-      onChange={event => setMusic(event.target.value)} slotProps={{ htmlInput: { maxLength: 250 } }} />
+    {promptMode === "raw" ? <TextField multiline minRows={12} label="Raw prompt" value={rawPrompt} disabled={busy || !inputs}
+      onChange={event => setRawPrompt(event.target.value)} slotProps={{ htmlInput: { maxLength: 4000 } }}
+      helperText="Sent as written, so it doesn't follow changes to the motion." /> : <>
+      <TextField multiline minRows={6} label="Main prompt" value={prompt ?? inputs?.promptFields.mainPrompt ?? ""} disabled={busy || !inputs}
+        onChange={event => setPrompt(event.target.value)} slotProps={{ htmlInput: { maxLength: 3000 } }} />
+      <TextField multiline minRows={3} label="Sound effects [Optional]" value={soundEffects ?? inputs?.promptFields.soundEffects ?? ""} disabled={busy || !inputs}
+        onChange={event => setSoundEffects(event.target.value)} slotProps={{ htmlInput: { maxLength: 500 } }} />
+      <TextField multiline minRows={3} label="Music [Optional]" value={music} disabled={busy || !inputs}
+        onChange={event => setMusic(event.target.value)} slotProps={{ htmlInput: { maxLength: 250 } }} />
+    </>}
     <Stack spacing={1}>
       <Typography variant="caption" color="text.secondary">Resolution</Typography>
       <ToggleButtonGroup exclusive size="small" value={tier} disabled={busy} aria-label="Resolution"
@@ -65,7 +74,7 @@ export function GeneratePanel() {
       <LinearProgress variant={progress == null ? "indeterminate" : "determinate"} value={(progress ?? 0) * 100} />
       <Typography variant="caption" color="text.secondary">Generation usually takes several minutes. Keep this tab open.</Typography>
       <Button onClick={() => void cancel()}>Cancel</Button>
-    </Stack> : <Button variant="contained" size="large" fullWidth disabled={!inputs} onClick={() => void generate()}
+    </Stack> : <Button variant="contained" size="large" fullWidth disabled={!inputs?.prompt} onClick={() => void generate()}
       sx={{ minHeight: 56, fontFamily: "Barlow Condensed, sans-serif", fontSize: 22, letterSpacing: ".14em" }}>GENERATE</Button>}
     {error && <Alert severity="error" onClose={clearError}>{error}</Alert>}
     {notice && !busy && <Typography role="status" variant="body2" color="text.secondary">{notice}</Typography>}
@@ -80,6 +89,8 @@ export function GeneratePanel() {
       <AccordionSummary expandIcon={<Typography color="text.secondary">▾</Typography>}><Typography variant="overline">Advanced</Typography></AccordionSummary>
       <AccordionDetails>
         <Stack spacing={2.5}>
+          <PromptModeToggle mode={promptMode} unformattable={unformattable} disabled={busy || !inputs}
+            onChange={setPromptMode} onReset={resetPrompt} onKeep={keepRawPrompt} />
           <Box>
             <Stack direction="row" justifyContent="space-between" alignItems="center">
               <Tooltip title={EDGE_FREEDOM_HELP} placement="top-start">

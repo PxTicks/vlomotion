@@ -1,19 +1,13 @@
 import { Alert, Box, Stack, ToggleButton, ToggleButtonGroup } from "@mui/material";
 import { MotionEditor } from "../motion";
 import { useGenerationInputs } from "./inputs";
-import { useCurrentResult, useGenerateStore } from "./useGenerateStore";
+import { useCurrentResult, useGenerateStore, usePromptSettings } from "./useGenerateStore";
 
 /** Source plays the exact frames sent to H3; Result plays the generated video. */
 export function GenerateStage() {
   const view = useGenerateStore(s => s.view);
   const setView = useGenerateStore(s => s.setView);
-  const tier = useGenerateStore(s => s.tier);
-  const lockIn = useGenerateStore(s => s.lockIn);
-  const edgeFreedom = useGenerateStore(s => s.edgeFreedom);
-  const prompt = useGenerateStore(s => s.prompt);
-  const soundEffects = useGenerateStore(s => s.soundEffects);
-  const music = useGenerateStore(s => s.music);
-  const inputs = useGenerationInputs({ tier, lockIn, edgeFreedom, prompt, soundEffects, music });
+  const inputs = useGenerationInputs(usePromptSettings());
   const result = useCurrentResult();
   const showing = view === "result" && result ? "result" : "source";
   const stale = !!result && !!inputs && result.signature !== inputs.signature;

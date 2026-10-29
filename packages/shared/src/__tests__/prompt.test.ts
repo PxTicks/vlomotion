@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_CAPTION } from "../description.js";
 import { createMotion, upsertKey } from "../motion.js";
 import type { SubjectMotion } from "../motion.js";
-import { buildH3Prompt, buildH3PromptFields, composeH3Prompt, describeMotion } from "../prompt.js";
+import { buildH3Prompt, buildH3PromptFields, composeH3Prompt, describeMotion, parseH3Prompt } from "../prompt.js";
 
 const size = { width: 1000, height: 500 };
 let counter = 0;
@@ -106,5 +106,20 @@ describe("H3 prompt", () => {
       "overall_soundscape: Paws thud on grass.",
       "non_diegetic_music: N/A",
     ].join("\n\n"));
+  });
+  it("reads the fields back from a raw prompt it could have written", () => {
+    const fields = { mainPrompt: "A ball rolls.\n\nIt stops.", soundEffects: "Rolling on gravel.", music: "" };
+    expect(parseH3Prompt(`  ${composeH3Prompt(fields)}\n`)).toEqual(fields);
+    expect(parseH3Prompt(composeH3Prompt({ mainPrompt: "A ball rolls.", soundEffects: "", music: "Piano." })))
+      .toEqual({ mainPrompt: "A ball rolls.", soundEffects: "", music: "Piano." });
+  });
+  it.each([
+    ["a missing section", (prompt: string) => prompt.replace(/\n\nnon_diegetic_music: N\/A$/, "")],
+    ["an edited header", (prompt: string) => prompt.replace("0.00 seconds", "1.00 seconds")],
+    ["text before the header", (prompt: string) => `Cinematic. ${prompt}`],
+    ["a blank main prompt", (prompt: string) => prompt.replace("A ball rolls.", "")],
+    ["extra spacing in a section", (prompt: string) => prompt.replace("overall_soundscape: ", "overall_soundscape:  ")],
+  ])("can't read the fields back from a raw prompt with %s", (_, edit) => {
+    expect(parseH3Prompt(edit(composeH3Prompt({ mainPrompt: "A ball rolls.", soundEffects: "", music: "" })))).toBeNull();
   });
 });

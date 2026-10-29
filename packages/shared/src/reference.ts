@@ -79,6 +79,46 @@ export function composeInpaintPrompt(prompt: string, reference?: { role: Referen
   ].join("\n\n");
 }
 
+/** The inpaint fields a prompt was composed from. The sound fields are absent when a preserved sound left them out. */
+export interface InpaintPromptFields { prompt: string; definition: string; soundEffects?: string; music?: string }
+
+const INPAINT_SECTIONS = /^([\s\S]*?)(?:\n\noverall_soundscape:\n([\s\S]*?))?(?:\n\nnon_diegetic_music:\n([\s\S]*))?$/;
+const INPAINT_LAYOUT = /^subject_definitions:\n([\s\S]*?)\n\nsummary:\n[\s\S]*?\n\nretention_analysis:\n[\s\S]*?\n\ndetailed_description:\n([\s\S]*)$/;
+
+/**
+ * The fields `composeInpaintPrompt` would turn into this prompt with the same reference role and sound, for a raw prompt
+ * returned to the formatted fields; null when no fields compose to exactly this text, so nothing written into it is lost,
+ * or when only a main prompt that is itself laid out would.
+ * `definition` is the reference's definition, or "" without a reference.
+ */
+export function parseInpaintPrompt(prompt: string, role?: ReferenceRole, mode?: InpaintAudioMode): InpaintPromptFields | null {
+  const text = prompt.trim(), sections = INPAINT_SECTIONS.exec(text);
+  if (!sections) return null;
+  const [, body, soundscape = "", music = ""] = sections;
+  const fields: InpaintPromptFields = { prompt: body, definition: "" };
+  if (mode !== "preserve") {
+    const opening = mode === "reference" ? SOURCE_AUDIO.reference.soundscape : "";
+    if (!soundscape.startsWith(opening)) return null;
+    Object.assign(fields, { soundEffects: soundscape.slice(opening.length).trim(), music: music.trim() });
+  }
+  const source = mode === "reference" || mode === "preserve";
+  const layout = role || source ? INPAINT_LAYOUT.exec(body) : null;
+  if (layout) {
+    const [, definitions, description] = layout, audioLine = source ? `\n${SOURCE_AUDIO_DEFINITION}` : "";
+    const definition = role ? definitions.slice(0, definitions.length - audioLine.length) : "";
+    const anchor = role?.kind === "frame" ? ` ${anchorOf(role).sentence}` : "";
+    const shots = description.endsWith(anchor) ? description.slice(0, description.length - anchor.length) : description;
+    // [Shot 1] is added unless the text already had shots, so strip only that one.
+    const unshot = shots.replace(/^\[Shot 1\] ?/, "");
+    Object.assign(fields, { prompt: /^\[Shot \d+\]/m.test(unshot) ? shots : unshot, definition: definition.trim() });
+  }
+  // A layout the fields can't hold would otherwise land whole in the main prompt, where it is still sent as written.
+  if (!fields.prompt.trim() || /^(?:subject_definitions|summary|retention_analysis|detailed_description):/m.test(fields.prompt)) return null;
+  const composed = composeInpaintPrompt(fields.prompt, role ? { role, definition: fields.definition } : undefined,
+    { soundEffects: fields.soundEffects ?? "", music: fields.music ?? "", mode });
+  return composed === text ? { ...fields, prompt: fields.prompt.trim() } : null;
+}
+
 /** `mode` is what happens to the source's sound; without it the prompt says nothing about that sound. */
 export interface InpaintAudio { soundEffects: string; music: string; mode?: InpaintAudioMode }
 

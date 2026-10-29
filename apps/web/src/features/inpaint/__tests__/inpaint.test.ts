@@ -297,6 +297,48 @@ describe("inpainting editor", () => {
     state().setReference(null);
     expect(state()).toMatchObject({ reference: null, referenceRole: null, definition: "" });
   });
+  it("sends a raw prompt as written, starting from the formatted one", async () => {
+    useInpaintStore.setState({ source, video: { ...video, audio: true }, ...withMasks(mask(still)), prompt: "A lantern sways.", soundEffects: "Wind.", step: 2 });
+    state().setReference(new File(["ref"], "ref.png", { type: "image/png" }));
+    state().setPromptMode("raw");
+    expect(state().rawPrompt).toMatch(/^subject_definitions:\n<Subject 1> is the object in <Picture 1>\.\n<Audio 1>/);
+    expect(state().rawPrompt).toMatch(/overall_soundscape:\nThe ambience .* Wind\.$/);
+    state().setRawPrompt("A lantern sways, written by hand.");
+    vi.mocked(renderInpaintVideos).mockResolvedValue(videos);
+    vi.mocked(apiRequest).mockResolvedValue(queued);
+    vi.mocked(watchJob).mockResolvedValue({ ...queued, status: "completed", inpainting: result });
+    await state().generate();
+    expect(JSON.parse((vi.mocked(apiRequest).mock.calls[0][1]!.body as FormData).get("request") as string))
+      .toMatchObject({ prompt: "A lantern sways, written by hand.", audio: "reference" });
+  });
+  it("splits an edited raw prompt back into the prompt, definition and sound fields", () => {
+    useInpaintStore.setState({ source, video: { ...video, audio: true }, ...withMasks(mask(still)), prompt: "A lantern sways.", step: 2 });
+    state().setReference(new File(["ref"], "ref.png", { type: "image/png" }));
+    state().setPromptMode("raw");
+    state().setRawPrompt(state().rawPrompt.replace("the object", "the red lantern").replace("[Shot 1] A lantern sways.", "[Shot 1] It glows.")
+      .replace("carry on throughout the target video.", "carry on throughout the target video. Wind.") + "\n\nnon_diegetic_music:\nPiano.");
+    state().setPromptMode("formatted");
+    expect(state()).toMatchObject({ promptMode: "formatted", unformattable: false, prompt: "It glows.",
+      definition: "<Subject 1> is the red lantern in <Picture 1>.", soundEffects: "Wind.", music: "Piano." });
+  });
+  it("offers to reset a raw prompt that no longer follows the format, keeping the formatted fields", () => {
+    useInpaintStore.setState({ source, video, ...withMasks(mask(still)), prompt: "A bird flies.", music: "Strings.", step: 2 });
+    state().setReference(new File(["ref"], "ref.png", { type: "image/png" }));
+    state().setPromptMode("raw");
+    state().setRawPrompt("A bird flies.");
+    state().setPromptMode("formatted");
+    expect(state()).toMatchObject({ promptMode: "raw", unformattable: true });
+    state().resetPrompt();
+    expect(state()).toMatchObject({ promptMode: "formatted", unformattable: false, prompt: "A bird flies.", music: "Strings." });
+  });
+  it("returns an unedited raw prompt to the fields, even with a blank main prompt", () => {
+    useInpaintStore.setState({ source, video, ...withMasks(mask(still)), step: 2 });
+    state().setReference(new File(["ref"], "ref.png", { type: "image/png" }));
+    state().setPromptMode("raw");
+    expect(state().rawPrompt).toContain("detailed_description:\n[Shot 1]");
+    state().setPromptMode("formatted");
+    expect(state()).toMatchObject({ promptMode: "formatted", unformattable: false, prompt: "" });
+  });
   it("creates an object reference from its description and uses it", async () => {
     useInpaintStore.setState({ source, video, ...withMasks(mask(still)), step: 2 });
     state().openCreator("object"); state().setReferenceText(" a red paper lantern ");

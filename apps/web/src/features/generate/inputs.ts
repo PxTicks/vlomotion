@@ -12,8 +12,10 @@ interface Parts {
   layers: SubjectLayers | null; layersKey: string | null; tier: Tier; lockIn: number; edgeFreedom: number; prompt: string | null;
   subjects: MotionSubject[];
   soundEffects?: string | null; music?: string;
+  /** The whole prompt as written in raw mode, sent instead of the fields; null in formatted mode. */
+  rawPrompt?: string | null;
 }
-type PromptSettings = Pick<Parts, "tier" | "lockIn" | "edgeFreedom" | "prompt" | "soundEffects" | "music">;
+type PromptSettings = Pick<Parts, "tier" | "lockIn" | "edgeFreedom" | "prompt" | "soundEffects" | "music" | "rawPrompt">;
 export interface GenerationInputs {
   image: ImageAsset; mask: ImageAsset; isolation: IsolationResult; motion: SubjectMotion; layers: SubjectLayers;
   size: FrameSize; lockIn: number; edgeFreedom: number; autoPrompt: string; prompt: string;
@@ -37,7 +39,7 @@ export function resolveInputs(parts: Parts): GenerationInputs | null {
   const autoPrompt = composeH3Prompt(automatic);
   const promptFields = { mainPrompt: parts.prompt?.trim() || automatic.mainPrompt,
     soundEffects: parts.soundEffects ?? automatic.soundEffects, music: parts.music ?? "" };
-  const prompt = composeH3Prompt(promptFields);
+  const prompt = parts.rawPrompt == null ? composeH3Prompt(promptFields) : parts.rawPrompt.trim();
   const signature = JSON.stringify([image.id, mask.id, isolation.plate.id,
     subjects.length ? subjects.map(subject => [subject.id, subject.motion]) : motion, size, parts.lockIn, parts.edgeFreedom, prompt]);
   const renderLayers = subjects.length ? { ...layers, subjects: subjects.map(subject => ({ layers: subject.layers, motion: subject.motion })) } : layers;
@@ -50,7 +52,8 @@ export function currentParts(settings: PromptSettings): Parts {
     motion: motion.motion, subjects: motion.subjects, subjectKey: motion.subjectKey, bounds: motion.bounds, layers: motion.layers, layersKey: motion.layersKey, ...settings };
 }
 
-export function useGenerationInputs(settings: PromptSettings): GenerationInputs | null {
+/** `rawPrompt` is required, so a view can't resolve a different prompt, and signature, than `generate` sends. */
+export function useGenerationInputs(settings: PromptSettings & { rawPrompt: string | null }): GenerationInputs | null {
   const image = useSelectionStore(s => s.image);
   const mask = useSelectionStore(s => s.mask);
   const isolation = useSelectionStore(currentIsolation);
@@ -60,7 +63,7 @@ export function useGenerationInputs(settings: PromptSettings): GenerationInputs 
   const bounds = useMotionStore(s => s.bounds);
   const layers = useMotionStore(s => s.layers);
   const layersKey = useMotionStore(s => s.layersKey);
-  const { tier, lockIn, edgeFreedom, prompt, soundEffects, music } = settings;
-  return useMemo(() => resolveInputs({ image, mask, isolation, motion, subjects, subjectKey, bounds, layers, layersKey, tier, lockIn, edgeFreedom, prompt, soundEffects, music }),
-    [image, mask, isolation, motion, subjects, subjectKey, bounds, layers, layersKey, tier, lockIn, edgeFreedom, prompt, soundEffects, music]);
+  const { tier, lockIn, edgeFreedom, prompt, soundEffects, music, rawPrompt } = settings;
+  return useMemo(() => resolveInputs({ image, mask, isolation, motion, subjects, subjectKey, bounds, layers, layersKey, tier, lockIn, edgeFreedom, prompt, soundEffects, music, rawPrompt }),
+    [image, mask, isolation, motion, subjects, subjectKey, bounds, layers, layersKey, tier, lockIn, edgeFreedom, prompt, soundEffects, music, rawPrompt]);
 }
