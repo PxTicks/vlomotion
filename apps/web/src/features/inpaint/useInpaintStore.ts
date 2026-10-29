@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import {
-  MASK_FEATHER, MASK_GROW, MAX_VIDEO_UPLOAD_BYTES, applyRecording, buildMotionCurve, composeInpaintPrompt, createMaskMotion, deleteKey, fitMask, followTrack, inpaintFrames,
+  MASK_FEATHER, MASK_GROW, MAX_VIDEO_UPLOAD_BYTES, applyRecording, buildMotionCurve, composeInpaintPrompt, createMaskMotion, deleteKey, fitMask, followTrack, imageAssetSchema, inpaintFrames,
   inpaintSize, insertKeyAtLength, isStartKey, jobSnapshotSchema, lastFrame, maskBoxes, moveKey, rebaseMask, referenceDefinition, retimeKey, upsertKey,
   videoAssetSchema,
 } from "@h3-motion/shared";
@@ -10,11 +10,16 @@ import type {
 } from "@h3-motion/shared";
 import { apiRequest, watchJob } from "../../api";
 import { renderInpaintVideos } from "./renderInpaint";
-import { captureFrame, referenceFrameSize } from "./captureFrame";
+import { captureFrame, readFrame, referenceFrameSize } from "./captureFrame";
+import { resetFollowSelection, useFollowSelection } from "./useFollowSelection";
+import { hasPendingPoints } from "../select/useSelectionStore";
 
 type Status = "idle" | "preparing" | "uploading" | "generating";
-/** What the running job does: inpaint the video, track an object for the mask to follow, or create a reference image. */
-type Task = "inpaint" | "track" | "reference";
+/**
+ * What the running job does: inpaint the video, read the first frame to select an object on, track that object for
+ * the mask to follow, or create a reference image.
+ */
+type Task = "inpaint" | "frame" | "track" | "reference";
 interface InpaintState {
   source: File | null; video: VideoAsset | null; frames: number; uploading: boolean;
   step: 0 | 1 | 2; shape: MaskShape;
@@ -39,7 +44,7 @@ interface InpaintState {
   /** The last reference created, to try again. */
   created: ReferenceResult | null;
   status: Status; task: Task | null; progress: number | null; job: JobSnapshot | null; error: string | null; notice: string | null;
-  /** Waiting for a click on the object the mask should follow. */
+  /** Selecting the object the mask should follow, on the first frame in `useFollowSelection`. */
   picking: boolean;
   /** The object the mask last followed, for showing where it was tracked. */
   track: TrackResult | null;
@@ -65,10 +70,15 @@ interface InpaintState {
   startRecording(): number | null;
   /** Applies a take, timed to fill the clip from the playhead where it started. */
   finishRecording(samples: TimedSample[]): void;
-  /** Waits for a click on an object for a still mask to follow. The playhead goes to the first frame, where tracking starts, and stays there. */
-  startPicking(): void; stopPicking(): void;
-  /** Tracks the object under `point` on the first frame, in video pixels, and keys the mask to follow it. Only while picking. */
-  followObject(point: Point): Promise<void>;
+  /**
+   * Starts selecting an object for a still mask to follow, on the first frame, where tracking starts. The playhead
+   * goes there and stays. The frame is read and uploaded the first time; later picks keep the subjects selected before.
+   */
+  startPicking(): Promise<void>;
+  /** Stops selecting, keeping the selection for next time, or cancels reading the frame. */
+  stopPicking(): void;
+  /** Tracks the subjects ticked in `useFollowSelection` and keys the mask to follow them. Only while picking. */
+  followObject(): Promise<void>;
   setPrompt(prompt: string): void; setSoundEffects(soundEffects: string): void; setMusic(music: string): void;
   setTier(tier: VideoTier): void; setGrow(grow: number): void; setFeather(feather: number): void; setAudio(audio: InpaintAudioMode): void; setView(view: "preview" | "result"): void;
   /** Uses an uploaded image as the reference, as an object; null removes the reference. */
@@ -89,6 +99,15 @@ const stepped = (value: number, range: { min: number; max: number; step: number 
 export const videoFrame = (video: Pick<VideoAsset, "width" | "height">): FrameSize => ({ width: video.width, height: video.height });
 /** What happens to the video's sound: the chosen option, unless it has none to keep or reference. */
 export const audioMode = (video: Pick<VideoAsset, "audio"> | null, audio: InpaintAudioMode): InpaintAudioMode => video?.audio ? audio : "replace";
+
+/** Settles like `promise`, or rejects as soon as `signal` aborts, for work that can't be stopped. */
+function abortable<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const abort = () => reject(signal.reason);
+    signal.addEventListener("abort", abort, { once: true });
+    promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
+  });
+}
 
 /** The key nearest `to` among those passed moving the playhead from `from` to `to`, excluding where it started. */
 function lastCrossed(motion: SubjectMotion<number>, from: number, to: number) {
@@ -135,6 +154,7 @@ export const useInpaintStore = create<InpaintState>((set, get) => {
         if (file.size > MAX_VIDEO_UPLOAD_BYTES) throw new Error("Choose a video up to 200 MB.");
         const form = new FormData(); form.set("video", file);
         const video = videoAssetSchema.parse(await apiRequest("/videos", { method: "POST", body: form }));
+        resetFollowSelection();
         set({ source: file, video, frames: inpaintFrames(video.duration), step: 0, bounds: null, motion: null, picking: false, track: null,
           playhead: 0, playing: false, recording: false, scrubbed: false, selectedKeyId: null,
           shape: "rectangle", prompt: "", soundEffects: "", music: "", reference: null, referenceRole: null, definition: "", creating: null, referenceText: "", created: null,
@@ -260,16 +280,37 @@ export const useInpaintStore = create<InpaintState>((set, get) => {
       set({ motion: next, recording: false, playing: false, ...edited,
         notice: next === motion ? "Nothing was recorded. Press on the mask and drag it along its path." : null });
     },
-    startPicking: () => {
-      const motion = animating();
-      if (!motion || get().recording || motion.keys.length > 1) return;
-      set({ picking: true, playing: false, playhead: 0, scrubbed: false, selectedKeyId: null, notice: null });
+    startPicking: async () => {
+      const { source, video, recording, picking } = get(), motion = animating();
+      if (!source || !video || !motion || recording || picking || useFollowSelection.getState().busy || motion.keys.length > 1) return;
+      set({ picking: true, playing: false, playhead: 0, scrubbed: false, selectedKeyId: null, error: null, notice: null });
+      if (useFollowSelection.getState().image) return;
+      controller = new AbortController();
+      const { signal } = controller;
+      set({ task: "frame", status: "preparing", progress: null, job: null });
+      try {
+        // Selected on the frame the tracker sees, so the subjects' masks start it as they are.
+        const frame = await abortable(readFrame(source, 0, inpaintSize(video.width, video.height)), signal);
+        set({ status: "uploading" });
+        const form = new FormData();
+        form.set("videoId", video.id); form.set("image", frame, "frame.png");
+        const image = imageAssetSchema.parse(await apiRequest("/frames", { method: "POST", body: form, signal }));
+        signal.throwIfAborted();
+        useFollowSelection.getState().setImage(image);
+      } catch (error) {
+        set({ picking: false, ...(signal.aborted ? {} : { error: message(error) }) });
+      } finally { controller = null; set({ status: "idle", task: null, progress: null }); }
     },
-    stopPicking: () => set({ picking: false }),
-    followObject: async point => {
-      const { source, video, frames, shape, recording, picking, playhead } = get(), motion = animating();
-      // The click must be on the first frame, shown while picking, since that is where SAM segments the object.
-      if (!picking || playhead !== 0 || !source || !video || !motion || recording || motion.keys.length > 1) return;
+    stopPicking: () => {
+      if (get().task === "frame") controller?.abort();
+      set({ picking: false });
+    },
+    followObject: async () => {
+      const { source, video, frames, shape, recording, picking } = get(), motion = animating();
+      const selection = useFollowSelection.getState();
+      if (!picking || !source || !video || !motion || recording || motion.keys.length > 1) return;
+      if (!selection.image || !selection.selectedIds.length || selection.busy || hasPendingPoints(selection)) return;
+      const { image, selectedIds } = selection;
       controller = new AbortController();
       const { signal } = controller;
       set({ task: "track", status: "preparing", progress: 0, picking: false, playing: false, playhead: 0, selectedKeyId: null, error: null, notice: null, job: null });
@@ -277,16 +318,14 @@ export const useInpaintStore = create<InpaintState>((set, get) => {
         const size = inpaintSize(video.width, video.height);
         const prepared = await renderInpaintVideos({ source, frames, boxes: null, shape, size }, progress => set({ progress }), signal);
         signal.throwIfAborted();
-        // Tracking runs on the prepared frames, so the click moves onto them too.
-        const at = { x: clamp(point.x * size.width / video.width, 0, size.width - 1), y: clamp(point.y * size.height / video.height, 0, size.height - 1) };
         const form = new FormData();
-        form.set("request", JSON.stringify({ videoId: video.id, ...size, frames, positive: [at] }));
+        form.set("request", JSON.stringify({ videoId: video.id, ...size, frames, frameId: image.id, candidateIds: selectedIds }));
         form.set("source", prepared.source, `source.${prepared.container}`);
         const result = await runJob("/jobs/track", form, signal);
         if (!result) { set({ notice: "Tracking cancelled." }); return; }
         if (!result.tracking) throw new Error("Tracking completed without a track.");
         const followed = followTrack(get().motion ?? motion, result.tracking, videoFrame(video), newId);
-        if (!followed) throw new Error("SAM couldn't find the object on the first frame. Click on it again.");
+        if (!followed) throw new Error("SAM couldn't find the selected object on the first frame. Select it again.");
         set({ motion: followed.motion, track: result.tracking, ...edited, notice: followed.filled
           ? `The object was lost on ${followed.filled} of ${frames} frames, so those were filled in.` : null });
       } catch (error) {

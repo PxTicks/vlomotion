@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { Box, Button, CircularProgress, Stack, Typography } from "@mui/material";
 import { styled } from "@mui/material/styles";
 import type { MaskCandidate, Point } from "@h3-motion/shared";
-import { useSelectionStore } from "./useSelectionStore";
+import { useSelectionContext } from "./SelectionContext";
 
 const Surface = styled("canvas")({ display: "block", width: "100%", height: "100%", objectFit: "contain", touchAction: "none" });
 interface MaskPixels { candidate: MaskCandidate; pixels: Uint8ClampedArray }
@@ -40,7 +40,12 @@ function loadImage(url: string): Promise<HTMLImageElement> {
   });
 }
 
-export function SelectionCanvas({ mediaAction }: { mediaAction?: ReactNode }) {
+/**
+ * `media` is what is selected on: the photo the user uploads here, or a video frame a feature provides. Only a photo
+ * can be replaced from the canvas, since uploading one replaces the session's video too.
+ */
+export function SelectionCanvas({ mediaAction, media = "photo" }: { mediaAction?: ReactNode; media?: "photo" | "frame" }) {
+  const useSelectionStore = useSelectionContext();
   const image = useSelectionStore(s => s.image);
   const candidates = useSelectionStore(s => s.candidates);
   const selectedIds = useSelectionStore(s => s.selectedIds);
@@ -67,6 +72,7 @@ export function SelectionCanvas({ mediaAction }: { mediaAction?: ReactNode }) {
   const [assets, setAssets] = useState<{ imageId: string; photo: HTMLImageElement; loaded: MaskPixels[] } | null>(null);
   const [dragging, setDragging] = useState(false);
   const [renderError, setRenderError] = useState<string | null>(null);
+  const uploads = media === "photo";
 
   useEffect(() => {
     if (!image || !canvas.current) return;
@@ -142,16 +148,17 @@ export function SelectionCanvas({ mediaAction }: { mediaAction?: ReactNode }) {
   }
 
   return <Stack spacing={2}>
-    <Box onDragOver={event => { event.preventDefault(); if (!busy) setDragging(true); }}
+    {/* A file dropped on a frame is swallowed, so the browser doesn't open it in place of the app. */}
+    <Box onDragOver={event => { event.preventDefault(); if (uploads && !busy) setDragging(true); else event.dataTransfer.dropEffect = "none"; }}
       onDragLeave={() => setDragging(false)} onDrop={event => {
         event.preventDefault(); setDragging(false);
-        const file = event.dataTransfer.files[0]; if (file && !busy) void upload(file);
+        const file = event.dataTransfer.files[0]; if (file && uploads && !busy) void upload(file);
       }} sx={{ position: "relative", borderRadius: 1, overflow: "hidden", bgcolor: "#19151f",
         border: "1px solid", borderColor: dragging ? "primary.main" : "divider",
         aspectRatio: image ? `${image.width}/${image.height}` : "16/9",
         maxWidth: image && image.height > image.width ? 420 : "100%", mx: "auto", width: "100%" }}>
       {image ? <Surface ref={canvas} width={image.width} height={image.height}
-        role="img" aria-label={selectionView === "subjects" ? "Photo with subject masks. Click a subject to include or exclude it." : "Photo with subject masks. Click to add points; right click to exclude."}
+        role="img" aria-label={`${media === "photo" ? "Photo" : "Video frame"} with subject masks. ${selectionView === "subjects" ? "Click a subject to include or exclude it." : "Click to add points; right click to exclude."}`}
         style={{ cursor: busy ? "wait" : selectionView === "subjects" ? "pointer" : "crosshair" }}
         onMouseMove={event => {
           const point = imagePoint(event.clientX, event.clientY); if (!point) return;
@@ -195,13 +202,13 @@ export function SelectionCanvas({ mediaAction }: { mediaAction?: ReactNode }) {
       </Box>}
       {image && mediaAction}
     </Box>
-    <input ref={fileInput} hidden type="file" accept="image/jpeg,image/png,image/webp" aria-label="Upload a photo"
-      onChange={event => { const file = event.target.files?.[0]; event.target.value = ""; if (file) void upload(file); }} />
+    {uploads && <input ref={fileInput} hidden type="file" accept="image/jpeg,image/png,image/webp" aria-label="Upload a photo"
+      onChange={event => { const file = event.target.files?.[0]; event.target.value = ""; if (file) void upload(file); }} />}
     {image && editing && activeId && <Typography variant="caption" color="text.secondary">Editing {labels[activeId] ?? "subject"}</Typography>}
     {phase === 0 && image && candidates.length > 0 && <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
       <Typography variant="caption" color="text.secondary">{activeId ? "Yellow: editing · " : ""}Blue: included · Dashed: suggestion</Typography>
       <Button size="small" onPointerDown={event => { event.currentTarget.setPointerCapture(event.pointerId); setHideOverlays(true); }} onPointerUp={() => setHideOverlays(false)} onPointerCancel={() => setHideOverlays(false)} onBlur={() => setHideOverlays(false)}
-        onKeyDown={event => { if (event.key === " " || event.key === "Enter") { event.preventDefault(); setHideOverlays(true); } }} onKeyUp={() => setHideOverlays(false)}>Hold to view photo</Button>
+        onKeyDown={event => { if (event.key === " " || event.key === "Enter") { event.preventDefault(); setHideOverlays(true); } }} onKeyUp={() => setHideOverlays(false)}>Hold to view {media}</Button>
     </Stack>}
     {renderError && <Typography role="alert" color="error">{renderError}</Typography>}
   </Stack>;

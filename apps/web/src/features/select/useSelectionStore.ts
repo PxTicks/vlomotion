@@ -21,7 +21,7 @@ const emptyPoints = (): PointDraft => ({ positive: [], negative: [], pointsPendi
 export const hasPendingPoints = (state: Pick<SelectionState, "pointsPending" | "drafts">) =>
   state.pointsPending || Object.values(state.drafts).some(draft => draft.pointsPending);
 
-interface SelectionState {
+export interface SelectionState {
   selectionView: SelectionView;
   editorStart: { snapshot: SelectionSnapshot; history: SelectionSnapshot[] } | null;
   cancelEditor: () => void;
@@ -37,6 +37,8 @@ interface SelectionState {
   includeAll: () => void; undo: () => void;
   setHoveredId: (id: string | null) => void;
   upload: (file: File) => Promise<void>;
+  /** Selects on an image that is already uploaded, such as a video frame, starting with no subjects. */
+  setImage: (image: ImageAsset) => void;
   segment: () => Promise<void>; addPoint: (point: Point, negative: boolean) => void;
   removePoint: (index: number, negative: boolean) => void;
   applyRefinement: () => Promise<void>; clearPoints: () => void;
@@ -72,7 +74,11 @@ export function canRecoverIsolation(state: Pick<SelectionState, "image" | "mask"
   return !!image && !!mask && job?.status === "failed" && job.imageId === image.id && job.maskId === mask.id;
 }
 
-export const useSelectionStore = create<SelectionState>((set, get) => {
+/**
+ * A selection of subjects on one image. The photo workflow uses `useSelectionStore`; other features create their
+ * own, and hand it to the selection canvas and panel through `SelectionStoreContext`.
+ */
+export const createSelectionStore = () => create<SelectionState>((set, get) => {
   function snapshot(): SelectionSnapshot {
     const { selectionView, candidates, selectedIds, activeId, labels, drafts, recipes, positive, negative, pointsPending, selectionText } = get();
     return { selectionView, candidates, selectedIds, activeId, labels, drafts, recipes, positive, negative, pointsPending, selectionText };
@@ -215,12 +221,13 @@ export const useSelectionStore = create<SelectionState>((set, get) => {
       if (get().busy) return;
       set({ busy: true, error: null, notice: null });
       try {
-        const image = await uploadImage(await prepareImage(source));
-        set({ source, image, selectionText: "", candidates: [], selectedIds: [], mask: null, isolation: null, job: null,
-          selectionView: "find", editorStart: null, ...emptyPoints(), activeId: null, labels: {}, drafts: {}, recipes: {}, history: [], hoveredId: null, phase: 0, notice: null });
+        get().setImage(await uploadImage(await prepareImage(source)));
+        set({ source });
       } catch (error) { set({ error: message(error) }); }
       finally { set({ busy: false }); }
     },
+    setImage: image => set({ image, selectionText: "", candidates: [], selectedIds: [], mask: null, isolation: null, job: null,
+      selectionView: "find", editorStart: null, ...emptyPoints(), activeId: null, labels: {}, drafts: {}, recipes: {}, history: [], hoveredId: null, phase: 0, notice: null }),
     segment: () => {
       const state = get();
       return state.selectionView === "add" && state.pointsPending ? state.applyRefinement() : run("text");
@@ -321,3 +328,5 @@ export const useSelectionStore = create<SelectionState>((set, get) => {
     },
   };
 });
+export const useSelectionStore = createSelectionStore();
+export type SelectionStore = typeof useSelectionStore;

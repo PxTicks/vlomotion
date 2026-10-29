@@ -14,7 +14,7 @@ import type { AnimateRequest } from "@h3-motion/shared";
 import { comfy, checkComfyHealth } from "./comfy.js";
 import { REPO_ROOT } from "./config.js";
 import { SessionStore, clearIsolation, isBusy } from "./sessions.js";
-import type { Session } from "./sessions.js";
+import type { Session, StoredImage } from "./sessions.js";
 import { startSegment } from "./jobs/segment.js";
 import { startIsolate } from "./jobs/isolate.js";
 import { startAnimate } from "./jobs/animate.js";
@@ -43,6 +43,18 @@ async function readVideoUpload(value: FormDataEntryValue | null, request: Pick<A
     throw new HTTPException(400, { message: `The ${label} video must be ${request.width} × ${request.height} with exactly ${request.frames} frames; it is ${info.width} × ${info.height} with ${info.frames}.` });
   }
   return { bytes, container: info.container, audio: info.audio };
+}
+
+/** The union of the subject masks `ids`, all found on `image`. */
+async function unionMasks(session: Session, image: StoredImage, ids: string[]) {
+  const pixels = Buffer.alloc(image.width * image.height);
+  for (const id of new Set(ids)) {
+    const candidate = session.candidates.get(id);
+    if (!candidate || candidate.imageId !== image.id) throw new HTTPException(400, { message: "One of the selected masks no longer belongs to this photo." });
+    const decoded = await decodeMask(await readFile(candidate.path), image.width, image.height);
+    for (let i = 0; i < pixels.length; i++) pixels[i] |= decoded.pixels[i];
+  }
+  return pixels;
 }
 
 /**
@@ -109,7 +121,7 @@ export function createApp(options: AppOptions = {}) {
     const saved = await store.savePng(session, png);
     if (isBusy(session)) throw new HTTPException(409, { message: "A job started while the photo was uploading. Wait for it to finish or cancel it before replacing the photo." });
     session.image = { ...saved, width, height };
-    session.video = undefined; session.inpainting = undefined;
+    session.video = undefined; session.frame = undefined; session.inpainting = undefined;
     session.candidates.clear(); session.selection = undefined; session.job = undefined;
     clearIsolation(session);
     return c.json({ id: saved.id, url: saved.url, width, height }, 201);
@@ -131,10 +143,30 @@ export function createApp(options: AppOptions = {}) {
     const saved = await store.saveFile(session, bytes, info.container);
     if (isBusy(session)) throw new HTTPException(409, { message: "A job started while uploading. Try again when it finishes." });
     const video = { id: saved.id, url: saved.url, width: info.width, height: info.height, frames: info.frames, startTime: info.startTime, duration: info.duration, audio: info.audio };
-    session.video = { ...video, path: saved.path }; session.inpainting = undefined;
+    session.video = { ...video, path: saved.path }; session.frame = undefined; session.inpainting = undefined;
     session.image = undefined; session.selection = undefined; session.candidates.clear(); session.job = undefined;
     clearIsolation(session);
     return c.json(video, 201);
+  });
+  app.post("/api/frames", async c => {
+    const session = c.get("session");
+    if (isBusy(session)) throw new HTTPException(409, { message: "Wait for the active job to finish." });
+    const form = await c.req.formData();
+    const video = session.video, file = form.get("image");
+    if (!video || form.get("videoId") !== video.id) throw new HTTPException(409, { message: "The source video changed. Upload it again." });
+    if (!(file instanceof File)) throw new HTTPException(400, { message: "The video frame is missing." });
+    // The frame is selected on as the tracker sees it, so it must be the prepared video's size.
+    const size = inpaintSize(video.width, video.height);
+    const png = await sharp(new Uint8Array(await file.arrayBuffer()), { limitInputPixels: 8_000_000 }).removeAlpha().png().toBuffer({ resolveWithObject: true })
+      .catch(() => { throw new HTTPException(400, { message: "The video frame must be a PNG." }); });
+    if (png.info.width !== size.width || png.info.height !== size.height) {
+      throw new HTTPException(400, { message: `The video frame must be ${size.width} × ${size.height}.` });
+    }
+    const saved = await store.savePng(session, png.data);
+    if (isBusy(session) || session.video !== video) throw new HTTPException(409, { message: "The video changed while uploading its frame. Try again." });
+    session.frame = { ...saved, ...size, videoId: video.id };
+    session.candidates.clear();
+    return c.json({ id: saved.id, url: saved.url, ...size }, 201);
   });
   app.get("/api/files/:id", async c => {
     const path = c.get("session").files.get(c.req.param("id"));
@@ -154,25 +186,27 @@ export function createApp(options: AppOptions = {}) {
   app.post("/api/jobs/segment", async c => {
     const session = c.get("session");
     const request = segmentRequestSchema.parse(await c.req.json());
-    if (!session.image || request.imageId !== session.image.id) throw new HTTPException(409, { message: "The photo has changed. Select the subject again." });
+    // Subjects are selected on the photo, or on a video's first frame to choose what the inpainting mask follows.
+    const image = [session.image, session.frame].find(image => image?.id === request.imageId);
+    if (!image) throw new HTTPException(409, { message: "The photo has changed. Select the subject again." });
     if (isBusy(session)) throw new HTTPException(409, { message: "A job is already running in this session." });
     let prior: { path: string } | undefined;
     if (request.mode === "points") {
       if (request.candidateId) {
         const candidate = session.candidates.get(request.candidateId);
-        if (!candidate || candidate.imageId !== session.image.id) {
+        if (!candidate || candidate.imageId !== image.id) {
           throw new HTTPException(409, { message: "The subject mask no longer belongs to this photo. Find the subject again." });
         }
         prior = { path: candidate.path };
       }
-      const { width, height } = session.image;
+      const { width, height } = image;
       if ([...request.positive, ...request.negative].some(p => p.x >= width || p.y >= height)) {
         throw new HTTPException(400, { message: "Refinement points must be inside the photo." });
       }
     }
     session.selection = undefined;
     clearIsolation(session);
-    return c.json(startSegment(client, store, session, request, prior).snapshot, 202);
+    return c.json(startSegment(client, store, session, image, request, prior).snapshot, 202);
   });
   app.post("/api/jobs/isolate", async c => {
     const session = c.get("session");
@@ -263,21 +297,21 @@ export function createApp(options: AppOptions = {}) {
     const form = await c.req.formData().catch(() => { throw new HTTPException(400, { message: "Send the video as a multipart form." }); });
     assertVideoUploadSize(form);
     const request = trackRequestSchema.parse(JSON.parse(String(form.get("request") ?? "")));
-    const video = session.video;
+    const { video, frame } = session;
     if (!video || video.id !== request.videoId) throw new HTTPException(409, { message: "The source video changed. Upload it again." });
     const size = inpaintSize(video.width, video.height);
     if (request.width !== size.width || request.height !== size.height || request.frames !== inpaintFrames(video.duration)) {
       throw new HTTPException(400, { message: "The prepared video doesn't match the source video." });
     }
-    if ([...request.positive, ...request.negative].some(point => point.x >= request.width || point.y >= request.height)) {
-      throw new HTTPException(400, { message: "Tracking points must be inside the video." });
-    }
+    if (!frame || frame.id !== request.frameId || frame.videoId !== video.id) throw new HTTPException(409, { message: "The video frame changed. Select the object again." });
+    const pixels = await unionMasks(session, frame, request.candidateIds);
     const source = await readVideoUpload(form.get("source"), request, "source");
-    const unchanged = () => !isBusy(session) && session.video === video;
+    const unchanged = () => !isBusy(session) && session.video === video && session.frame === frame;
     if (!unchanged()) throw new HTTPException(409, { message: "The video changed while uploading. Try again." });
+    const mask = await store.savePng(session, await encodeMask(pixels, frame.width, frame.height));
     const file = await store.saveFile(session, source.bytes, source.container);
     if (!unchanged()) throw new HTTPException(409, { message: "The video changed while uploading. Try again." });
-    return c.json(startWhileConnected(c.req.raw.signal, "Tracking", () => startTrack(client, session, request, file.path)).snapshot, 202);
+    return c.json(startWhileConnected(c.req.raw.signal, "Tracking", () => startTrack(client, session, request, { sourcePath: file.path, maskPath: mask.path })).snapshot, 202);
   });
   app.post("/api/jobs/reference", async c => {
     const session = c.get("session");
@@ -338,13 +372,7 @@ export function createApp(options: AppOptions = {}) {
     const image = session.image;
     if (isBusy(session)) throw new HTTPException(409, { message: "Wait for the active job to finish." });
     if (!image || request.imageId !== image.id) throw new HTTPException(409, { message: "The photo has changed. Select the subject again." });
-    const pixels = Buffer.alloc(image.width * image.height);
-    for (const id of new Set(request.candidateIds)) {
-      const candidate = session.candidates.get(id);
-      if (!candidate || candidate.imageId !== image.id) throw new HTTPException(400, { message: "One of the selected masks no longer belongs to this photo." });
-      const decoded = await decodeMask(await readFile(candidate.path), image.width, image.height);
-      for (let i = 0; i < pixels.length; i++) pixels[i] |= decoded.pixels[i];
-    }
+    const pixels = await unionMasks(session, image, request.candidateIds);
     if (session.image !== image || isBusy(session)) throw new HTTPException(409, { message: "Selection changed. Confirm it again." });
     const saved = await store.savePng(session, await encodeMask(pixels, image.width, image.height));
     if (session.image !== image || isBusy(session)) throw new HTTPException(409, { message: "Selection changed. Confirm it again." });

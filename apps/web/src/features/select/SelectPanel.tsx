@@ -1,8 +1,18 @@
 import { useEffect } from "react";
 import { Box, Button, Checkbox, Chip, IconButton, LinearProgress, Stack, TextField, Typography } from "@mui/material";
-import { canApplyRefinement, hasPendingPoints, useSelectionStore } from "./useSelectionStore";
+import { canApplyRefinement, hasPendingPoints } from "./useSelectionStore";
+import { useSelectionContext } from "./SelectionContext";
 
-export function SelectPanel() {
+/** What the panel asks for and does with the ticked subjects. */
+export interface SelectPanelText { title: string; hint: string; continueLabel(count: number): string; emptyLabel: string }
+const MOVE_TEXT: SelectPanelText = {
+  title: "What do you want to move?", hint: "Name a subject or click one in the photo.",
+  continueLabel: count => `Continue with ${count} ${count === 1 ? "subject" : "subjects"} →`, emptyLabel: "Tick subjects to animate",
+};
+
+/** Edits the selection in context. Continuing confirms it for the photo workflow, unless `onContinue` takes the ticked subjects. */
+export function SelectPanel({ text = MOVE_TEXT, onContinue }: { text?: SelectPanelText; onContinue?: () => void }) {
+  const useSelectionStore = useSelectionContext();
   const s = useSelectionStore();
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
@@ -17,7 +27,7 @@ export function SelectPanel() {
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
+  }, [useSelectionStore]);
   const pending = hasPendingPoints(s);
   const subjects = s.selectionView === "subjects";
   const editing = s.selectionView === "edit";
@@ -52,11 +62,11 @@ export function SelectPanel() {
         })}
       </Stack>
       {pending && <Typography variant="caption" role="status">Edit subjects with unapplied points to apply or clear them before continuing.</Typography>}
-      <Button variant="contained" size="large" disabled={!s.selectedIds.length || s.busy || pending} onClick={() => void s.confirm()}>{s.selectedIds.length ? `Continue with ${s.selectedIds.length} ${s.selectedIds.length === 1 ? "subject" : "subjects"} →` : "Tick subjects to animate"}</Button>
+      <Button variant="contained" size="large" disabled={!s.selectedIds.length || s.busy || pending} onClick={() => onContinue ? onContinue() : void s.confirm()}>{s.selectedIds.length ? text.continueLabel(s.selectedIds.length) : text.emptyLabel}</Button>
     </> : <>
       <Stack spacing={1}>
-        <Typography variant="h2">{editing ? `Edit ${activeName}` : adding && s.candidates.length ? "Add subject" : "What do you want to move?"}</Typography>
-        <Typography variant="body2" color="text.secondary">{editing ? "Click to include more of this subject. Right-click to exclude. Other subjects stay in place." : "Name a subject or click one in the photo."}</Typography>
+        <Typography variant="h2">{editing ? `Edit ${activeName}` : adding && s.candidates.length ? "Add subject" : text.title}</Typography>
+        <Typography variant="body2" color="text.secondary">{editing ? "Click to include more of this subject. Right-click to exclude. Other subjects stay in place." : text.hint}</Typography>
       </Stack>
       {!editing && <Stack component="form" spacing={1.5} onSubmit={event => { event.preventDefault(); void s.segment(); }}>
         <TextField label="Find subjects" placeholder="e.g. red car" value={s.text} onChange={event => s.setText(event.target.value)}

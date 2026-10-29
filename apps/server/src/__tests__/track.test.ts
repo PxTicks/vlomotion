@@ -33,7 +33,16 @@ async function setup(masks?: Output[]) {
   const form = new FormData(); form.set("video", new File([bytes], "clip.mp4", { type: "video/mp4" }));
   const video = await (await app.request("/api/videos", { method: "POST", headers: { cookie }, body: form })).json();
   const session = [...store.sessions.values()][0];
-  const request = { videoId: video.id, width: 480, height: 480, frames: 124, positive: [{ x: 100.4, y: 120.6 }] };
+  const frameForm = new FormData(); frameForm.set("videoId", video.id);
+  frameForm.set("image", new File([new Uint8Array(await maskPng(0, 0, 0))], "frame.png", { type: "image/png" }));
+  const frame = await (await app.request("/api/frames", { method: "POST", headers: { cookie }, body: frameForm })).json();
+  // Two subjects selected on the first frame; the tracker starts from their union.
+  const subjects = await Promise.all([[80, 100, 40], [200, 200, 10]].map(async ([x, y, side]) => {
+    const saved = await store.savePng(session, await maskPng(x, y, side));
+    session.candidates.set(saved.id, { ...saved, bounds: { x, y, width: side, height: side }, imageId: frame.id });
+    return saved.id;
+  }));
+  const request = { videoId: video.id, width: 480, height: 480, frames: 124, frameId: frame.id, candidateIds: subjects };
   // The object moves right two pixels a frame and is lost on frame 60. Names are deliberately out of order.
   const frames = masks ?? await Promise.all(Array.from({ length: 124 }, async (_, i) =>
     output(`track_${String(i + 1).padStart(5, "0")}_.png`, await maskPng(80 + 2 * i, 100, i === 60 ? 0 : 40))));
@@ -47,17 +56,19 @@ async function setup(masks?: Output[]) {
     data.set("source", new File([new Uint8Array(source)], "source.mp4"));
     return app.request("/api/jobs/track", { method: "POST", headers: { cookie }, body: data, signal });
   };
-  return { session, store, request, upload, submit, remote };
+  return { app, cookie, video, frame, session, store, request, upload, submit, remote, asset: vi.spyOn(client.assets, "fromFile") };
 }
 
 describe("object tracking", () => {
-  it("segments the clicked object on the first frame and tracks it through the prepared video", async () => {
-    const { session, upload, submit } = await setup();
+  it("tracks the union of the subjects selected on the first frame through the prepared video", async () => {
+    const { session, upload, submit, asset } = await setup();
     expect((await upload()).status).toBe(202);
     await session.job!.done;
     const graph = submit.mock.calls[0][0].json as ApiGraph;
-    expect(graph["5"].inputs).toMatchObject({ positive_coords: JSON.stringify([{ x: 100, y: 121 }]), negative_coords: "[]", image: ["4", 0] });
+    expect(graph["5"].inputs).toMatchObject({ image: ["4", 0], channel: "red" });
     expect(graph["6"].inputs).toMatchObject({ images: ["3", 0], initial_mask: ["5", 0], max_objects: 1 });
+    const maskPath = asset.mock.calls.map(([path]) => String(path)).find(path => path.endsWith(".png"))!;
+    expect(await measureMask(await readFile(maskPath), size, size)).toMatchObject({ area: 1600 + 100, bounds: { x: 80, y: 100, width: 130, height: 110 } });
     expect(graph["7"].inputs.object_indices).toBe("0");
     const { snapshot } = session.job!;
     expect(snapshot).toMatchObject({ status: "completed", stage: "track", progress: 1, message: "Tracked the object. It was out of view for 1 of 124 frames." });
@@ -71,17 +82,18 @@ describe("object tracking", () => {
     const empty = output("track_00001_.png", await maskPng(0, 0, 0)), square = await maskPng(10, 10, 20);
     const missing = await setup([empty, ...Array.from({ length: 123 }, (_, i) => output(`track_${String(i + 2).padStart(5, "0")}_.png`, square))]);
     await missing.upload(); await missing.session.job!.done;
-    expect(missing.session.job!.snapshot).toMatchObject({ status: "failed", error: "SAM couldn't find the object on the first frame. Click on it again." });
+    expect(missing.session.job!.snapshot).toMatchObject({ status: "failed", error: "SAM couldn't find the selected object on the first frame. Select it again." });
     const short = await setup([output("track_00001_.png", square)]);
     await short.upload(); await short.session.job!.done;
     expect(short.session.job!.snapshot).toMatchObject({ status: "failed", error: "Tracking returned 1 frames instead of 124. Try again." });
   });
-  it("rejects stale videos, mismatched preparation, out-of-frame points and concurrent jobs before submission", async () => {
+  it("rejects stale videos and frames, foreign subjects, mismatched preparation and concurrent jobs before submission", async () => {
     const { request, upload, submit, session } = await setup();
     expect((await upload({ ...request, videoId: crypto.randomUUID() })).status).toBe(409);
     expect((await upload({ ...request, frames: 107 })).status).toBe(400);
-    expect((await upload({ ...request, positive: [{ x: 480, y: 10 }] })).status).toBe(400);
-    expect((await upload({ ...request, positive: [] })).status).toBe(400);
+    expect((await upload({ ...request, frameId: crypto.randomUUID() })).status).toBe(409);
+    expect((await upload({ ...request, candidateIds: [] })).status).toBe(400);
+    expect((await upload({ ...request, candidateIds: [crypto.randomUUID()] })).status).toBe(400);
     expect((await upload(undefined, new Uint8Array(await readFile(new URL("./fixtures/black-480-123.mp4", import.meta.url))))).status).toBe(400);
     session.job = createManagedJob("Busy");
     expect((await upload()).status).toBe(409);
@@ -111,6 +123,30 @@ describe("object tracking", () => {
     expect(remote.cancel).toHaveBeenCalledOnce();
     expect(session.job!.snapshot).toMatchObject({ status: "cancelled", message: "Tracking cancelled." });
     expect(session.job!.snapshot.tracking).toBeUndefined();
+  });
+});
+
+describe("first frame selection", () => {
+  it("keeps a frame of the prepared size for the current video, and segments it like a photo", async () => {
+    const { app, cookie, video, frame, session, submit } = await setup();
+    expect(frame).toMatchObject({ width: 480, height: 480 });
+    expect(session.frame).toMatchObject({ id: frame.id, videoId: video.id });
+    const send = (videoId: string, png: Uint8Array) => {
+      const form = new FormData(); form.set("videoId", videoId); form.set("image", new File([new Uint8Array(png)], "frame.png"));
+      return app.request("/api/frames", { method: "POST", headers: { cookie }, body: form });
+    };
+    const small = await sharp({ create: { width: 240, height: 240, channels: 3, background: "black" } }).png().toBuffer();
+    expect((await send(video.id, small)).status).toBe(400);
+    expect((await send(crypto.randomUUID(), await maskPng(0, 0, 0))).status).toBe(409);
+    const found = await maskPng(10, 10, 20);
+    submit.mockResolvedValue({ status: "succeeded", result: vi.fn(async () => undefined), cancel: vi.fn(),
+      async *events() { yield { kind: "progress", value: 0.5 }; }, getOutputs: vi.fn(() => [output("segment.png", found)]) } as unknown as Job);
+    const segment = await app.request("/api/jobs/segment", { method: "POST", headers: { cookie, "Content-Type": "application/json" },
+      body: JSON.stringify({ mode: "points", imageId: frame.id, positive: [{ x: 15, y: 15 }], negative: [] }) });
+    expect(segment.status).toBe(202);
+    await session.job!.done;
+    expect(session.job!.snapshot.candidates).toEqual([expect.objectContaining({ bounds: { x: 10, y: 10, width: 20, height: 20 } })]);
+    expect(session.video).toBeDefined();
   });
 });
 

@@ -15,6 +15,8 @@ import { KeyTimeline } from "../motion/KeyTimeline";
 import { useMotionShortcuts } from "../motion/useMotionShortcuts";
 import { SUBJECT_COLORS } from "../motion/useMotionStore";
 import { formatSeconds } from "../motion/format";
+import { SelectionCanvas, SelectionStoreContext } from "../select";
+import { useFollowSelection } from "./useFollowSelection";
 
 const COLOR = SUBJECT_COLORS[0], TRACK_COLOR = SUBJECT_COLORS[1];
 type Drag = { pointerId: number; origin: Point; start: Point } & (
@@ -40,6 +42,7 @@ function MaskShapeView({ shape, rect, scale, ghost = false }: { shape: MaskShape
 
 export function InpaintEditor({ onRemove }: { onRemove(): void }) {
   const s = useInpaintStore();
+  const followFrame = useFollowSelection(state => state.image);
   const video = useRef<HTMLVideoElement>(null);
   const overlay = useRef<SVGSVGElement>(null);
   const drag = useRef<Drag | null>(null);
@@ -51,13 +54,17 @@ export function InpaintEditor({ onRemove }: { onRemove(): void }) {
   const [hover, setHover] = useState<CanvasHover>(null);
   const busy = s.status !== "idle";
   const showResult = s.view === "result" && !!s.result;
+  /** The first frame is shown for selecting the object to follow, in place of the video and its overlay. */
+  const selecting = s.picking && !!followFrame;
   const curve = useMemo(() => s.motion ? buildMotionCurve(s.motion) : null, [s.motion]);
   const tracks = useMemo<OverlayTrack[]>(() => s.motion && curve ? [{ id: "mask", color: COLOR, motion: s.motion, curve }] : [], [s.motion, curve]);
-  useMotionShortcuts(useInpaintStore.getState, { enabled: s.step > 0 && !showResult, readOnly: s.step === 2 });
+  useMotionShortcuts(useInpaintStore.getState, { enabled: s.step > 0 && !showResult && !s.picking, readOnly: s.step === 2 });
   useEffect(() => () => useInpaintStore.getState().leave(), []);
   useEffect(() => {
     if (!s.picking) return;
-    const onKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape") useInpaintStore.getState().stopPicking(); };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !useFollowSelection.getState().busy) useInpaintStore.getState().stopPicking();
+    };
     globalThis.addEventListener("keydown", onKeyDown);
     return () => globalThis.removeEventListener("keydown", onKeyDown);
   }, [s.picking]);
@@ -69,10 +76,10 @@ export function InpaintEditor({ onRemove }: { onRemove(): void }) {
     const observer = new ResizeObserver(([entry]) => setScale(width / Math.max(1, entry.contentRect.width)));
     observer.observe(element);
     return () => observer.disconnect();
-  }, [s.video?.id, s.video?.width, showResult]);
+  }, [s.video?.id, s.video?.width, showResult, selecting]);
   useEffect(() => {
     if (video.current && s.video && !s.playing) video.current.currentTime = s.video.startTime + s.playhead / FPS;
-  }, [s.playhead, s.playing, s.video?.id, s.video?.startTime, showResult]);
+  }, [s.playhead, s.playing, s.video?.id, s.video?.startTime, showResult, selecting]);
   useEffect(() => {
     const element = video.current;
     if (!element || !s.playing || showResult) return;
@@ -128,10 +135,9 @@ export function InpaintEditor({ onRemove }: { onRemove(): void }) {
   }
 
   function onPointerDown(event: ReactPointerEvent<SVGSVGElement>) {
-    if (!editing || step === 2 || event.button !== 0 || drag.current) return;
+    if (!editing || step === 2 || s.picking || event.button !== 0 || drag.current) return;
     event.preventDefault();
     const store = useInpaintStore.getState(), point = toImage(event), { pointerId } = event;
-    if (s.picking) { void store.followObject(point); return; }
     const handle = handleAt(point);
     if (step === 0) {
       if (handle && bounds) startDrag(event, { kind: "scale", handle, pose: atRest(bounds), cursor: handleCursor(handle, atRest(bounds)), pointerId, origin: point, start: point });
@@ -239,7 +245,7 @@ export function InpaintEditor({ onRemove }: { onRemove(): void }) {
   const selected = showPath ? motion.keys.find(key => key.id === s.selectedKeyId) : undefined;
   const ghosts = showPath && bounds && curve ? motion.keys.map(key => placeRect(bounds, { anchor: motion.anchor, offset: { x: key.x - motion.anchor.x, y: key.y - motion.anchor.y }, ...scaleOf(key) }))
     .filter(rect => !current || rect.x !== current.x || rect.y !== current.y || rect.width !== current.width || rect.height !== current.height) : [];
-  const cursor = step === 2 || busy ? "default" : s.picking ? "crosshair" : canvasCursor(drag.current, hover, step === 0 ? "crosshair" : "default");
+  const cursor = step === 2 || busy || s.picking ? "default" : canvasCursor(drag.current, hover, step === 0 ? "crosshair" : "default");
   const tracked = step === 1 && s.track && !s.picking ? trackedBounds(s.track, playhead, frame) : null;
 
   return <Stack spacing={2}>
@@ -253,6 +259,10 @@ export function InpaintEditor({ onRemove }: { onRemove(): void }) {
         <Box component="video" key={s.result!.video.id} src={s.result!.video.url} controls autoPlay
           sx={{ display: "block", width: "100%", aspectRatio: `${s.result!.width}/${s.result!.height}`, bgcolor: "#19151f", borderRadius: 1 }} />
       </Box>
+      // The object to follow is selected on the first frame as the tracker sees it, like a photo's subjects.
+      : selecting ? <SelectionStoreContext.Provider value={useFollowSelection}>
+        <Box sx={{ width: "100%", maxWidth: 680 * s.video.width / s.video.height, mx: "auto" }}><SelectionCanvas media="frame" /></Box>
+      </SelectionStoreContext.Provider>
       : <Box sx={{ position: "relative", width: "100%", maxWidth: 680 * s.video.width / s.video.height, mx: "auto", aspectRatio: `${s.video.width}/${s.video.height}`, bgcolor: "#19151f", borderRadius: 1, overflow: "hidden" }}>
         <video ref={video} key={s.video.id} src={s.video.url} muted playsInline preload="auto"
           onLoadedMetadata={() => {
@@ -271,13 +281,13 @@ export function InpaintEditor({ onRemove }: { onRemove(): void }) {
           {tracked && <rect x={tracked.x} y={tracked.y} width={tracked.width} height={tracked.height} fill="none" stroke={TRACK_COLOR}
             strokeOpacity={.8} strokeWidth={1.5 * scale} strokeDasharray={`${2 * scale} ${3 * scale}`} pointerEvents="none" />}
           {ghosts.map((rect, index) => <MaskShapeView key={index} shape={shape} rect={rect} scale={scale} ghost />)}
-          {current && <MaskShapeView shape={shape} rect={current} scale={scale} />}
+          {current && !s.picking && <MaskShapeView shape={shape} rect={current} scale={scale} />}
           {showPath && <MotionPaths tracks={tracks} activeId="mask" selectedKeyId={s.selectedKeyId} playhead={playhead} scale={scale} />}
           {box && <ResizeBox {...box} color={COLOR} scale={scale} />}
         </svg>
         {selected && motion && <KeyBadge keyframe={selected} anchor={motion.anchor} color={COLOR} size={frame} />}
         {step === 0 && !bounds && !draft && <CanvasHint>Drag to draw a mask.</CanvasHint>}
-        {s.picking && <CanvasHint>Click the object to follow.</CanvasHint>}
+        {s.picking && <CanvasHint>Reading the first frame…</CanvasHint>}
         {showPath && motion.keys.length === 1 && <CanvasHint>{s.scrubbed ? `Drag to place a key at ${formatSeconds(playhead)}.` : "Drag to create a path."}</CanvasHint>}
         {s.recording && <RecordingBadge />}
         {step === 0 && <RemoveMediaButton label="Remove video" disabled={busy || s.uploading} onRemove={onRemove} />}

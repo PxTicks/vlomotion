@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 import type { Comfy, Workflow } from "@comfyorg/sdk";
-import type { Point, SegmentRequest } from "@h3-motion/shared";
+import type { SegmentRequest } from "@h3-motion/shared";
 import { pythonRound } from "@h3-motion/shared";
 import type { FrameSize, InpaintAudioMode } from "@h3-motion/shared";
 import { REPO_ROOT } from "../config.js";
@@ -102,24 +102,22 @@ const INPAINT_SOURCE_COMPONENTS = "6";
 /** The delivered video's sound, the generated sound unless the source's is kept. */
 const INPAINT_VIDEO = { node: "28", input: "audio", classType: "CreateVideo" } satisfies Binding;
 
-/** SAM segments the first frame from the points, then its video tracker follows that mask through the clip. */
+/** SAM's video tracker follows the subjects selected on the first frame, given as one mask, through the clip. */
 export const TRACK_BINDINGS = {
   source: { node: "2", input: "file", classType: "LoadVideo" },
-  positive: { node: "5", input: "positive_coords", classType: "vloSAM3RefineMask" },
-  negative: { node: "5", input: "negative_coords", classType: "vloSAM3RefineMask" },
+  mask: { node: "4", input: "image", classType: "LoadImage" },
   initial: { node: "6", input: "initial_mask", classType: "SAM3_VideoTrack" },
 } satisfies Record<string, Binding>;
 /** One mask image per frame, in frame order. */
 export const TRACK_OUTPUT = "9";
 
-export async function buildTrackWorkflow(client: Comfy, options: { sourcePath: string; positive: Point[]; negative: Point[] }): Promise<Workflow> {
+export async function buildTrackWorkflow(client: Comfy, options: { sourcePath: string; maskPath: string }): Promise<Workflow> {
   const graph = await loadTemplate("track");
   assertBindings(graph, [...Object.values(TRACK_BINDINGS), { node: TRACK_OUTPUT, input: "images", classType: "SaveImage" }]);
   const workflow = client.workflows.fromJson(graph);
-  const { source, positive, negative } = TRACK_BINDINGS;
+  const { source, mask } = TRACK_BINDINGS;
   workflow.setInput(source.node, source.input, client.assets.fromFile(options.sourcePath));
-  workflow.setInput(positive.node, positive.input, JSON.stringify(options.positive.map(({ x, y }) => ({ x: Math.round(x), y: Math.round(y) }))));
-  workflow.setInput(negative.node, negative.input, JSON.stringify(options.negative.map(({ x, y }) => ({ x: Math.round(x), y: Math.round(y) }))));
+  workflow.setInput(mask.node, mask.input, client.assets.fromFile(options.maskPath));
   return workflow;
 }
 

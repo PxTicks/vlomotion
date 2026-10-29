@@ -13,6 +13,8 @@ export interface Session {
   candidates: Map<string, StoredCandidate>;
   image?: StoredImage;
   video?: VideoAsset & { path: string };
+  /** The video's first frame as the tracker sees it, for selecting the object to follow. */
+  frame?: StoredImage & { videoId: string };
   inpainting?: InpaintResult;
   selection?: StoredImage;
   description?: SubjectDescription & { imageId: string; maskId: string; userText: string };

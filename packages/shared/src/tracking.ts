@@ -5,7 +5,6 @@ import { inpaintFramesSchema } from "./inpaint.js";
 import { MAX_MOTION_KEYS, simplifyPath } from "./motion.js";
 import type { Pose, Rect, SubjectMotion } from "./motion.js";
 
-const pointSchema = z.object({ x: z.number().finite().nonnegative(), y: z.number().finite().nonnegative() });
 const rectSchema = z.object({ x: z.number().finite(), y: z.number().finite(), width: z.number().finite().nonnegative(), height: z.number().finite().nonnegative() });
 /**
  * The tracked object on one frame, in the tracked video's pixels: its area, the median of its pixels and its
@@ -13,10 +12,13 @@ const rectSchema = z.object({ x: z.number().finite(), y: z.number().finite(), wi
  */
 export const trackFrameSchema = z.object({ area: z.number().positive(), x: z.number().finite(), y: z.number().finite(), bounds: rectSchema }).nullable();
 export type TrackFrame = z.infer<typeof trackFrameSchema>;
-/** Sent as the `request` field of a multipart upload with the prepared `source` video; points are on its first frame. */
+/**
+ * Sent as the `request` field of a multipart upload with the prepared `source` video. The object is the union of the
+ * subjects selected on `frameId`, the prepared video's first frame uploaded to /frames.
+ */
 export const trackRequestSchema = z.object({
   videoId: z.uuid(), width: videoDimensionSchema, height: videoDimensionSchema, frames: inpaintFramesSchema,
-  positive: z.array(pointSchema).min(1).max(16), negative: z.array(pointSchema).max(16).default([]),
+  frameId: z.uuid(), candidateIds: z.array(z.uuid()).min(1).max(16),
 });
 export type TrackRequest = z.infer<typeof trackRequestSchema>;
 export const trackResultSchema = z.object({

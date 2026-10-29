@@ -10,6 +10,7 @@ import { GeneratePanel, GenerateStage, useCurrentResult, useGenerateStore } from
 import { InpaintEditor } from "../inpaint/InpaintEditor";
 import { InpaintPanel } from "../inpaint/InpaintPanel";
 import { useInpaintStore } from "../inpaint/useInpaintStore";
+import { resetFollowSelection, useFollowSelection } from "../inpaint/useFollowSelection";
 import { MediaUpload } from "./MediaUpload";
 import type { Workflow } from "./MediaUpload";
 import { RemoveMediaButton } from "./RemoveMediaButton";
@@ -23,7 +24,8 @@ export function App() {
   const [startupError, setStartupError] = useState<string | null>(null);
   const [comfyAvailable, setComfyAvailable] = useState<boolean | null>(null);
   const generating = useGenerateStore(s => s.status !== "idle");
-  const inpaintBusy = useInpaintStore(s => s.status !== "idle" || s.uploading);
+  const followBusy = useFollowSelection(s => s.busy);
+  const inpaintBusy = useInpaintStore(s => s.status !== "idle" || s.uploading) || followBusy;
   const inpaintError = useInpaintStore(s => s.error);
   const busy = useSelectionStore(s => s.busy) || generating || inpaintBusy;
   const generated = !!useCurrentResult();
@@ -46,6 +48,7 @@ export function App() {
       useGenerateStore.setState(useGenerateStore.getInitialState(), true);
     } else if (workflow === "video") {
       useInpaintStore.setState(useInpaintStore.getInitialState(), true);
+      resetFollowSelection();
     }
     setLastWorkflow(null);
     setWorkflow("upload");

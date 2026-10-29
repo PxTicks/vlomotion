@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  Accordion, AccordionDetails, AccordionSummary, Box, Button, LinearProgress, ListItemText, Menu, MenuItem, Slider, Stack, Step, StepButton, Stepper,
+  Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, LinearProgress, ListItemText, Menu, MenuItem, Slider, Stack, Step, StepButton, Stepper,
   TextField, ToggleButton, ToggleButtonGroup, Tooltip, Typography,
 } from "@mui/material";
 import { MASK_FEATHER, MASK_GROW, VIDEO_TIERS } from "@h3-motion/shared";
@@ -9,6 +9,9 @@ import { RemoveMediaButton } from "../shell/RemoveMediaButton";
 import { SelectedKeyCard } from "../motion/SelectedKeyCard";
 import { SUBJECT_COLORS } from "../motion/useMotionStore";
 import { formatSeconds } from "../motion/format";
+import { SelectPanel, SelectionStoreContext } from "../select";
+import type { SelectPanelText } from "../select";
+import { useFollowSelection } from "./useFollowSelection";
 
 const GROW_HELP = "How far the mask is widened on every side before generating. More room lets the new content blend into its surroundings, and covers edges of what you're replacing that stick out of the mask.";
 const FEATHER_HELP = "How softly the generated patch fades into the original video at the mask's edge. Higher values hide the seam, but blur the boundary further on each side of it.";
@@ -18,9 +21,34 @@ const AUDIO_OPTIONS = [
   ["reference", "Reference", "Generates new sound, using the original sound as a reference for its ambience and style."],
 ] as const;
 
+const FOLLOW_TEXT: SelectPanelText = {
+  title: "What should the mask follow?", hint: "Name an object, or click one in the frame. Right-click to exclude part of it.",
+  continueLabel: count => count === 1 ? "Follow this subject →" : `Follow these ${count} subjects together →`, emptyLabel: "Tick subjects to follow",
+};
+
+/** Selects the object to follow on the first frame, like the photo workflow's subjects, then tracks it. */
+function FollowPanel() {
+  const s = useInpaintStore();
+  const selection = useFollowSelection();
+  if (s.task === "frame") return <Stack spacing={1} aria-live="polite">
+    <Typography variant="body2">{s.status === "uploading" ? "Uploading the first frame…" : "Reading the first frame…"}</Typography>
+    <LinearProgress />
+    <Button onClick={s.stopPicking}>Cancel</Button>
+  </Stack>;
+  return <SelectionStoreContext.Provider value={useFollowSelection}>
+    <Stack spacing={2.5}>
+      {selection.error && <Alert severity="error" onClose={selection.clearError}>{selection.error}</Alert>}
+      <SelectPanel text={FOLLOW_TEXT} onContinue={() => void s.followObject()} />
+      {selection.notice && <Typography role="status" variant="body2" color="text.secondary">{selection.notice}</Typography>}
+      <Button disabled={selection.busy} onClick={s.stopPicking}>Back to the mask</Button>
+    </Stack>
+  </SelectionStoreContext.Provider>;
+}
+
 export function InpaintPanel() {
   const s = useInpaintStore();
-  const busy = s.status !== "idle";
+  const followBusy = useFollowSelection(state => state.busy);
+  const busy = s.status !== "idle" || followBusy;
   const keyCount = s.motion?.keys.length ?? 0;
   const audio = audioMode(s.video, s.audio);
   const [referenceUrl, setReferenceUrl] = useState<string | null>(null);
@@ -52,7 +80,7 @@ export function InpaintPanel() {
         {(["rectangle", "ellipse"] as const).map(shape => <ToggleButton key={shape} value={shape} sx={{ px: 1.5, py: .5, borderRadius: 99, textTransform: "capitalize" }}>{shape}</ToggleButton>)}
       </ToggleButtonGroup>
       <Button variant="contained" size="large" disabled={!s.bounds} onClick={() => s.visitStep(1)}>Continue →</Button>
-    </> : s.step === 1 ? <>
+    </> : s.step === 1 && s.picking ? <FollowPanel /> : s.step === 1 ? <>
       <Stack spacing={1}>
         <Typography variant="h2">Drag it into motion</Typography>
         <Typography variant="body2" color="text.secondary">Drag to create a path, or follow an object. Adjust by selecting and dragging ◆ on the video to fix positions, or on the timeline bar to fix timings. Drag the box corners to resize the mask, or its edges to stretch it.</Typography>
@@ -61,13 +89,13 @@ export function InpaintPanel() {
         <Typography variant="body2">{s.status === "preparing" ? "Preparing the video…" : s.status === "uploading" ? "Uploading…" : s.job?.message ?? "Tracking the object…"}</Typography>
         <LinearProgress variant={s.progress === null ? "indeterminate" : "determinate"} value={(s.progress ?? 0) * 100} />
         <Button onClick={() => void s.cancel()}>Cancel</Button>
-      </Stack> : s.picking ? <Button variant="outlined" onClick={s.stopPicking}>Cancel following</Button> : <Button variant="outlined" disabled={busy || s.recording || keyCount > 1} onClick={s.startPicking}>Follow an object</Button>}
+      </Stack> : <Button variant="outlined" disabled={busy || s.recording || keyCount > 1} onClick={() => void s.startPicking()}>Follow an object</Button>}
       {s.notice && <Typography role="status" variant="body2" color="text.secondary">{s.notice}</Typography>}
       {s.motion && <SelectedKeyCard motion={s.motion} keyId={s.selectedKeyId} color={SUBJECT_COLORS[0]} disabled={busy || s.recording}
         onRetime={s.retimeKey} onResetScale={s.resetScale} onDelete={s.deleteSelected}
         startNote="The first key is the mask you drew. It stays at 0 s." />}
       <Button variant="outlined" disabled={busy || s.recording || keyCount < 2} onClick={s.clearPath}>Clear path</Button>
-      <Button variant="contained" size="large" disabled={busy || s.recording || s.picking} onClick={() => s.visitStep(2)}>Continue →</Button>
+      <Button variant="contained" size="large" disabled={busy || s.recording} onClick={() => s.visitStep(2)}>Continue →</Button>
       <Button disabled={busy || s.recording} onClick={() => s.visitStep(0)}>Edit mask</Button>
     </> : <>
       <Stack spacing={1}>

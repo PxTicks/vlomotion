@@ -9,20 +9,21 @@ import type { ManagedJob } from "./runtime.js";
 /** Frame masks are small, so a few download at once to hide the round trips to ComfyUI. */
 const DOWNLOADS = 8;
 
-export function startTrack(client: Comfy, session: Session, request: TrackRequest, sourcePath: string): ManagedJob {
+/** Tracks the object in `maskPath`, on the prepared video's first frame, through the prepared video at `sourcePath`. */
+export function startTrack(client: Comfy, session: Session, request: TrackRequest, paths: { sourcePath: string; maskPath: string }): ManagedJob {
   const video = session.video;
   if (!video || video.id !== request.videoId) throw new Error("Upload a video before tracking.");
   const managed = createManagedJob("Preparing tracking…");
   session.job = managed;
   managed.done = (async () => {
     try {
-      const workflow = await buildTrackWorkflow(client, { sourcePath, positive: request.positive, negative: request.negative });
+      const workflow = await buildTrackWorkflow(client, paths);
       const job = await runWorkflow(client, managed, workflow, { stage: "track", message: "Tracking the object…", to: 0.9 });
       const outputs = frameOrder(job.getOutputs(TRACK_OUTPUT));
       if (outputs.length !== request.frames) throw new Error(`Tracking returned ${outputs.length} frames instead of ${request.frames}. Try again.`);
       managed.snapshot.message = "Measuring the tracked object…";
       const frames = await measureAll(outputs, request, managed);
-      if (!frames[0]) throw new Error("SAM couldn't find the object on the first frame. Click on it again.");
+      if (!frames[0]) throw new Error("SAM couldn't find the selected object on the first frame. Select it again.");
       throwIfCancelled(managed);
       if (session.video !== video) throw new Error("The source video changed during tracking.");
       const tracking: TrackResult = { videoId: request.videoId, width: request.width, height: request.height, frames };
