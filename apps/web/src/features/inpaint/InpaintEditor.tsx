@@ -14,6 +14,7 @@ import { CanvasHint, KeyBadge, MotionPaths, RecordingBadge, ResizeBox, canvasCur
 import type { CanvasHover, OverlayTrack } from "../motion/MotionOverlay";
 import { KeyTimeline } from "../motion/KeyTimeline";
 import { useMotionShortcuts } from "../motion/useMotionShortcuts";
+import { useGhosts } from "../motion/useGhosts";
 import { formatSeconds } from "../motion/format";
 import { SelectionCanvas, SelectionStoreContext } from "../select";
 import { useFollowSelection } from "./useFollowSelection";
@@ -46,6 +47,7 @@ function MaskShapeView({ shape, rect, color, scale, ghost = false, dim = false }
 
 export function InpaintEditor({ onRemove }: { onRemove(): void }) {
   const s = useInpaintStore();
+  const showGhosts = useGhosts(state => state.show);
   const followFrame = useFollowSelection(state => state.image);
   const video = useRef<HTMLVideoElement>(null);
   const overlay = useRef<SVGSVGElement>(null);
@@ -282,7 +284,7 @@ export function InpaintEditor({ onRemove }: { onRemove(): void }) {
 
   const showPath = editing && step === 1 && !!motion && !s.picking;
   const selected = showPath ? motion.keys.find(key => key.id === s.selectedKeyId) : undefined;
-  const ghosts = showPath && bounds && curve ? motion.keys.map(key => placeRect(bounds, { anchor: motion.anchor, offset: { x: key.x - motion.anchor.x, y: key.y - motion.anchor.y }, ...scaleOf(key) }))
+  const ghosts = showPath && showGhosts && bounds && curve ? motion.keys.map(key => placeRect(bounds, { anchor: motion.anchor, offset: { x: key.x - motion.anchor.x, y: key.y - motion.anchor.y }, ...scaleOf(key) }))
     .filter(rect => !current || rect.x !== current.x || rect.y !== current.y || rect.width !== current.width || rect.height !== current.height) : [];
   const cursor = step === 2 || busy || s.picking ? "default" : canvasCursor(drag.current, hover, step === 0 && s.masks.length < MAX_MASKS ? "crosshair" : "default");
   const tracked = step === 1 && s.track && !s.picking ? trackedBounds(s.track, playhead, frame) : null;

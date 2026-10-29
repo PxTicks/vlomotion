@@ -6,6 +6,7 @@ import { buildMotionCurve, isStartKey, scaleOf } from "@h3-motion/shared";
 import type { Point, Pose, TimedSample } from "@h3-motion/shared";
 import { useSelectionStore } from "../select";
 import { drawGhost, drawSceneReference, subjectKeyOf } from "./subjectLayers";
+import { useGhosts } from "./useGhosts";
 import { hitsLayers, motionTargetAt } from "./motionHitTest";
 import { useSubjectLayers } from "./useSubjectLayers";
 import { dragHandle, handleCursor, nearestHandle } from "./gizmo";
@@ -41,6 +42,7 @@ export function MotionCanvas({ readOnly = false }: { readOnly?: boolean }) {
   const [scale, setScale] = useState(1);
   const [live, setLive] = useState<Point | null>(null);
   const [hover, setHover] = useState<CanvasHover>(null);
+  const showGhosts = useGhosts(s => s.show);
   const tracks = useMemo(() => (subjects.length ? subjects : motion && layers
     ? [{ id: mask?.id ?? "subject", name: "Subject", color: SUBJECT_COLORS[0], motion, layers }] : [])
     .map(subject => ({ ...subject, curve: buildMotionCurve(subject.motion) })), [subjects, motion, layers, mask?.id]);
@@ -62,7 +64,7 @@ export function MotionCanvas({ readOnly = false }: { readOnly?: boolean }) {
       const placement = subject.curve.placementAt(playhead), { anchor } = subject.motion;
       return { layers: subject.layers, placement: live && subject.id === active.id ? { ...placement, offset: { x: live.x - anchor.x, y: live.y - anchor.y } } : placement };
     }), playhead === 0 && !live);
-    if (playing || recording || readOnly) return;
+    if (playing || recording || readOnly || !showGhosts) return;
     const current = active.curve.placementAt(playhead), { anchor } = active.motion;
     for (const key of active.motion.keys) {
       const placement = { anchor, offset: { x: key.x - anchor.x, y: key.y - anchor.y }, ...scaleOf(key) };
@@ -70,7 +72,7 @@ export function MotionCanvas({ readOnly = false }: { readOnly?: boolean }) {
         drawGhost(context, active.layers, placement, .22);
       }
     }
-  }, [layers, tracks, active, ready, playhead, playing, recording, live, readOnly]);
+  }, [layers, tracks, active, ready, playhead, playing, recording, live, readOnly, showGhosts]);
 
   function finishTake() {
     const taken = samples.current;

@@ -1,9 +1,10 @@
 import { useRef } from "react";
 import type { PointerEvent as ReactPointerEvent, ReactNode } from "react";
-import { Box, Button, IconButton, Stack, Typography } from "@mui/material";
+import { Box, Button, IconButton, Stack, ToggleButton, Tooltip, Typography } from "@mui/material";
 import { FPS, isStartKey, lastFrame } from "@h3-motion/shared";
 import type { SubjectMotion } from "@h3-motion/shared";
 import { formatSeconds } from "./format";
+import { useGhosts } from "./useGhosts";
 
 /** The store actions a key timeline drives; the motion and inpainting stores both provide them. */
 export interface TimelineActions {
@@ -28,6 +29,7 @@ export function KeyTimeline({ motion, color, playhead, playing, locked, selected
 }) {
   const track = useRef<HTMLDivElement>(null);
   const drag = useRef<TrackDrag | null>(null);
+  const ghosts = useGhosts();
   const last = lastFrame(motion);
   const percent = (frame: number) => `${frame / last * 100}%`;
 
@@ -103,7 +105,12 @@ export function KeyTimeline({ motion, color, playhead, playing, locked, selected
       <Typography variant="caption" color="text.secondary" sx={{ fontVariantNumeric: "tabular-nums" }}>
         {formatSeconds(playhead)} / {formatSeconds(last)} · frame {playhead}
       </Typography>
-      {children}
+      {readOnly ? children : <Stack direction="row" alignItems="center" gap={1}>
+        {children}
+        <Tooltip title="Shows faint copies at each key along the path.">
+          <ToggleButton value="ghosts" size="small" selected={ghosts.show} onChange={ghosts.toggle} sx={{ px: 1.5, py: .5, borderRadius: 99 }}>Ghosts</ToggleButton>
+        </Tooltip>
+      </Stack>}
     </Stack>
   </Stack>;
 }
