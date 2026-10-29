@@ -1,20 +1,30 @@
-import { useEffect, useState } from "react";
-import { Box, Button, LinearProgress, Stack, Step, StepButton, Stepper, TextField, ToggleButton, ToggleButtonGroup, Typography } from "@mui/material";
+import { useEffect, useRef, useState } from "react";
+import {
+  Box, Button, LinearProgress, ListItemText, Menu, MenuItem, Stack, Step, StepButton, Stepper, TextField, ToggleButton, ToggleButtonGroup, Typography,
+} from "@mui/material";
 import { useInpaintStore } from "./useInpaintStore";
 import { RemoveMediaButton } from "../shell/RemoveMediaButton";
 import { SelectedKeyCard } from "../motion/SelectedKeyCard";
 import { SUBJECT_COLORS } from "../motion/useMotionStore";
+import { formatSeconds } from "../motion/format";
 
 export function InpaintPanel() {
   const s = useInpaintStore();
   const busy = s.status !== "idle";
   const keyCount = s.motion?.keys.length ?? 0;
   const [referenceUrl, setReferenceUrl] = useState<string | null>(null);
+  const [menu, setMenu] = useState<HTMLElement | null>(null);
+  const upload = useRef<HTMLInputElement>(null);
   useEffect(() => {
     if (!s.reference) { setReferenceUrl(null); return; }
     const url = URL.createObjectURL(s.reference); setReferenceUrl(url);
     return () => URL.revokeObjectURL(url);
   }, [s.reference]);
+  const referenceProgress = <Stack spacing={1} aria-live="polite">
+    <Typography variant="body2">{s.status === "preparing" ? (s.creating === "frame" ? "Reading the frame…" : "Preparing…") : s.status === "uploading" ? "Uploading…" : s.job?.message ?? "Creating the reference…"}</Typography>
+    <LinearProgress variant={s.progress === null ? "indeterminate" : "determinate"} value={(s.progress ?? 0) * 100} />
+    <Button onClick={() => void s.cancel()}>Cancel</Button>
+  </Stack>;
   return <>
     <Stepper activeStep={s.step} alternativeLabel sx={{ mb: 4, mx: -2, ".MuiStepLabel-label": { fontSize: 12 } }}>
       {["Draw mask", "Animate", "Generate"].map((label, index) => <Step key={label} completed={index === 0 ? !!s.bounds : index === 1 ? s.step === 2 || keyCount > 1 : !!s.result}>
@@ -53,26 +63,54 @@ export function InpaintPanel() {
         <Typography variant="h2">Fill it in</Typography>
         <Typography variant="body2" color="text.secondary">Write a detailed prompt for what should appear in the mask.</Typography>
       </Stack>
-      <Button component="label" variant="outlined" disabled={busy}>
-        {s.reference ? "Replace reference image" : "Add reference image [Optional]"}
-        <input hidden type="file" accept="image/jpeg,image/png,image/webp" onChange={event => {
-          const file = event.target.files?.[0]; event.target.value = "";
-          if (file && file.size > 20 * 1024 * 1024) { useInpaintStore.setState({ error: "Choose a reference image under 20 MB." }); return; }
-          if (file) s.setReference(file);
-        }} />
-      </Button>
-      {s.reference && <Box sx={{ position: "relative", width: "fit-content", maxWidth: "100%", mx: "auto" }}>
-        {referenceUrl && <Box component="img" src={referenceUrl} alt="Reference" sx={{ display: "block", maxWidth: "100%", maxHeight: 160, borderRadius: 1 }} />}
-        <RemoveMediaButton label="Remove reference image" disabled={busy} onRemove={() => s.setReference(null)} />
-      </Box>}
+      {s.reference ? <Stack spacing={1.5}>
+        <Box sx={{ position: "relative", width: "fit-content", maxWidth: "100%", mx: "auto" }}>
+          {referenceUrl && <Box component="img" src={referenceUrl} alt="Reference" sx={{ display: "block", maxWidth: "100%", maxHeight: 160, borderRadius: 1 }} />}
+          <RemoveMediaButton label="Remove reference image" disabled={busy} onRemove={() => s.setReference(null)} />
+        </Box>
+        <Typography variant="caption" color="text.secondary" align="center">
+          {s.referenceRole?.kind === "frame" ? `Edited frame at ${formatSeconds(s.referenceRole.frame)}` : "Object to add"}
+        </Typography>
+        {s.task === "reference" ? referenceProgress
+          : s.created && <Button size="small" disabled={busy} onClick={() => void s.recreateReference()} sx={{ alignSelf: "center" }}>Try again</Button>}
+        <TextField label="Reference definition" multiline minRows={2} value={s.definition} disabled={busy}
+          onChange={event => s.setDefinition(event.target.value)} slotProps={{ htmlInput: { maxLength: 1000 } }}
+          helperText={s.referenceRole?.kind === "frame" ? "Describe the edited frame. The shot is anchored to it."
+            : "Describe what <Picture 1> shows. Use <Subject 1> in the prompt."} />
+      </Stack> : s.creating ? <Stack spacing={1.5}>
+        <Typography variant="overline" color="text.secondary">{s.creating === "object" ? "Create an object" : "Create a frame"}</Typography>
+        {s.creating === "frame" && <Typography variant="body2" color="text.secondary">
+          Edits the frame at {formatSeconds(s.playhead)} inside the mask. Move the playhead on the timeline to pick another frame.
+        </Typography>}
+        <TextField label={s.creating === "object" ? "Describe the object" : "What should the mask show?"} multiline minRows={2} value={s.referenceText}
+          placeholder={s.creating === "object" ? "A red paper lantern with gold tassels" : "A red umbrella, open and tilted to the left"}
+          disabled={busy} onChange={event => s.setReferenceText(event.target.value)} slotProps={{ htmlInput: { maxLength: 500 } }} />
+        {s.task === "reference" ? referenceProgress : <Stack direction="row" spacing={1} sx={{ justifyContent: "flex-end" }}>
+          <Button disabled={busy} onClick={() => s.openCreator(null)}>Cancel</Button>
+          <Button variant="contained" disabled={busy || !s.referenceText.trim()} onClick={() => void s.createReference()}>Create</Button>
+        </Stack>}
+      </Stack> : <Button variant="outlined" disabled={busy} onClick={event => setMenu(event.currentTarget)}>Add reference image [Optional]</Button>}
+      <Menu anchorEl={menu} open={!!menu} onClose={() => setMenu(null)}>
+        {([["upload", "Upload an image", "Use your own picture of what to add."],
+          ["object", "Create an object", "Describe it, and Qwen Image draws it."],
+          ["frame", "Create a frame", "Edit the frame at the playhead inside the mask."]] as const).map(([kind, label, detail]) =>
+          <MenuItem key={kind} onClick={() => { setMenu(null); if (kind === "upload") upload.current?.click(); else s.openCreator(kind); }}>
+            <ListItemText primary={label} secondary={detail} />
+          </MenuItem>)}
+      </Menu>
+      <input ref={upload} hidden type="file" accept="image/jpeg,image/png,image/webp" onChange={event => {
+        const file = event.target.files?.[0]; event.target.value = "";
+        if (file && file.size > 20 * 1024 * 1024) { useInpaintStore.setState({ error: "Choose a reference image under 20 MB." }); return; }
+        if (file) s.setReference(file);
+      }} />
       <TextField label="Main prompt" multiline minRows={6} value={s.prompt} disabled={busy}
         onChange={event => s.setPrompt(event.target.value)} slotProps={{ htmlInput: { maxLength: 4000 } }}
-        helperText={s.reference ? "Use <Picture 1> to refer to your image." : undefined} />
-      {busy ? <Stack spacing={1} aria-live="polite">
+        helperText={s.referenceRole?.kind === "object" ? "Use <Subject 1> for your reference." : s.referenceRole ? "Describe the whole shot." : undefined} />
+      {busy && s.task !== "reference" ? <Stack spacing={1} aria-live="polite">
         <Typography variant="body2">{s.status === "preparing" ? "Preparing video and mask…" : s.status === "uploading" ? "Uploading…" : s.job?.message ?? "Inpainting…"}</Typography>
         <LinearProgress variant={s.progress === null ? "indeterminate" : "determinate"} value={(s.progress ?? 0) * 100} />
         <Button onClick={() => void s.cancel()}>Cancel</Button>
-      </Stack> : <Button variant="contained" size="large" fullWidth disabled={!s.prompt.trim()} onClick={() => void s.generate()}
+      </Stack> : <Button variant="contained" size="large" fullWidth disabled={busy || !s.prompt.trim()} onClick={() => void s.generate()}
         sx={{ minHeight: 56, fontFamily: "Barlow Condensed, sans-serif", fontSize: 22, letterSpacing: ".14em" }}>GENERATE</Button>}
       {s.notice && !busy && <Typography variant="body2" color="text.secondary" role="status">{s.notice}</Typography>}
       {s.result && <Stack spacing={1}>

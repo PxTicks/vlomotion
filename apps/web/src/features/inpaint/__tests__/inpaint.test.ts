@@ -3,10 +3,12 @@ import { createMaskMotion, maskBoxes } from "@h3-motion/shared";
 import { useInpaintStore } from "../useInpaintStore";
 import { apiRequest, watchJob } from "../../../api";
 import { renderInpaintVideos } from "../renderInpaint";
+import { captureFrame } from "../captureFrame";
 import { mediaKind } from "../../shell/MediaUpload";
 
 vi.mock("../../../api", () => ({ apiRequest: vi.fn(), watchJob: vi.fn() }));
 vi.mock("../renderInpaint", () => ({ renderInpaintVideos: vi.fn() }));
+vi.mock("../captureFrame", async original => ({ ...await original<typeof import("../captureFrame")>(), captureFrame: vi.fn() }));
 const source = new File(["video"], "source.mp4", { type: "video/mp4" });
 const video = { id: "d8d80a5e-0d7d-4e20-984d-d4b3dd09d6ec", url: "/api/files/source", width: 1920, height: 1080, frames: 124, startTime: 0, duration: 124 / 24 };
 const bounds = { x: 192, y: 216, width: 384, height: 324 };
@@ -113,6 +115,85 @@ describe("inpainting editor", () => {
     expect(JSON.parse(form.get("request") as string)).toEqual({ videoId: video.id, width: 854, height: 480, frames: 124, prompt: "A bird from <Picture 1> flies." });
     expect(form.get("reference")).toBe(reference);
     expect(state()).toMatchObject({ status: "idle", view: "result", result });
+  });
+  it("defines an uploaded reference as an object and lays the prompt out around it", async () => {
+    const reference = new File(["ref"], "ref.png", { type: "image/png" });
+    useInpaintStore.setState({ source, video, bounds, motion: still, prompt: "A lantern sways.", step: 2 });
+    state().setReference(reference);
+    expect(state()).toMatchObject({ referenceRole: { kind: "object" }, definition: "<Subject 1> is the object in <Picture 1>." });
+    state().setDefinition("<Subject 1> is the red lantern in <Picture 1>.");
+    vi.mocked(renderInpaintVideos).mockResolvedValue(videos);
+    vi.mocked(apiRequest).mockResolvedValue(queued);
+    vi.mocked(watchJob).mockResolvedValue({ ...queued, status: "completed", inpainting: result });
+    await state().generate();
+    const { prompt } = JSON.parse((vi.mocked(apiRequest).mock.calls[0][1]!.body as FormData).get("request") as string);
+    expect(prompt).toMatch(/^subject_definitions:\n<Subject 1> is the red lantern in <Picture 1>\.\n\nsummary:\n\[video editing \+ reference generation\]/);
+    expect(prompt).toContain("detailed_description:\n[Shot 1] A lantern sways.");
+    state().setReference(null);
+    expect(state()).toMatchObject({ reference: null, referenceRole: null, definition: "" });
+  });
+  it("creates an object reference from its description and uses it", async () => {
+    useInpaintStore.setState({ source, video, bounds, motion: still, step: 2 });
+    state().openCreator("object"); state().setReferenceText(" a red paper lantern ");
+    const created = { videoId: video.id, kind: "object" as const, description: "a red paper lantern", frame: null, seed: 4,
+      image: { id: crypto.randomUUID(), url: "/api/files/object", width: 1024, height: 1024 } };
+    vi.mocked(apiRequest).mockResolvedValue(queued);
+    vi.mocked(watchJob).mockResolvedValue({ ...queued, status: "completed", reference: created });
+    const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(new Blob(["png"])));
+    await state().createReference();
+    const [path, init] = vi.mocked(apiRequest).mock.calls[0];
+    expect(path).toBe("/jobs/reference");
+    expect(JSON.parse((init!.body as FormData).get("request") as string)).toEqual({ kind: "object", videoId: video.id, description: "a red paper lantern" });
+    expect(captureFrame).not.toHaveBeenCalled();
+    expect(fetch).toHaveBeenCalledWith("/api/files/object", expect.anything());
+    expect(state().reference).toBeInstanceOf(File);
+    expect(state()).toMatchObject({ status: "idle", task: null, creating: null, created, referenceRole: { kind: "object" },
+      definition: "<Subject 1> is the red paper lantern in <Picture 1>." });
+    fetch.mockRestore();
+  });
+  it("cancels the download of a reference whose job has finished, without cancelling the job", async () => {
+    useInpaintStore.setState({ source, video, bounds, motion: still, step: 2, creating: "object", referenceText: "a lantern" });
+    const created = { videoId: video.id, kind: "object" as const, description: "a lantern", frame: null, seed: 4,
+      image: { id: crypto.randomUUID(), url: "/api/files/object", width: 1024, height: 1024 } };
+    vi.mocked(apiRequest).mockResolvedValue(queued);
+    vi.mocked(watchJob).mockResolvedValue({ ...queued, status: "completed", reference: created });
+    const fetch = vi.spyOn(globalThis, "fetch").mockImplementation((_url, init) => new Promise((_, reject) => {
+      init!.signal!.addEventListener("abort", () => reject(new DOMException("Cancelled", "AbortError")), { once: true });
+    }));
+    const running = state().createReference();
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+    await state().cancel();
+    await running;
+    expect(apiRequest).toHaveBeenCalledTimes(1);
+    expect(state()).toMatchObject({ status: "idle", reference: null, referenceRole: null, notice: "Reference cancelled.", error: null });
+    fetch.mockRestore();
+  });
+  it("creates an edited frame at the playhead, with the mask where it is on that frame", async () => {
+    useInpaintStore.setState({ source, video, bounds, motion: moving, shape: "ellipse", step: 2, playhead: 50 });
+    state().openCreator("frame"); state().setReferenceText("a red umbrella");
+    const image = new Blob(["frame"]), mask = new Blob(["mask"]);
+    vi.mocked(captureFrame).mockResolvedValue({ image, mask });
+    const created = { videoId: video.id, kind: "frame" as const, description: "a red umbrella", frame: 50, seed: 4,
+      image: { id: crypto.randomUUID(), url: "/api/files/frame", width: 1920, height: 1080 } };
+    vi.mocked(apiRequest).mockResolvedValue(queued);
+    vi.mocked(watchJob).mockResolvedValue({ ...queued, status: "completed", reference: created });
+    const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(new Blob(["png"])));
+    await state().createReference();
+    expect(captureFrame).toHaveBeenCalledWith({ source, frame: 50, size: { width: 1920, height: 1080 }, box: maskBoxes(bounds, moving, video)[50], shape: "ellipse" });
+    const form = vi.mocked(apiRequest).mock.calls[0][1]!.body as FormData;
+    expect(JSON.parse(form.get("request") as string)).toEqual({ kind: "frame", videoId: video.id, description: "a red umbrella", frame: 50 });
+    expect(form.get("image")).toBeInstanceOf(Blob); expect(form.get("mask")).toBeInstanceOf(Blob);
+    expect(state()).toMatchObject({ referenceRole: { kind: "frame", frame: 50, frames: 124 },
+      definition: "<Picture 1> is the edited keyframe of [Shot 1] at 00:02.083, showing a red umbrella." });
+    fetch.mockRestore();
+  });
+  it("won't edit a frame where the mask has left it", async () => {
+    const gone = { ...still, keys: [...still.keys, { id: "end", frame: 123, x: 5000, y: 378, sx: 1, sy: 1 }] };
+    useInpaintStore.setState({ source, video, bounds, motion: gone, step: 2, playhead: 123, creating: "frame", referenceText: "a cat" });
+    await state().createReference();
+    expect(captureFrame).not.toHaveBeenCalled();
+    expect(apiRequest).not.toHaveBeenCalled();
+    expect(state()).toMatchObject({ status: "idle", creating: "frame", error: expect.stringMatching(/outside the frame/) });
   });
   it("only picks an object to follow for a still mask, starting from the first frame", () => {
     useInpaintStore.setState({ video, bounds, motion: moving, step: 1, playhead: 50 });

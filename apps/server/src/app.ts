@@ -9,7 +9,7 @@ import { serveStatic } from "@hono/node-server/serve-static";
 import { ZodError } from "zod";
 import sharp from "sharp";
 import type { Comfy } from "@comfyorg/sdk";
-import { MAX_VIDEO_UPLOAD_BYTES, VIDEO_TIERS, animateRequestSchema, videoGeometry, inpaintFrames, inpaintRequestSchema, inpaintSize, isolateRequestSchema, segmentRequestSchema, selectionRequestSchema, trackRequestSchema } from "@h3-motion/shared";
+import { MAX_VIDEO_UPLOAD_BYTES, VIDEO_TIERS, animateRequestSchema, videoGeometry, inpaintFrames, inpaintRequestSchema, inpaintSize, isolateRequestSchema, referenceRequestSchema, segmentRequestSchema, selectionRequestSchema, trackRequestSchema } from "@h3-motion/shared";
 import type { AnimateRequest } from "@h3-motion/shared";
 import { comfy, checkComfyHealth } from "./comfy.js";
 import { REPO_ROOT } from "./config.js";
@@ -20,6 +20,7 @@ import { startIsolate } from "./jobs/isolate.js";
 import { startAnimate } from "./jobs/animate.js";
 import { startInpaint } from "./jobs/inpaint.js";
 import { startTrack } from "./jobs/track.js";
+import { startReference } from "./jobs/reference.js";
 import { cancelJob } from "./jobs/runtime.js";
 import type { ManagedJob } from "./jobs/runtime.js";
 import { decodeMask, encodeMask } from "./media/masks.js";
@@ -269,6 +270,35 @@ export function createApp(options: AppOptions = {}) {
     const file = await store.saveFile(session, source.bytes, source.container);
     if (!unchanged()) throw new HTTPException(409, { message: "The video changed while uploading. Try again." });
     return c.json(startWhileConnected(c.req.raw.signal, "Tracking", () => startTrack(client, session, request, file.path)).snapshot, 202);
+  });
+  app.post("/api/jobs/reference", async c => {
+    const session = c.get("session");
+    if (isBusy(session)) throw new HTTPException(409, { message: "A job is already running in this session." });
+    const form = await c.req.formData().catch(() => { throw new HTTPException(400, { message: "Send the reference request as a multipart form." }); });
+    const request = referenceRequestSchema.parse(JSON.parse(String(form.get("request") ?? "")));
+    const video = session.video;
+    if (!video || video.id !== request.videoId) throw new HTTPException(409, { message: "The source video changed. Upload it again." });
+    let frame: Parameters<typeof startReference>[4];
+    if (request.kind === "frame") {
+      if (request.frame >= inpaintFrames(video.duration)) throw new HTTPException(400, { message: "Choose a frame inside the clip." });
+      // The frame and its mask must share one size, which Qwen can edit and the highlight can be drawn on.
+      const read = async (value: FormDataEntryValue | null, label: string) => {
+        if (!(value instanceof File)) throw new HTTPException(400, { message: `The ${label} is missing.` });
+        return sharp(new Uint8Array(await value.arrayBuffer()), { limitInputPixels: 8_000_000 }).removeAlpha().png().toBuffer({ resolveWithObject: true })
+          .catch(() => { throw new HTTPException(400, { message: `The ${label} can't be read.` }); });
+      };
+      const [image, mask] = [await read(form.get("image"), "frame image"), await read(form.get("mask"), "frame mask")];
+      const { width, height } = image.info;
+      if (mask.info.width !== width || mask.info.height !== height || width > 2560 || height > 2560) {
+        throw new HTTPException(400, { message: "The frame and its mask must be the same size, up to 2560 pixels per side." });
+      }
+      if (!(await decodeMask(mask.data, width, height)).bounds) throw new HTTPException(400, { message: "The mask is outside the frame at this time. Move the playhead to where it covers the video." });
+      if (isBusy(session) || session.video !== video) throw new HTTPException(409, { message: "The video changed while uploading. Try again." });
+      const [imageFile, maskFile] = await Promise.all([store.savePng(session, image.data), store.savePng(session, mask.data)]);
+      frame = { imagePath: imageFile.path, maskPath: maskFile.path, width, height };
+    }
+    if (isBusy(session) || session.video !== video) throw new HTTPException(409, { message: "The video changed while uploading. Try again." });
+    return c.json(startWhileConnected(c.req.raw.signal, "Reference creation", () => startReference(client, store, session, request, frame)).snapshot, 202);
   });
   app.get("/api/jobs/:id", c => {
     const job = c.get("session").job;

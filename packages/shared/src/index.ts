@@ -4,5 +4,6 @@ export * from "./description.js";
 export * from "./media.js";
 export * from "./motion.js";
 export * from "./prompt.js";
+export * from "./reference.js";
 export * from "./inpaint.js";
 export * from "./tracking.js";

@@ -1,15 +1,20 @@
 import { create } from "zustand";
 import {
-  MAX_VIDEO_UPLOAD_BYTES, applyRecording, buildMotionCurve, createMaskMotion, deleteKey, fitMask, followTrack, inpaintFrames, inpaintSize, insertKeyAtLength,
-  isStartKey, jobSnapshotSchema, lastFrame, maskBoxes, moveKey, rebaseMask, retimeKey, upsertKey, videoAssetSchema,
+  MAX_VIDEO_UPLOAD_BYTES, applyRecording, buildMotionCurve, composeInpaintPrompt, createMaskMotion, deleteKey, fitMask, followTrack, inpaintFrames,
+  inpaintSize, insertKeyAtLength, isStartKey, jobSnapshotSchema, lastFrame, maskBoxes, moveKey, rebaseMask, referenceDefinition, retimeKey, upsertKey,
+  videoAssetSchema,
 } from "@h3-motion/shared";
-import type { FrameSize, InpaintResult, JobSnapshot, MaskShape, Point, Pose, Rect, Scale, SubjectMotion, TimedSample, TrackResult, VideoAsset } from "@h3-motion/shared";
+import type {
+  FrameSize, InpaintResult, JobSnapshot, MaskShape, Point, Pose, Rect, ReferenceRequest, ReferenceResult, ReferenceRole, Scale, SubjectMotion,
+  TimedSample, TrackResult, VideoAsset,
+} from "@h3-motion/shared";
 import { apiRequest, watchJob } from "../../api";
 import { renderInpaintVideos } from "./renderInpaint";
+import { captureFrame, referenceFrameSize } from "./captureFrame";
 
 type Status = "idle" | "preparing" | "uploading" | "generating";
-/** What the running job does: inpaint the video, or track an object for the mask to follow. */
-type Task = "inpaint" | "track";
+/** What the running job does: inpaint the video, track an object for the mask to follow, or create a reference image. */
+type Task = "inpaint" | "track" | "reference";
 interface InpaintState {
   source: File | null; video: VideoAsset | null; frames: number; uploading: boolean;
   step: 0 | 1 | 2; shape: MaskShape;
@@ -19,6 +24,14 @@ interface InpaintState {
   /** The user parked the playhead after the first frame, so a still mask is keyframed there instead of recorded. */
   scrubbed: boolean; selectedKeyId: string | null;
   prompt: string; reference: File | null; result: InpaintResult | null; view: "preview" | "result";
+  /** What the reference is to H3, which decides how the prompt defines it; null without a reference. */
+  referenceRole: ReferenceRole | null;
+  /** The reference's `subject_definitions` line, prefilled for its role and editable. */
+  definition: string;
+  /** The reference being created: an object from a description, or the frame at the playhead edited inside the mask. */
+  creating: "object" | "frame" | null; referenceText: string;
+  /** The last reference created, to try again. */
+  created: ReferenceResult | null;
   status: Status; task: Task | null; progress: number | null; job: JobSnapshot | null; error: string | null; notice: string | null;
   /** Waiting for a click on the object the mask should follow. */
   picking: boolean;
@@ -50,7 +63,14 @@ interface InpaintState {
   startPicking(): void; stopPicking(): void;
   /** Tracks the object under `point` on the first frame, in video pixels, and keys the mask to follow it. Only while picking. */
   followObject(point: Point): Promise<void>;
-  setPrompt(prompt: string): void; setReference(file: File | null): void; setView(view: "preview" | "result"): void;
+  setPrompt(prompt: string): void; setView(view: "preview" | "result"): void;
+  /** Uses an uploaded image as the reference, as an object; null removes the reference. */
+  setReference(file: File | null): void; setDefinition(definition: string): void;
+  openCreator(kind: "object" | "frame" | null): void; setReferenceText(text: string): void;
+  /** Creates the reference being described with Qwen Image and uses it. A frame is the one at the playhead. */
+  createReference(): Promise<void>;
+  /** Creates the last created reference again, with a new seed. */
+  recreateReference(): Promise<void>;
   clearError(): void; generate(): Promise<void>; cancel(): Promise<void>;
 }
 let controller: AbortController | null = null;
@@ -75,6 +95,7 @@ export const useInpaintStore = create<InpaintState>((set, get) => {
     set({ status: "generating", job: initial });
     if (signal.aborted && ["queued", "running"].includes(initial.status)) await get().cancel();
     const result = await watchJob(initial, job => set({ job, progress: job.progress }));
+    set({ job: result });
     if (result.status === "failed") throw new Error(result.error ?? result.message);
     return result.status === "cancelled" ? null : result;
   }
@@ -96,7 +117,7 @@ export const useInpaintStore = create<InpaintState>((set, get) => {
     source: null, video: null, frames: 124, uploading: false, step: 0, shape: "rectangle", bounds: null, motion: null,
     playhead: 0, playing: false, recording: false, scrubbed: false, selectedKeyId: null,
     prompt: "", reference: null, result: null, view: "preview", status: "idle", task: null, progress: null, job: null, error: null, notice: null,
-    picking: false, track: null,
+    picking: false, track: null, referenceRole: null, definition: "", creating: null, referenceText: "", created: null,
     upload: async file => {
       if (get().uploading || get().status !== "idle") return false;
       set({ uploading: true, error: null });
@@ -106,7 +127,8 @@ export const useInpaintStore = create<InpaintState>((set, get) => {
         const video = videoAssetSchema.parse(await apiRequest("/videos", { method: "POST", body: form }));
         set({ source: file, video, frames: inpaintFrames(video.duration), step: 0, bounds: null, motion: null, picking: false, track: null,
           playhead: 0, playing: false, recording: false, scrubbed: false, selectedKeyId: null,
-          shape: "rectangle", prompt: "", reference: null, result: null, job: null, progress: null, ...edited });
+          shape: "rectangle", prompt: "", reference: null, referenceRole: null, definition: "", creating: null, referenceText: "", created: null,
+          result: null, job: null, progress: null, ...edited });
         return true;
       } catch (error) { set({ error: message(error) }); return false; }
       finally { set({ uploading: false }); }
@@ -262,10 +284,59 @@ export const useInpaintStore = create<InpaintState>((set, get) => {
       } finally { controller = null; set({ status: "idle", task: null, progress: null }); }
     },
     setPrompt: prompt => { if (get().status === "idle") set({ prompt, ...edited }); },
-    setReference: reference => { if (get().status === "idle") set({ reference, ...edited }); },
+    setReference: reference => {
+      if (get().status !== "idle") return;
+      const role: ReferenceRole | null = reference && { kind: "object" };
+      set({ reference, referenceRole: role, definition: role ? referenceDefinition(role) : "", created: null, ...edited });
+    },
+    setDefinition: definition => { if (get().status === "idle") set({ definition, ...edited }); },
+    // A frame is picked on the source's timeline, so the preview shows the source rather than a result.
+    openCreator: creating => { if (get().status === "idle") set({ creating, playing: false, error: null, ...(creating === "frame" ? { view: "preview" } : {}) }); },
+    setReferenceText: referenceText => set({ referenceText }),
+    createReference: async () => {
+      const { source, video, frames, bounds, motion, shape, playhead, creating, referenceText, status } = get();
+      const description = referenceText.trim();
+      if (status !== "idle" || !source || !video || !creating || !description || (creating === "frame" && (!bounds || !motion))) return;
+      controller = new AbortController();
+      const { signal } = controller;
+      set({ task: "reference", status: "preparing", progress: null, picking: false, playing: false, error: null, notice: null, job: null });
+      try {
+        const request: ReferenceRequest = creating === "object" ? { kind: "object", videoId: video.id, description }
+          : { kind: "frame", videoId: video.id, description, frame: playhead };
+        const form = new FormData();
+        form.set("request", JSON.stringify(request));
+        if (creating === "frame") {
+          const box = maskBoxes(bounds!, motion!, videoFrame(video))[playhead];
+          if (box.x >= 1 || box.y >= 1 || box.x + box.width <= 0 || box.y + box.height <= 0) {
+            throw new Error("The mask is outside the frame here. Move the playhead to where it covers the video.");
+          }
+          const frame = await captureFrame({ source, frame: playhead, size: referenceFrameSize(video), box, shape });
+          signal.throwIfAborted();
+          form.set("image", frame.image, "frame.png"); form.set("mask", frame.mask, "mask.png");
+        }
+        const result = await runJob("/jobs/reference", form, signal);
+        if (!result) { set({ notice: "Reference cancelled." }); return; }
+        const created = result.reference;
+        if (!created) throw new Error("Qwen Image completed without an image.");
+        const response = await fetch(created.image.url, { credentials: "same-origin", signal });
+        if (!response.ok) throw new Error("Could not download the reference image. Try again.");
+        const reference = new File([await response.blob()], `${created.kind}.png`, { type: "image/png" });
+        signal.throwIfAborted();
+        const role: ReferenceRole = created.frame === null ? { kind: "object" } : { kind: "frame", frame: created.frame, frames };
+        set({ reference, referenceRole: role, definition: referenceDefinition(role, created.description), created, creating: null, ...edited });
+      } catch (error) {
+        set(signal.aborted ? { notice: "Reference cancelled." } : { error: message(error) });
+      } finally { controller = null; set({ status: "idle", task: null, progress: null }); }
+    },
+    recreateReference: async () => {
+      const { created, status } = get();
+      if (!created || status !== "idle") return;
+      set({ creating: created.kind, referenceText: created.description, ...(created.frame === null ? {} : { playhead: created.frame, playing: false }) });
+      await get().createReference();
+    },
     setView: view => set({ view }), clearError: () => set({ error: null }),
     generate: async () => {
-      const { source, video, frames, bounds, motion, shape, prompt, reference, status } = get();
+      const { source, video, frames, bounds, motion, shape, prompt, reference, referenceRole, definition, status } = get();
       if (status !== "idle" || !source || !video || !bounds || !motion || !prompt.trim()) return;
       controller = new AbortController();
       const { signal } = controller;
@@ -277,7 +348,8 @@ export const useInpaintStore = create<InpaintState>((set, get) => {
         signal.throwIfAborted();
         if (!videos.mask) throw new Error("Could not prepare the mask video.");
         const form = new FormData();
-        form.set("request", JSON.stringify({ videoId: video.id, ...size, frames, prompt }));
+        const text = composeInpaintPrompt(prompt, reference && referenceRole ? { role: referenceRole, definition } : undefined);
+        form.set("request", JSON.stringify({ videoId: video.id, ...size, frames, prompt: text }));
         form.set("source", videos.source, `source.${videos.container}`);
         form.set("mask", videos.mask, `mask.${videos.container}`);
         if (reference) form.set("reference", reference);
@@ -291,7 +363,8 @@ export const useInpaintStore = create<InpaintState>((set, get) => {
     },
     cancel: async () => {
       const { status, job } = get();
-      if (status === "preparing" || status === "uploading") { controller?.abort(); return; }
+      // Before upload, and after the remote job has finished (e.g. while downloading its result), the work is local.
+      if (status === "preparing" || status === "uploading" || (job && !["queued", "running"].includes(job.status))) { controller?.abort(); return; }
       if (status !== "generating" || !job) return;
       try { await apiRequest(`/jobs/${job.id}/cancel`, { method: "POST" }); }
       catch (error) { set({ error: message(error) }); }

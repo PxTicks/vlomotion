@@ -2,6 +2,7 @@ import { BlobSource, CanvasSink, Input, MP4, QUALITY_HIGH, QUALITY_VERY_HIGH, WE
 import { FPS } from "@h3-motion/shared";
 import type { FrameSize, MaskBox, MaskShape } from "@h3-motion/shared";
 import { createVideoTrack, pickCodec } from "../../media/encode";
+import { drawMask } from "./drawMask";
 
 /** `boxes` holds the mask on each frame, as fractions of the frame; without them only the source is prepared, for tracking. */
 export interface EncodeInpaintRequest { source: File; size: FrameSize; frames: number; boxes: MaskBox[] | null; shape: MaskShape }
@@ -29,15 +30,9 @@ async function encode(request: EncodeInpaintRequest) {
       if (!sample) throw new Error("Could not read a frame from the source video.");
       source.context.drawImage(sample.canvas, 0, 0, size.width, size.height);
       if (mask) {
-        mask.context.fillStyle = "black";
-        mask.context.fillRect(0, 0, size.width, size.height);
         const box = boxes![frame];
         if (!box) throw new Error("Draw a mask before generating.");
-        const x = box.x * size.width, y = box.y * size.height, w = box.width * size.width, h = box.height * size.height;
-        mask.context.fillStyle = "white";
-        if (shape === "ellipse") {
-          mask.context.beginPath(); mask.context.ellipse(x + w / 2, y + h / 2, w / 2, h / 2, 0, 0, Math.PI * 2); mask.context.fill();
-        } else mask.context.fillRect(x, y, w, h);
+        drawMask(mask.context, size, box, shape);
       }
       await Promise.all([source.source.add(frame / FPS, 1 / FPS), mask?.source.add(frame / FPS, 1 / FPS)]);
       scope.postMessage({ kind: "progress", value: ++frame / frames });

@@ -55,7 +55,7 @@ export function rebaseMask(motion: SubjectMotion<number>, from: Rect, to: Rect):
 }
 export const inpaintRequestSchema = z.object({
   videoId: z.uuid(), width: videoDimensionSchema, height: videoDimensionSchema, frames: inpaintFramesSchema,
-  prompt: z.string().trim().min(1).max(4000), seed: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional(),
+  prompt: z.string().trim().min(1).max(6000), seed: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional(),
 });
 export type InpaintRequest = z.infer<typeof inpaintRequestSchema>;
 export const inpaintResultSchema = inpaintRequestSchema.extend({

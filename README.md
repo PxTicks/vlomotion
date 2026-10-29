@@ -7,7 +7,12 @@ Start by uploading an image or video. Images open the existing Select → Isolat
 Move → Generate workflow. MP4/WebM videos open Draw mask → Animate → Generate:
 draw a rectangle or ellipse, then animate it with the same path, key and resize
 tools as Move, or have it follow an object, then add a prompt and optional
-reference image (`<Picture 1>`). Video preparation keeps the source ratio at a
+reference image (`<Picture 1>`). The reference can be uploaded, created as an
+object from a description (Qwen Image text-to-image), or created as a frame: the
+frame at the playhead, edited by Qwen Image inside the mask. With a reference,
+the prompt is laid out in MiniMax's full-reference sections: an object is
+defined as `<Subject 1>`, and an edited frame as a `<Picture 1>` keyframe anchor
+of the shot. Video preparation keeps the source ratio at a
 480p short edge, at 24 fps and up to the first 243 frames, trimmed to H3's 17k+5
 frame grid. ComfyUI stretches source and mask onto a nearby model-valid canvas,
 then restores the output ratio before saving.

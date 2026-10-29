@@ -64,16 +64,33 @@ export const animationResultSchema = z.object({
   prompt: z.string(), lockIn: z.number().int(), edgeFreedom: z.number().int(), seed: seedSchema,
 });
 export type AnimationResult = z.infer<typeof animationResultSchema>;
+/**
+ * A reference image for inpainting, made by Qwen Image: an `object` from its description, or a `frame` of the source
+ * video edited to show the description inside the mask. A frame is sent as the `request` field of a multipart upload
+ * alongside the `image` and `mask` PNGs; an object needs no files.
+ */
+export const referenceRequestSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("object"), videoId: idSchema, description: z.string().trim().min(1).max(500), seed: seedSchema.optional() }),
+  z.object({ kind: z.literal("frame"), videoId: idSchema, description: z.string().trim().min(1).max(500),
+    frame: z.number().int().min(0).max(242), seed: seedSchema.optional() }),
+]);
+export type ReferenceRequest = z.infer<typeof referenceRequestSchema>;
+export const referenceResultSchema = z.object({
+  videoId: idSchema, kind: z.enum(["object", "frame"]), description: z.string(),
+  frame: z.number().int().nonnegative().nullable(), image: imageAssetSchema, seed: seedSchema,
+});
+export type ReferenceResult = z.infer<typeof referenceResultSchema>;
 export const jobSnapshotSchema = z.object({
   id: idSchema,
   status: z.enum(["queued", "running", "completed", "failed", "cancelled"]),
   message: z.string(), progress: z.number().min(0).max(1).nullable(),
   candidates: z.array(maskCandidateSchema), error: z.string().nullable(),
-  stage: z.enum(["segment", "describe", "isolate", "animate", "inpaint", "track"]).optional(),
+  stage: z.enum(["segment", "describe", "isolate", "animate", "inpaint", "track", "reference"]).optional(),
   isolation: isolationResultSchema.optional(),
   animation: animationResultSchema.optional(),
   inpainting: inpaintResultSchema.optional(),
   tracking: trackResultSchema.optional(),
+  reference: referenceResultSchema.optional(),
   imageId: idSchema.optional(), maskId: idSchema.optional(),
 });
 export type JobSnapshot = z.infer<typeof jobSnapshotSchema>;

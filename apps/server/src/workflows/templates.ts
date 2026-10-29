@@ -24,7 +24,7 @@ export const REFINE_BINDINGS = {
 } satisfies Record<string, Binding>;
 export const SEGMENT_OUTPUT = "6";
 
-export async function loadTemplate(name: "segment_text" | "segment_points" | "segment_refine" | "describe" | "isolate" | "animate" | "inpaint" | "track"): Promise<ApiGraph> {
+export async function loadTemplate(name: "segment_text" | "segment_points" | "segment_refine" | "describe" | "isolate" | "object" | "animate" | "inpaint" | "track"): Promise<ApiGraph> {
   return graphSchema.parse(JSON.parse(await readFile(join(REPO_ROOT, "workflows/api", `h3m_${name}.api.json`), "utf8")));
 }
 
@@ -49,6 +49,12 @@ export const ISOLATE_BINDINGS = {
   sigma: { node: "16", input: "sigma", classType: "ImageBlur" },
 } satisfies Record<string, Binding>;
 export const ISOLATE_OUTPUT = "19";
+/** Qwen Image text-to-image on a square canvas: without reference images, the encoder's latent is resolution × resolution. */
+export const OBJECT_BINDINGS = {
+  prompt: { node: "6", input: "prompt", classType: "TextEncodeQwenImage21" },
+  seed: { node: "8", input: "seed", classType: "KSampler" },
+} satisfies Record<string, Binding>;
+export const OBJECT_OUTPUT = "10";
 
 export const ANIMATE_BINDINGS = {
   start: { node: "5", input: "image", classType: "LoadImage" },
@@ -171,12 +177,21 @@ export function isolationGeometry(size: FrameSize) {
     grow: Math.max(1, Math.round(short * 0.02)), feather, sigma: Math.max(0.1, Math.min(10, feather / 3)) };
 }
 
+/**
+ * Edits the image with Qwen and composites the edit back through the grown, feathered mask. `highlightPath` adds the
+ * image with the mask highlighted as `<image2>`, for an instruction that has to say where the edit goes.
+ */
 export async function buildIsolateWorkflow(client: Comfy, options: {
-  imagePath: string; maskPath: string; size: FrameSize; instruction: string; seed: number;
+  imagePath: string; maskPath: string; size: FrameSize; instruction: string; seed: number; highlightPath?: string;
 }): Promise<Workflow> {
   const graph = await loadTemplate("isolate");
   assertBindings(graph, Object.values(ISOLATE_BINDINGS));
+  if (options.highlightPath) {
+    graph.highlight = { class_type: "LoadImage", inputs: { image: "highlight.png" } };
+    graph[ISOLATE_BINDINGS.instruction.node].inputs["images.image_2"] = ["highlight", 0];
+  }
   const workflow = client.workflows.fromJson(graph);
+  if (options.highlightPath) workflow.setInput("highlight", "image", client.assets.fromFile(options.highlightPath));
   const geometry = isolationGeometry(options.size);
   for (const [key, binding] of Object.entries(ISOLATE_BINDINGS)) {
     const value = key === "image" ? client.assets.fromFile(options.imagePath)
@@ -185,6 +200,15 @@ export async function buildIsolateWorkflow(client: Comfy, options: {
       : geometry[key as keyof typeof geometry];
     workflow.setInput(binding.node, binding.input, value);
   }
+  return workflow;
+}
+
+export async function buildObjectWorkflow(client: Comfy, options: { prompt: string; seed: number }): Promise<Workflow> {
+  const graph = await loadTemplate("object");
+  assertBindings(graph, [...Object.values(OBJECT_BINDINGS), { node: OBJECT_OUTPUT, input: "images", classType: "SaveImage" }]);
+  const workflow = client.workflows.fromJson(graph);
+  workflow.setInput(OBJECT_BINDINGS.prompt.node, OBJECT_BINDINGS.prompt.input, options.prompt);
+  workflow.setInput(OBJECT_BINDINGS.seed.node, OBJECT_BINDINGS.seed.input, options.seed);
   return workflow;
 }
 
