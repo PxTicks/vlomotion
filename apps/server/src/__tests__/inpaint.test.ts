@@ -26,7 +26,7 @@ async function setup(arbitraryRatio = false) {
   expect(response.status).toBe(201);
   const video = await response.json();
   const session = [...store.sessions.values()][0];
-  const request = { videoId: video.id, width: video.width, height: video.height, frames: 124, prompt: "A red balloon follows the moving area.", seed: 7 };
+  const request = { videoId: video.id, width: video.width, height: video.height, frames: 124, prompt: "A red balloon follows the moving area.", feather: 16, seed: 7 };
   const remote = { status: "succeeded", result: vi.fn(async () => undefined), cancel: vi.fn(async () => undefined),
     async *events() { yield { kind: "progress", value: 0.5, step: 10, steps: 20 }; },
     getOutputs: vi.fn((id: string) => id === INPAINT_OUTPUT ? [{ toBytes: async () => bytes }] : []),
@@ -89,7 +89,8 @@ describe("video inpainting", () => {
     expect(graph["14"].inputs).not.toHaveProperty("ref_images.ref_image_1");
     expect(graph["17"]).toMatchObject({ class_type: "vloMaskToLatentMask", inputs: { masks: ["33", 0], latent: ["16", 0], pooling_method: "max", snap_grid: 1 } });
     expect(graph["24"].inputs.latent_image).toEqual(["18", 0]);
-    expect(graph["27"]).toMatchObject({ class_type: "ImageCompositeMasked", inputs: { destination: ["6", 0], source: ["34", 0], mask: ["10", 0] } });
+    expect(graph["27"]).toMatchObject({ class_type: "ImageCompositeMasked", inputs: { destination: ["6", 0], source: ["34", 0], mask: ["feather_mask", 0] } });
+    expect(graph.feather_blur.inputs).toMatchObject({ blur_radius: 16 });
     expect(session.job!.snapshot).toMatchObject({ status: "completed", stage: "inpaint", inpainting: { videoId: request.videoId, seed: 7, frames: 124 } });
     expect((await app.request(session.inpainting!.video.url, { headers: { cookie, Range: "bytes=0-9" } })).status).toBe(206);
   });
@@ -101,7 +102,7 @@ describe("video inpainting", () => {
     expect(graph["13"].inputs.pixels).toEqual(["30", 0]);
     expect(Object.values(graph).some(node => node.class_type === "EmptyImage")).toBe(false);
     expect(Object.values(graph).filter(node => node.class_type === "ImageCompositeMasked")).toHaveLength(1);
-    expect(graph["27"].inputs).toMatchObject({ destination: ["6", 0], source: ["34", 0], mask: ["10", 0] });
+    expect(graph["27"].inputs).toMatchObject({ destination: ["6", 0], source: ["34", 0], mask: ["feather_mask", 0] });
     expect(session.inpainting).not.toHaveProperty("fillMaskedArea");
   });
   it("normalizes and binds the optional image as Picture 1", async () => {

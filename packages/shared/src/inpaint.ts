@@ -54,9 +54,18 @@ export function rebaseMask(motion: SubjectMotion<number>, from: Rect, to: Rect):
     return { ...key, sx: sx * from.width / to.width, sy: sy * from.height / to.height };
   })] };
 }
+/**
+ * The one range shared by mask grow and feather, in delivered-video pixels, so their sliders read alike.
+ */
+const MASK_EDGE = { min: 0, max: 32, step: 2 } as const;
+/** How far the drawn mask is grown before generation and compositing. */
+export const MASK_GROW = { ...MASK_EDGE, default: 24 } as const;
+/** The blur radius softening the composite's edge: the patch fades in over this distance on each side of the grown edge. */
+export const MASK_FEATHER = { ...MASK_EDGE, default: 16 } as const;
 export const inpaintRequestSchema = z.object({
   videoId: z.uuid(), width: videoDimensionSchema, height: videoDimensionSchema, frames: inpaintFramesSchema,
-  prompt: z.string().trim().min(1).max(8000), seed: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional(),
+  prompt: z.string().trim().min(1).max(8000),
+  feather: z.number().int().min(MASK_FEATHER.min).max(MASK_FEATHER.max).multipleOf(MASK_FEATHER.step), seed: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional(),
 });
 export type InpaintRequest = z.infer<typeof inpaintRequestSchema>;
 export const inpaintResultSchema = inpaintRequestSchema.extend({

@@ -95,6 +95,8 @@ export const INPAINT_BINDINGS = {
   seed: { node: "23", input: "noise_seed", classType: "RandomNoise" },
 } satisfies Record<string, Binding>;
 export const INPAINT_OUTPUT = "29";
+/** The composite's mask, a hard threshold of the mask video at the delivered size, which feathering softens. */
+export const INPAINT_COMPOSITE = { node: "27", input: "mask", classType: "ImageCompositeMasked" } satisfies Binding;
 
 /** SAM segments the first frame from the points, then its video tracker follows that mask through the clip. */
 export const TRACK_BINDINGS = {
@@ -135,13 +137,23 @@ function bypassSol(graph: ApiGraph, chain: { base: Binding; sol: Binding }, cons
 
 export async function buildInpaintWorkflow(client: Comfy, options: {
   sourcePath: string; maskPath: string; referencePath?: string; size: FrameSize; modelSize: FrameSize; frames: number; prompt: string; seed: number;
-  sol?: boolean;
+  /** The composite's blur radius in delivered pixels; 0 keeps a hard edge. */
+  feather: number; sol?: boolean;
 }): Promise<Workflow> {
   const graph = await loadTemplate("inpaint");
-  assertBindings(graph, [...Object.values(INPAINT_BINDINGS), ...Object.values(INPAINT_MODEL),
+  assertBindings(graph, [...Object.values(INPAINT_BINDINGS), ...Object.values(INPAINT_MODEL), INPAINT_COMPOSITE,
     { node: INPAINT_OUTPUT, input: "video", classType: "SaveVideo" }]);
   setVideoGeometry(graph, ["30", "31"], "34", options.modelSize, options.size);
   if (options.sol === false) bypassSol(graph, INPAINT_MODEL, [INPAINT_MODEL.guider, INPAINT_MODEL.scheduler]);
+  if (options.feather > 0) {
+    // Blurs the hard composite mask, as isolation feathers its plate, so the patch fades into the source.
+    const { feather } = options, mask = graph[INPAINT_COMPOSITE.node].inputs[INPAINT_COMPOSITE.input];
+    graph.feather_image = { class_type: "MaskToImage", inputs: { mask } };
+    // ComfyUI caps ImageBlur's radius at 31 and sigma at 10, including for the slider's 32 px setting.
+    graph.feather_blur = { class_type: "ImageBlur", inputs: { image: ["feather_image", 0], blur_radius: Math.min(31, feather), sigma: Math.min(10, feather / 3) } };
+    graph.feather_mask = { class_type: "ImageToMask", inputs: { image: ["feather_blur", 0], channel: "red" } };
+    graph[INPAINT_COMPOSITE.node].inputs[INPAINT_COMPOSITE.input] = ["feather_mask", 0];
+  }
   if (options.referencePath) {
     graph.reference = { class_type: "LoadImage", inputs: { image: "reference.png" } };
     graph[INPAINT_BINDINGS.prompt.node].inputs["ref_images.ref_image_1"] = ["reference", 0];

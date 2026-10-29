@@ -1,13 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  Box, Button, LinearProgress, ListItemText, Menu, MenuItem, Stack, Step, StepButton, Stepper, TextField, ToggleButton, ToggleButtonGroup, Typography,
+  Accordion, AccordionDetails, AccordionSummary, Box, Button, LinearProgress, ListItemText, Menu, MenuItem, Slider, Stack, Step, StepButton, Stepper,
+  TextField, ToggleButton, ToggleButtonGroup, Tooltip, Typography,
 } from "@mui/material";
-import { VIDEO_TIERS } from "@h3-motion/shared";
+import { MASK_FEATHER, MASK_GROW, VIDEO_TIERS } from "@h3-motion/shared";
 import { useInpaintStore } from "./useInpaintStore";
 import { RemoveMediaButton } from "../shell/RemoveMediaButton";
 import { SelectedKeyCard } from "../motion/SelectedKeyCard";
 import { SUBJECT_COLORS } from "../motion/useMotionStore";
 import { formatSeconds } from "../motion/format";
+
+const GROW_HELP = "How far the mask is widened on every side before generating. More room lets the new content blend into its surroundings, and covers edges of what you're replacing that stick out of the mask.";
+const FEATHER_HELP = "How softly the generated patch fades into the original video at the mask's edge. Higher values hide the seam, but blur the boundary further on each side of it.";
 
 export function InpaintPanel() {
   const s = useInpaintStore();
@@ -129,6 +133,24 @@ export function InpaintPanel() {
         <Typography variant="overline" color="text.secondary">Output</Typography>
         <Button variant="outlined" component="a" href={s.result.video.url} download="h3-inpaint.mp4" sx={{ alignSelf: "start" }}>Download video</Button>
       </Stack>}
+      <Accordion disableGutters elevation={0} sx={{ bgcolor: "transparent", border: "1px solid", borderColor: "divider", borderRadius: 1, "&::before": { display: "none" } }}>
+        <AccordionSummary expandIcon={<Typography color="text.secondary">▾</Typography>}><Typography variant="overline">Advanced</Typography></AccordionSummary>
+        <AccordionDetails>
+          <Stack spacing={2.5}>
+            {([["Mask grow", GROW_HELP, s.grow, MASK_GROW, s.setGrow], ["Mask feather", FEATHER_HELP, s.feather, MASK_FEATHER, s.setFeather]] as const)
+              .map(([label, help, value, range, setValue]) => <Box key={label}>
+                <Stack direction="row" justifyContent="space-between" alignItems="center">
+                  <Tooltip title={help} placement="top-start">
+                    <Typography variant="caption" color="text.secondary" tabIndex={0} sx={{ cursor: "help" }}>{label} ⓘ</Typography>
+                  </Tooltip>
+                  <Typography variant="body2" sx={{ fontVariantNumeric: "tabular-nums" }}>{value} px</Typography>
+                </Stack>
+                <Slider value={value} min={range.min} max={range.max} step={range.step} disabled={busy} aria-label={label}
+                  onChange={(_, next) => setValue(Array.isArray(next) ? next[0] : next)} />
+              </Box>)}
+          </Stack>
+        </AccordionDetails>
+      </Accordion>
       <Button disabled={busy} onClick={() => s.visitStep(1)}>Edit motion</Button>
     </>}
     {s.notice && s.step === 0 && <Typography variant="body2" color="text.secondary" role="status">{s.notice}</Typography>}

@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import {
-  MAX_VIDEO_UPLOAD_BYTES, applyRecording, buildMotionCurve, composeInpaintPrompt, createMaskMotion, deleteKey, fitMask, followTrack, inpaintFrames,
+  MASK_FEATHER, MASK_GROW, MAX_VIDEO_UPLOAD_BYTES, applyRecording, buildMotionCurve, composeInpaintPrompt, createMaskMotion, deleteKey, fitMask, followTrack, inpaintFrames,
   inpaintSize, insertKeyAtLength, isStartKey, jobSnapshotSchema, lastFrame, maskBoxes, moveKey, rebaseMask, referenceDefinition, retimeKey, upsertKey,
   videoAssetSchema,
 } from "@h3-motion/shared";
@@ -26,6 +26,8 @@ interface InpaintState {
   prompt: string; soundEffects: string; music: string; reference: File | null; result: InpaintResult | null; view: "preview" | "result";
   /** The short edge of the delivered video. */
   tier: VideoTier;
+  /** How far the mask is grown, and how softly the patch is blended in, in delivered-video pixels. */
+  grow: number; feather: number;
   /** What the reference is to H3, which decides how the prompt defines it; null without a reference. */
   referenceRole: ReferenceRole | null;
   /** The reference's `subject_definitions` line, prefilled for its role and editable. */
@@ -66,7 +68,7 @@ interface InpaintState {
   /** Tracks the object under `point` on the first frame, in video pixels, and keys the mask to follow it. Only while picking. */
   followObject(point: Point): Promise<void>;
   setPrompt(prompt: string): void; setSoundEffects(soundEffects: string): void; setMusic(music: string): void;
-  setTier(tier: VideoTier): void; setView(view: "preview" | "result"): void;
+  setTier(tier: VideoTier): void; setGrow(grow: number): void; setFeather(feather: number): void; setView(view: "preview" | "result"): void;
   /** Uses an uploaded image as the reference, as an object; null removes the reference. */
   setReference(file: File | null): void; setDefinition(definition: string): void;
   openCreator(kind: "object" | "frame" | null): void; setReferenceText(text: string): void;
@@ -81,6 +83,7 @@ const message = (error: unknown) => error instanceof Error ? error.message : "So
 const edited = { view: "preview" as const, notice: null };
 const newId = () => globalThis.crypto.randomUUID();
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+const stepped = (value: number, range: { min: number; max: number; step: number }) => clamp(Math.round(value / range.step) * range.step, range.min, range.max);
 export const videoFrame = (video: Pick<VideoAsset, "width" | "height">): FrameSize => ({ width: video.width, height: video.height });
 
 /** The key nearest `to` among those passed moving the playhead from `from` to `to`, excluding where it started. */
@@ -119,7 +122,7 @@ export const useInpaintStore = create<InpaintState>((set, get) => {
   return {
     source: null, video: null, frames: 124, uploading: false, step: 0, shape: "rectangle", bounds: null, motion: null,
     playhead: 0, playing: false, recording: false, scrubbed: false, selectedKeyId: null,
-    prompt: "", soundEffects: "", music: "", tier: 768, reference: null, result: null, view: "preview", status: "idle", task: null, progress: null, job: null, error: null, notice: null,
+    prompt: "", soundEffects: "", music: "", tier: 768, grow: MASK_GROW.default, feather: MASK_FEATHER.default, reference: null, result: null, view: "preview", status: "idle", task: null, progress: null, job: null, error: null, notice: null,
     picking: false, track: null, referenceRole: null, definition: "", creating: null, referenceText: "", created: null,
     upload: async file => {
       if (get().uploading || get().status !== "idle") return false;
@@ -290,6 +293,8 @@ export const useInpaintStore = create<InpaintState>((set, get) => {
     setSoundEffects: soundEffects => { if (get().status === "idle") set({ soundEffects, ...edited }); },
     setMusic: music => { if (get().status === "idle") set({ music, ...edited }); },
     setTier: tier => { if (get().status === "idle") set({ tier, ...edited }); },
+    setGrow: grow => { if (get().status === "idle") set({ grow: stepped(grow, MASK_GROW), ...edited }); },
+    setFeather: feather => { if (get().status === "idle") set({ feather: stepped(feather, MASK_FEATHER), ...edited }); },
     setReference: reference => {
       if (get().status !== "idle") return;
       const role: ReferenceRole | null = reference && { kind: "object" };
@@ -342,7 +347,7 @@ export const useInpaintStore = create<InpaintState>((set, get) => {
     },
     setView: view => set({ view }), clearError: () => set({ error: null }),
     generate: async () => {
-      const { source, video, frames, bounds, motion, shape, prompt, soundEffects, music, tier, reference, referenceRole, definition, status } = get();
+      const { source, video, frames, bounds, motion, shape, prompt, soundEffects, music, tier, grow, feather, reference, referenceRole, definition, status } = get();
       if (status !== "idle" || !source || !video || !bounds || !motion || !prompt.trim()) return;
       controller = new AbortController();
       const { signal } = controller;
@@ -350,12 +355,12 @@ export const useInpaintStore = create<InpaintState>((set, get) => {
       try {
         const size = inpaintSize(video.width, video.height, tier);
         const boxes = maskBoxes(bounds, motion, videoFrame(video));
-        const videos = await renderInpaintVideos({ source, frames, boxes, shape, size }, progress => set({ progress }), signal);
+        const videos = await renderInpaintVideos({ source, frames, boxes, shape, size, grow }, progress => set({ progress }), signal);
         signal.throwIfAborted();
         if (!videos.mask) throw new Error("Could not prepare the mask video.");
         const form = new FormData();
         const text = composeInpaintPrompt(prompt, reference && referenceRole ? { role: referenceRole, definition } : undefined, { soundEffects, music });
-        form.set("request", JSON.stringify({ videoId: video.id, ...size, frames, prompt: text }));
+        form.set("request", JSON.stringify({ videoId: video.id, ...size, frames, prompt: text, feather }));
         form.set("source", videos.source, `source.${videos.container}`);
         form.set("mask", videos.mask, `mask.${videos.container}`);
         if (reference) form.set("reference", reference);

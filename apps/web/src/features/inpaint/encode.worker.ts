@@ -4,8 +4,11 @@ import type { FrameSize, MaskBox, MaskShape } from "@h3-motion/shared";
 import { createVideoTrack, pickCodec } from "../../media/encode";
 import { drawMask } from "./drawMask";
 
-/** `boxes` holds the mask on each frame, as fractions of the frame; without them only the source is prepared, for tracking. */
-export interface EncodeInpaintRequest { source: File; size: FrameSize; frames: number; boxes: MaskBox[] | null; shape: MaskShape }
+/**
+ * `boxes` holds the mask on each frame, as fractions of the frame, grown by `grow` pixels of `size`; without them only the
+ * source is prepared, for tracking.
+ */
+export interface EncodeInpaintRequest { source: File; size: FrameSize; frames: number; boxes: MaskBox[] | null; shape: MaskShape; grow?: number }
 export type EncodeInpaintMessage = { kind: "progress"; value: number }
   | { kind: "done"; source: Blob; mask: Blob | null; container: "mp4" | "webm" } | { kind: "error"; message: string };
 const scope = globalThis as unknown as {
@@ -14,7 +17,7 @@ const scope = globalThis as unknown as {
 };
 
 async function encode(request: EncodeInpaintRequest) {
-  const { size, frames, boxes, shape } = request;
+  const { size, frames, boxes, shape, grow = 0 } = request;
   const codec = await pickCodec(size);
   const container = codec === "avc" ? "mp4" : "webm";
   const source = createVideoTrack(size, codec, QUALITY_VERY_HIGH), mask = boxes && createVideoTrack(size, codec, QUALITY_HIGH);
@@ -32,7 +35,7 @@ async function encode(request: EncodeInpaintRequest) {
       if (mask) {
         const box = boxes![frame];
         if (!box) throw new Error("Draw a mask before generating.");
-        drawMask(mask.context, size, box, shape);
+        drawMask(mask.context, size, box, shape, grow);
       }
       await Promise.all([source.source.add(frame / FPS, 1 / FPS), mask?.source.add(frame / FPS, 1 / FPS)]);
       scope.postMessage({ kind: "progress", value: ++frame / frames });

@@ -21,22 +21,24 @@ Video inpainting uses the main masked-latent pass from `~/vlo`'s
 `vlo_minimax_h3_inpaint.json`, with the `minimax_h3_ref2va_pruned_int8_convrot.safetensors`
 model and `vloMaskToLatentMask` from ComfyUI-vlo. There is one sampling pass;
 the seam-correction pass is omitted. Source pixels are resized onto the model
-canvas and VAE encoded without a prefill step. Generated pixels are resized back
-and composited into the source through the animated mask. The output includes generated audio.
+canvas and VAE encoded without a prefill step. The browser grows the animated mask
+(24 px by default) before it drives both the latent mask and the composite. Generated
+pixels are resized back and composited into the source through that mask, blurred
+by the feather radius (16 px by default). The output includes generated audio.
 
 Compared with vlo's reference-based inpainting workflow, this shares the ref2va
 model, source-video VAE encoding, a joint video/audio latent, `vloMaskToLatentMask`,
 masked sampling, and a 20-step simple scheduler with the `er_sde` sampler. Important
 differences:
 
-- The app uses the whole frame resized to 480p. vlo defaults to a crop around the
+- The app uses the whole frame resized to 480p or 768p. vlo defaults to a crop around the
   mask with 10% padding, then positions and masks the generated patch in its editor.
 - The app has no prefill step. vlo uses `vloFillMaskedArea`, a pull-push fill that
   smoothly extrapolates surrounding colors, enabled by default at full denoise.
 - The app maps the mask with `nearest-exact` and a one-cell grid. vlo uses spatial
   max coverage and snaps outward to two-cell (32-pixel) model tokens.
-- The app uses a hard pixel composite at the mask boundary. It omits vlo's explicit
-  latent blanking, seam-correction pass, and temporal mask-feather controls.
+- The app feathers the pixel composite spatially with `ImageBlur`. It omits vlo's
+  explicit latent blanking, seam-correction pass, and temporal mask-feather controls.
 
 Sampling still uses full denoise. Using the source directly keeps its pixels during
 VAE encoding, but the model regenerates the masked region; it does not guarantee
