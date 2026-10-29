@@ -14,7 +14,9 @@ import { resetFollowSelection, useFollowSelection } from "../inpaint/useFollowSe
 import { MediaUpload } from "./MediaUpload";
 import type { Workflow } from "./MediaUpload";
 import { RemoveMediaButton } from "./RemoveMediaButton";
+import { BackButton } from "./BackButton";
 
+const IMAGE_STEPS = ["Select", "Isolate", "Move", "Generate"];
 let sessionPromise: Promise<unknown> | undefined;
 
 export function App() {
@@ -35,10 +37,12 @@ export function App() {
   const image = useSelectionStore(s => s.image);
   const moved = useMotionStore(s => !!image && !!mask && s.subjectKey === subjectKeyOf(image.id, mask.id)
     && (s.subjects.length ? s.subjects.some(subject => subject.motion.keys.length > 1) : (s.motion?.keys.length ?? 0) > 1));
+  const recording = useMotionStore(s => s.recording);
   const visitPhase = useSelectionStore(s => s.visitPhase);
   const error = useSelectionStore(s => s.error);
   const notice = useSelectionStore(s => s.notice);
   const clearError = useSelectionStore(s => s.clearError);
+  const connection = comfyAvailable === null ? "Checking connection…" : comfyAvailable ? "ComfyUI connected" : "ComfyUI offline";
 
   function removeUpload() {
     if (busy) return;
@@ -70,16 +74,23 @@ export function App() {
   }, []);
 
   return <Container maxWidth="xl" sx={{ py: { xs: 3, md: 5 }, px: { xs: 2, md: 6 } }}>
-    <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: { xs: 4, md: 6 } }}>
-      <Typography sx={{ letterSpacing: ".14em", fontSize: 14, fontWeight: 600 }}>H3 <Box component="span" sx={{ color: "primary.main" }}>MOTION</Box></Typography>
-      <Chip size="small" variant="outlined" label={comfyAvailable === null ? "Checking connection…" : comfyAvailable ? "● ComfyUI connected" : "○ ComfyUI offline"} sx={{ color: comfyAvailable ? "primary.main" : "text.secondary" }} />
+    <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={2} useFlexGap flexWrap="wrap" sx={{ rowGap: 1, mb: workflow === "upload" ? { xs: 4, md: 6 } : 3 }}>
+      <Stack direction="row" alignItems="baseline" spacing={1.5} sx={{ minWidth: 0 }}>
+        <Typography sx={{ letterSpacing: ".14em", fontSize: 14, fontWeight: 600, flexShrink: 0 }}>H3 <Box component="span" sx={{ color: "primary.main" }}>MOTION</Box></Typography>
+        {workflow !== "upload" && <>
+          <Typography aria-hidden="true" color="text.secondary" sx={{ fontSize: 14 }}>/</Typography>
+          <Typography component="h1" noWrap sx={{ fontSize: 14, fontWeight: 500 }}>{workflow === "video" ? "Inpaint a video" : "Move a subject"}</Typography>
+        </>}
+      </Stack>
+      <Stack direction="row" alignItems="center" spacing={1.5} sx={{ flexShrink: 0 }}>
+        {workflow !== "upload" && <Button size="small" disabled={busy} onClick={() => { clearError(); useInpaintStore.getState().clearError(); useInpaintStore.getState().leave(); setWorkflow("upload"); }}>New upload</Button>}
+        {workflow === "upload" && lastWorkflow && <Button size="small" disabled={busy} onClick={() => setWorkflow(lastWorkflow)}>Return to editor</Button>}
+        <Chip size="small" variant="outlined" aria-label={connection} title={connection}
+          label={comfyAvailable === null ? connection : <>{comfyAvailable ? "●" : "○"}<Box component="span" sx={{ display: { xs: "none", sm: "inline" } }}> {connection}</Box></>}
+          sx={{ color: comfyAvailable ? "primary.main" : "text.secondary" }} />
+      </Stack>
     </Stack>
-    <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={2} sx={{ mb: 4 }}>
-      <Stack spacing={1.5}><Typography variant="h1">{workflow === "video" ? "Inpaint a video" : workflow === "image" ? "Move a subject" : "Start with an image or video"}</Typography>
-        {workflow === "image" && <Typography color="text.secondary" sx={{ fontSize: { xs: 15, md: 18 } }}>Lift anything out of a photo and drag it into motion.</Typography>}</Stack>
-      {workflow !== "upload" && <Button disabled={busy} onClick={() => { clearError(); useInpaintStore.getState().clearError(); useInpaintStore.getState().leave(); setWorkflow("upload"); }}>New upload</Button>}
-      {workflow === "upload" && lastWorkflow && <Button disabled={busy} onClick={() => setWorkflow(lastWorkflow)}>Return to editor</Button>}
-    </Stack>
+    {workflow === "upload" && <Typography variant="h1" sx={{ mb: 4 }}>Start with an image or video</Typography>}
     {startupError && <Alert severity="error" sx={{ mb: 3 }} action={<Button onClick={() => globalThis.location.reload()}>Retry</Button>}>{startupError}</Alert>}
     {error && workflow !== "video" && <Alert severity="error" onClose={clearError} sx={{ mb: 3 }}>{error}</Alert>}
     {inpaintError && workflow !== "image" && <Alert severity="error" onClose={() => useInpaintStore.getState().clearError()} sx={{ mb: 3 }}>{inpaintError}</Alert>}
@@ -91,9 +102,6 @@ export function App() {
       pointerEvents: ready ? "auto" : "none", opacity: ready ? 1 : .45 }} inert={!ready}>
       <Paper sx={{ p: { xs: 1.5, md: 2.5 }, overflow: "hidden" }}>
         {workflow === "video" ? <InpaintEditor onRemove={removeUpload} /> : <>
-        {phase > 0 && isolation && <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1} sx={{ mb: 2 }}>
-          <Typography variant="overline" color="text.secondary">{phase === 3 ? "OUTPUT" : phase === 2 ? "MOTION PREVIEW" : "BACKGROUND PREVIEW"}</Typography>
-        </Stack>}
         {phase === 3 && isolation ? <GenerateStage /> : phase === 2 && isolation ? <MotionEditor />
           : phase > 0 && isolation ? <IsolatePreview />
           : <SelectionCanvas mediaAction={<RemoveMediaButton label="Remove image" disabled={busy} onRemove={removeUpload} />} />}
@@ -101,12 +109,13 @@ export function App() {
       </Paper>
       <Paper sx={{ p: 3 }}>
         {workflow === "video" ? <InpaintPanel /> : <>
-        <Stepper activeStep={phase} alternativeLabel sx={{ mb: 4, mx: -2, ".MuiStepLabel-label": { fontSize: 12 } }}>
-          {["Select", "Isolate", "Move", "Generate"].map((label, index) => <Step key={label} completed={index === 0 ? !!mask : index === 1 ? !!isolation : index === 2 ? moved : generated}>
+        <Stepper activeStep={phase} alternativeLabel sx={{ mb: 2, mx: -2, ".MuiStepLabel-label": { fontSize: 12 } }}>
+          {IMAGE_STEPS.map((label, index) => <Step key={label} completed={index === 0 ? !!mask : index === 1 ? !!isolation : index === 2 ? moved : generated}>
             <StepButton disabled={busy || (index === 1 && !mask) || (index >= 2 && !isolation) || (index === 3 && !moved)}
               onClick={() => visitPhase(index as Phase)}>{label}</StepButton>
           </Step>)}
         </Stepper>
+        <BackButton to={phase > 0 ? IMAGE_STEPS[phase - 1] : null} disabled={busy || recording} onBack={() => visitPhase(phase - 1 as Phase)} />
         {phase === 0 ? <SelectPanel /> : phase === 1 ? <IsolatePanel /> : phase === 2 ? <MotionPanel /> : <GeneratePanel />}
         </>}
       </Paper>

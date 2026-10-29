@@ -290,7 +290,6 @@ export function InpaintEditor({ onRemove }: { onRemove(): void }) {
   const tracked = step === 1 && s.track && !s.picking ? trackedBounds(s.track, playhead, frame) : null;
 
   return <Stack spacing={2}>
-    {step > 0 && <Typography variant="overline" color="text.secondary">{step === 2 ? "OUTPUT" : "MOTION PREVIEW"}</Typography>}
     {step === 2 && <ToggleButtonGroup exclusive size="small" value={showResult ? "result" : "preview"} aria-label="Preview" sx={{ alignSelf: "center" }}
       onChange={(_, value: unknown) => { if (value === "preview" || value === "result") { s.leave(); s.setView(value); } }}>
       <ToggleButton value="preview" sx={{ px: 2, py: .5, borderRadius: 99 }}>Source</ToggleButton>

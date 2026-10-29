@@ -22,7 +22,8 @@ export function IsolatePanel() {
 
   return <Stack spacing={2.5}>
     <Stack spacing={1}>
-      <Typography variant="h2">Generate clean background</Typography>
+      <Typography variant="h2">Isolate the subject</Typography>
+      <Typography variant="body2" color="text.secondary">Lifts it out and fills in the background behind it.</Typography>
     </Stack>
     {result && <Chip label={result.instructionSource === "custom" ? "Custom removal instruction" : `Removed: ${result.phrase}`} color="primary" sx={{ alignSelf: "start", height: "auto", ".MuiChip-label": { whiteSpace: "normal", py: 1 } }} />}
     {!showPrompt && <Button size="small" disabled={busy} sx={{ alignSelf: "start" }}
@@ -41,7 +42,7 @@ export function IsolatePanel() {
       const prompt = instruction.trim();
       void isolate(prompt === result?.instruction ? undefined : prompt);
     }}>
-      {result ? "Regenerate" : "Isolate subject"}
+      {result ? "Try again" : "Isolate"}
     </Button>
     {!result && recovery && <Typography variant="caption" color="text.secondary">Isolation failed. Retry to generate a removal prompt from the highlighted subject.</Typography>}
     {result && <Button variant="contained" size="large" disabled={busy} onClick={() => visitPhase(2)}>Continue →</Button>}

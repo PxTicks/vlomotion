@@ -7,12 +7,14 @@ import { MASK_FEATHER, MASK_GROW, VIDEO_TIERS } from "@h3-motion/shared";
 import { MAX_MASKS, audioMode, inpaintPrompt, useInpaintStore } from "./useInpaintStore";
 import { PromptModeToggle } from "../shell/PromptModeToggle";
 import { RemoveMediaButton } from "../shell/RemoveMediaButton";
+import { BackButton } from "../shell/BackButton";
 import { SelectedKeyCard } from "../motion/SelectedKeyCard";
 import { formatSeconds } from "../motion/format";
 import { SelectPanel, SelectionStoreContext } from "../select";
 import type { SelectPanelText } from "../select";
 import { useFollowSelection } from "./useFollowSelection";
 
+const INPAINT_STEPS = ["Draw masks", "Animate", "Generate"];
 const GROW_HELP = "How far the mask is widened on every side before generating. More room lets the new content blend into its surroundings, and covers edges of what you're replacing that stick out of the mask.";
 const FEATHER_HELP = "How softly the generated patch fades into the original video at the mask's edge. Higher values hide the seam, but blur the boundary further on each side of it.";
 const AUDIO_OPTIONS = [
@@ -92,12 +94,14 @@ export function InpaintPanel() {
     <Button onClick={() => void s.cancel()}>Cancel</Button>
   </Stack>;
   return <>
-    <Stepper activeStep={s.step} alternativeLabel sx={{ mb: 4, mx: -2, ".MuiStepLabel-label": { fontSize: 12 } }}>
-      {["Draw masks", "Animate", "Generate"].map((label, index) => <Step key={label}
+    <Stepper activeStep={s.step} alternativeLabel sx={{ mb: 2, mx: -2, ".MuiStepLabel-label": { fontSize: 12 } }}>
+      {INPAINT_STEPS.map((label, index) => <Step key={label}
         completed={index === 0 ? !!s.masks.length : index === 1 ? s.step === 2 || s.masks.some(mask => mask.motion.keys.length > 1) : !!s.result}>
         <StepButton disabled={busy || s.recording || (index > 0 && !s.masks.length)} onClick={() => s.visitStep(index as 0 | 1 | 2)}>{label}</StepButton>
       </Step>)}
     </Stepper>
+    <BackButton to={s.step > 0 ? INPAINT_STEPS[s.step - 1] : null} disabled={busy || s.recording || s.picking}
+      onBack={() => s.visitStep(s.step - 1 as 0 | 1 | 2)} />
     <Stack spacing={2.5}>
     {s.step === 0 ? <>
       <Stack spacing={1}>
@@ -112,7 +116,7 @@ export function InpaintPanel() {
     </> : s.step === 1 && s.picking ? <FollowPanel /> : s.step === 1 ? <>
       <Stack spacing={1}>
         <Typography variant="h2">{several ? "Drag them into motion" : "Drag it into motion"}</Typography>
-        <Typography variant="body2" color="text.secondary">{several ? "Select a mask on the video or in the list to animate it. " : ""}Drag to create a path, or follow an object. Adjust by selecting and dragging ◆ on the video to fix positions, or on the timeline bar to fix timings. Drag the box corners to resize the mask, or its edges to stretch it.</Typography>
+        <Typography variant="body2" color="text.secondary">{several ? "Select a mask on the video or in the list to animate it. " : ""}Drag to create a path, or follow an object. Adjust by selecting and dragging ◆ on the video to fix positions, or on the timeline bar to fix timings.</Typography>
       </Stack>
       {s.task === "track" ? <Stack spacing={1} aria-live="polite">
         <Typography variant="body2">{s.status === "preparing" ? "Preparing the video…" : s.status === "uploading" ? "Uploading…" : s.job?.message ?? "Tracking the object…"}</Typography>
@@ -126,7 +130,6 @@ export function InpaintPanel() {
         startNote="The first key is the mask you drew. It stays at 0 s." />}
       <Button variant="outlined" disabled={busy || s.recording || keyCount < 2} onClick={s.clearPath}>Clear path</Button>
       <Button variant="contained" size="large" disabled={busy || s.recording} onClick={() => s.visitStep(2)}>Continue →</Button>
-      <Button disabled={busy || s.recording} onClick={() => s.visitStep(0)}>{several ? "Edit masks" : "Edit mask"}</Button>
     </> : <>
       <Stack spacing={1}>
         <Typography variant="h2">Fill it in</Typography>
@@ -234,7 +237,6 @@ export function InpaintPanel() {
           </Stack>
         </AccordionDetails>
       </Accordion>
-      <Button disabled={busy} onClick={() => s.visitStep(1)}>Edit motion</Button>
     </>}
     {s.notice && s.step === 0 && <Typography variant="body2" color="text.secondary" role="status">{s.notice}</Typography>}
     </Stack>

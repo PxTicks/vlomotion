@@ -128,7 +128,7 @@ GPU services below. Images keep their native ratio, with no aspect-ratio picker
 or crop. Large photos are downscaled to a working short edge of at most 960 px
 and a long edge of at most 2560 px; smaller photos are not enlarged. Replacing
 the photo or changing the selection clears the confirmed mask and background.
-After confirming, choose **Isolate subject**.
+After confirming, choose **Isolate**.
 Retries reuse the subject description; editing the instruction reruns only removal.
 The instruction editor becomes available after isolation and shows the exact
 prompt used for that confirmed mask. If isolation fails, **Write removal instruction**

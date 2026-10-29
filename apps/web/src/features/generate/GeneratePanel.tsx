@@ -1,6 +1,5 @@
 import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, LinearProgress, Slider, Stack, TextField, ToggleButton, ToggleButtonGroup, Tooltip, Typography } from "@mui/material";
 import { EDGE_FREEDOM, LOCK_IN, VIDEO_TIERS } from "@h3-motion/shared";
-import { useSelectionStore } from "../select";
 import { useGenerationInputs } from "./inputs";
 import { useCurrentResult, useGenerateStore, usePromptSettings } from "./useGenerateStore";
 import { PromptModeToggle } from "../shell/PromptModeToggle";
@@ -26,7 +25,6 @@ export function GeneratePanel() {
   const notice = useGenerateStore(s => s.notice);
   const { setLockIn, setEdgeFreedom, setTier, setSeed, setPrompt, setSoundEffects, setMusic, setPromptMode, setRawPrompt, resetPrompt, keepRawPrompt,
     generate, cancel, clearError } = useGenerateStore.getState();
-  const visitPhase = useSelectionStore(s => s.visitPhase);
   const inputs = useGenerationInputs(usePromptSettings());
   const result = useCurrentResult();
   const busy = status !== "idle";
@@ -106,6 +104,5 @@ export function GeneratePanel() {
         </Stack>
       </AccordionDetails>
     </Accordion>
-    <Button disabled={busy} onClick={() => visitPhase(2)}>Edit motion</Button>
   </Stack>;
 }

@@ -32,7 +32,7 @@ export function MotionPanel() {
 
   const heading = <Stack spacing={1}>
     <Typography variant="h2">Drag it into motion</Typography>
-    <Typography variant="body2" color="text.secondary">Drag to create a path. Adjust by selecting and dragging ◆ on the canvas to fix positions, or on the timeline bar to fix timings. Drag the box corners to resize the subject, or its edges to stretch or flip it.</Typography>
+    <Typography variant="body2" color="text.secondary">Drag to create a path. Adjust by selecting and dragging ◆ on the canvas to fix positions, or on the timeline bar to fix timings.</Typography>
   </Stack>;
   if (!ready || !curve) return <Stack spacing={2.5}>{heading}<Typography role="status" variant="body2">Preparing your subject…</Typography></Stack>;
 
@@ -50,6 +50,5 @@ export function MotionPanel() {
     {outside !== null && <Alert severity="warning">The subject is completely out of frame from {formatSeconds(outside)}. That's fine for an exit, but the video model can't see it there.</Alert>}
     {errors.map(error => <Alert key={error} severity="error">{error}</Alert>)}
     <Button variant="contained" size="large" disabled={recording || !moving || errors.length > 0} onClick={() => visitPhase(3)}>Continue →</Button>
-    <Button disabled={recording} onClick={() => visitPhase(1)}>Edit background</Button>
   </Stack>;
 }
