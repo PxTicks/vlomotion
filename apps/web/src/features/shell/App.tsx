@@ -111,6 +111,5 @@ export function App() {
         </>}
       </Paper>
     </Box>}
-    <Typography variant="caption" color="text.secondary" component="p" sx={{ mt: 3 }}>Early development · MiniMax H3 on your own ComfyUI.</Typography>
   </Container>;
 }
