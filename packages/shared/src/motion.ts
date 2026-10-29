@@ -310,11 +310,17 @@ export function evenSpeed<M extends AnyMotion>(motion: M): M {
   return withFrames(motion, spaceFrames(frames, end));
 }
 
-/** Changes the clip length. Keys that fit are kept; otherwise all keys are compressed to end on the last frame. */
-export function setClipFrames(motion: SubjectMotion, frames: FrameCount): SubjectMotion {
-  const next = { ...motion, frames };
-  const end = motion.keys[motion.keys.length - 1].frame, last = lastFrame(next);
-  if (end <= last) return next;
+/** The frame of the last key, where the animation ends. */
+export const animationEnd = (motion: AnyMotion) => motion.keys[motion.keys.length - 1].frame;
+
+/**
+ * Changes the clip length. Keys that fit are kept; otherwise, or with `fit`, every key's time is scaled so the animation
+ * ends on the last frame, so no key is cut off. `end` is where the animation ends, the latest across subjects that share
+ * the clip, so they are all scaled alike and keep their timing relative to each other.
+ */
+export function setClipFrames(motion: SubjectMotion, frames: FrameCount, { fit = false, end = animationEnd(motion) } = {}): SubjectMotion {
+  const next = { ...motion, frames }, last = lastFrame(next);
+  if (!end || (!fit && end <= last)) return next;
   return withFrames(next, spaceFrames(motion.keys.map(key => key.frame * last / end), last));
 }
 

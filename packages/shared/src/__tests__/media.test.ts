@@ -4,11 +4,15 @@ import { CLIP_FRAMES, FPS, frameCountSchema, frameSizeSchema, h3Canvas, videoDim
 describe("H3 media conventions", () => {
   it("uses the trained 17k+5 frame grid at 24 fps", () => {
     expect(FPS).toBe(24);
-    for (const count of Object.values(CLIP_FRAMES)) {
+    for (let count = CLIP_FRAMES.min; count <= CLIP_FRAMES.max; count += CLIP_FRAMES.step) {
       expect((count - 5) % 17).toBe(0);
       expect(frameCountSchema.parse(count)).toBe(count);
     }
-    expect(frameCountSchema.safeParse(120).success).toBe(false);
+    expect([CLIP_FRAMES.min / FPS, CLIP_FRAMES.max / FPS].map(Math.round)).toEqual([3, 15]);
+    // The slider's larger keyboard steps clamp at either end, which must then be on the grid too.
+    expect((CLIP_FRAMES.max - CLIP_FRAMES.min) % CLIP_FRAMES.step).toBe(0);
+    expect(frameCountSchema.parse(CLIP_FRAMES.default)).toBe(124);
+    for (const count of [120, 56, 379]) expect(frameCountSchema.safeParse(count).success).toBe(false);
   });
   it("matches Python round at positive and negative half ties", () => {
     expect([0.5, 1.5, 2.5, -0.5, -1.5, -2.5].map(pythonRound)).toEqual([0, 2, 2, 0, -2, -2]);

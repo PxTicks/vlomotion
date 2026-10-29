@@ -2,7 +2,8 @@ import { z } from "zod";
 
 export const FPS = 24;
 export const MAX_VIDEO_UPLOAD_BYTES = 200 * 1024 * 1024;
-export const CLIP_FRAMES = { 5: 124, 7: 175, 10: 243 } as const;
+/** Image clip lengths: H3's 17k+5 frame grid at 24 fps, from 3 s to 15 s, each the grid point nearest those ends. */
+export const CLIP_FRAMES = { min: 73, max: 362, step: 17, default: 124 } as const;
 export interface FrameSize { width: number; height: number }
 export interface Point { x: number; y: number }
 
@@ -12,7 +13,8 @@ export const frameSizeSchema = z.object({
 });
 /** Delivered video dimensions need encoder alignment, independently of the model's 32 px grid. */
 export const videoDimensionSchema = z.number().int().min(32).max(4096).multipleOf(2);
-export const frameCountSchema = z.union([z.literal(124), z.literal(175), z.literal(243)]);
+export const frameCountSchema = z.number().int().min(CLIP_FRAMES.min).max(CLIP_FRAMES.max)
+  .refine(frames => (frames - CLIP_FRAMES.min) % CLIP_FRAMES.step === 0, "Invalid H3 frame count.");
 export type FrameCount = z.infer<typeof frameCountSchema>;
 
 /** Python's round uses ties-to-even; match ComfyUI's canvas rounding. */

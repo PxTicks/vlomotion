@@ -61,6 +61,33 @@ describe("independent subject paths", () => {
     state().selectSubject("first");
     expect(state().motion!.frames).toBe(243);
   });
+  it("fits every subject alike when a shorter clip would cut keys off, and keeps keys when it is longer", () => {
+    record("first", 80, 70);
+    record("second", 140, 70);
+    state().retimeKey(state().motion!.keys[1].id, 60);
+    const ends = () => state().subjects.map(subject => subject.motion.keys.at(-1)!.frame);
+    expect(ends()).toEqual([123, 60]);
+    state().setFrames(73);
+    expect(ends()).toEqual([72, 35]);
+    expect(state().notice).toMatch(/fitted to the shorter clip/);
+    state().setFrames(243);
+    expect(ends()).toEqual([72, 35]);
+    expect(state().notice).toBeNull();
+    state().fitToLength();
+    expect(ends()).toEqual([242, 118]);
+    expect(state().motion!.frames).toBe(243);
+    expect(state().notice).toMatch(/fitted to the clip length/);
+  });
+  it("leaves an animation that already ends on the last frame, or a clip without one, as it is", () => {
+    state().fitToLength();
+    expect(state().subjects.map(subject => subject.motion.keys.length)).toEqual([1, 1]);
+    expect(state().notice).toBeNull();
+    record("first", 80, 70);
+    const subjects = state().subjects;
+    state().fitToLength();
+    expect(state().subjects.map(subject => subject.motion.keys)).toEqual(subjects.map(subject => subject.motion.keys));
+    expect(state().notice).toBeNull();
+  });
   it("keeps paths, colours and layer order when the background is regenerated", () => {
     record("first", 80, 70);
     state().reorderSubject("second", -1);

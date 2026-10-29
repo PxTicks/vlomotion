@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import {
-  applyRecording, buildMotionCurve, createMotion, deleteKey, evenSpeed, insertKeyAtLength, isStartKey, lastFrame,
+  animationEnd, applyRecording, buildMotionCurve, createMotion, deleteKey, evenSpeed, insertKeyAtLength, isStartKey, lastFrame,
   moveKey, retimeKey, setClipFrames, upsertKey,
 } from "@h3-motion/shared";
 import type { FrameCount, FrameSize, MotionTiming, Point, Pose, Rect, Scale, SubjectMotion, TimedSample } from "@h3-motion/shared";
@@ -40,7 +40,11 @@ interface MotionState {
   selectKey: (id: string | null) => void; moveKey: (id: string, point: Point) => void;
   retimeKey: (id: string, frame: number) => void; insertAtLength: (length: number) => string | null;
   deleteSelected: () => void; resetScale: () => void; evenSpeed: () => void; clearPath: () => void;
-  setFrames: (frames: FrameCount) => void; setTiming: (timing: MotionTiming) => void;
+  /** Changes every subject's clip length. Shortening past where the animation ends fits it into the shorter clip. */
+  setFrames: (frames: FrameCount) => void;
+  /** Stretches or compresses every subject's key times alike, so the animation ends on the clip's last frame. */
+  fitToLength: () => void;
+  setTiming: (timing: MotionTiming) => void;
   /** Starts a take on a subject without a path, unless the user scrubbed first; returns the frame it starts at. */
   startRecording: () => number | null;
   /** Applies a take, timed to fill the clip from the playhead where it started. */
@@ -66,6 +70,19 @@ export const useMotionStore = create<MotionState>((set, get) => {
   }
   function edit(next: SubjectMotion, extra: Partial<MotionState> = {}) {
     if (next !== get().motion) set({ ...motionPatch(next), notice: null, ...extra });
+  }
+  /** Sets every subject's clip length, scaling their keys alike from where the latest one ends; returns whether keys moved. */
+  function resize(frames: FrameCount, fit: boolean) {
+    const { motion, playhead, subjects, activeSubjectId } = get();
+    if (!motion) return false;
+    const end = Math.max(animationEnd(motion), ...subjects.map(subject => animationEnd(subject.motion)));
+    const next = setClipFrames(motion, frames, { fit, end });
+    const resized = subjects.map(subject => ({ ...subject, motion: setClipFrames(subject.motion, frames, { fit, end }) }));
+    const retimed = (before: SubjectMotion, after: SubjectMotion) => after.keys.some((key, i) => key.frame !== before.keys[i].frame);
+    const moved = retimed(motion, next) || resized.some((subject, i) => retimed(subjects[i].motion, subject.motion));
+    set({ motion: resized.find(subject => subject.id === activeSubjectId)?.motion ?? next, subjects: resized, playing: false,
+      playhead: Math.min(playhead, lastFrame(next)) });
+    return moved;
   }
   function motionPatch(motion: SubjectMotion) {
     const { subjects, activeSubjectId } = get();
@@ -217,13 +234,15 @@ export const useMotionStore = create<MotionState>((set, get) => {
       edit(createMotion(motion.anchor, motion.frames), { playhead: 0, playing: false, scrubbed: false, selectedKeyId: null });
     },
     setFrames: frames => {
-      const { motion, playhead, subjects, activeSubjectId } = get();
-      if (!motion || motion.frames === frames) return;
-      const next = setClipFrames(motion, frames);
-      const compressed = next.keys.some((key, i) => key.frame !== motion.keys[i].frame);
-      const resized = subjects.map(subject => ({ ...subject, motion: setClipFrames(subject.motion, frames) }));
-      set({ motion: resized.find(subject => subject.id === activeSubjectId)?.motion ?? next, subjects: resized, playing: false, playhead: Math.min(playhead, lastFrame(next)),
-        notice: compressed ? "Keys were compressed to fit the shorter clip." : null });
+      const { motion, recording } = get();
+      if (!motion || recording || motion.frames === frames) return;
+      const fitted = resize(frames, false);
+      set({ notice: fitted ? "The animation was fitted to the shorter clip, so no keys were cut off." : null });
+    },
+    fitToLength: () => {
+      const { motion, recording } = get();
+      if (!motion || recording) return;
+      if (resize(motion.frames, true)) set({ notice: "The animation was fitted to the clip length." });
     },
     setTiming: timing => { const { motion } = get(); if (motion && motion.timing !== timing) edit({ ...motion, timing }); },
     startRecording: () => {

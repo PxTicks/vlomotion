@@ -154,6 +154,18 @@ describe("motion editing", () => {
     expect(short.keys.map(key => key.frame)).toEqual([0, 31, 123]);
     expect(validateMotion(short)).toEqual([]);
   });
+  it("fits the animation to the clip on request, stretching or compressing every key alike", () => {
+    const motion = motionWith([30, 300, 200], [60, 300, 400]);
+    expect(setClipFrames(motion, 243, { fit: true }).keys.map(key => key.frame)).toEqual([0, 121, 242]);
+    expect(setClipFrames(motion, 73, { fit: true }).keys.map(key => key.frame)).toEqual([0, 36, 72]);
+    expect(setClipFrames(createMotion(anchor), 243, { fit: true }).keys.map(key => key.frame)).toEqual([0]);
+  });
+  it("scales by where the latest subject ends, so subjects sharing the clip keep their relative timing", () => {
+    const early = motionWith([60, 300, 200]);
+    expect(setClipFrames(early, 124, { fit: true, end: 240 }).keys.map(key => key.frame)).toEqual([0, 31]);
+    expect(setClipFrames(early, 124, { end: 240 }).keys.map(key => key.frame)).toEqual([0, 31]);
+    expect(setClipFrames(early, 243, { end: 120 }).keys.map(key => key.frame)).toEqual([0, 60]);
+  });
   it("caps the number of keys", () => {
     let motion = createMotion(anchor);
     for (let frame = 1; frame < MAX_MOTION_KEYS; frame++) motion = upsertKey(motion, frame, { x: frame, y: 0 }, id())!.motion;
