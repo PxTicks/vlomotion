@@ -135,6 +135,12 @@ export const useGenerateStore = create<GenerateState>((set, get) => ({
   },
 }));
 
+// Prompt edits describe one photo. "New upload" keeps the stores for Return to editor, so a different photo clears them here.
+useSelectionStore.subscribe((state, previous) => {
+  if (state.image?.id !== previous.image?.id)
+    useGenerateStore.setState({ prompt: null, soundEffects: null, music: "", promptMode: "formatted", rawPrompt: "", unformattable: false });
+});
+
 /** The last result, if it was made for the current photo, selection and background. */
 export function useCurrentResult(): GeneratedVideo | null {
   const result = useGenerateStore(s => s.result);

@@ -74,6 +74,18 @@ describe("generation inputs", () => {
     expect(silent.prompt).toContain("overall_soundscape: N/A");
     expect(silent.prompt).toContain("non_diegetic_music: N/A");
   });
+  it("drops prompt edits for a new photo but keeps them for the same photo", () => {
+    const store = useGenerateStore.getState();
+    store.setPrompt("A ball rolls.");
+    store.setSoundEffects("Soft rolling sounds.");
+    store.setMusic("Gentle piano.");
+    store.setPromptMode("raw");
+    store.setTier(480);
+    useSelectionStore.setState({ mask: null, isolation: null, phase: 0 });
+    expect(useGenerateStore.getState()).toMatchObject({ prompt: "A ball rolls.", promptMode: "raw" });
+    useSelectionStore.getState().setImage({ ...image, id: crypto.randomUUID(), url: "/api/files/other" });
+    expect(useGenerateStore.getState()).toMatchObject({ prompt: null, soundEffects: null, music: "", promptMode: "formatted", rawPrompt: "", tier: 480 });
+  });
   it("waits for layers that belong to the current background", () => {
     useMotionStore.setState({ layersKey: "stale" });
     expect(resolveInputs(currentParts(settings))).toBeNull();
