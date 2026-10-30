@@ -42,7 +42,7 @@ export const isolationResultSchema = z.object({
   seed: z.number().int().nonnegative(),
 });
 export type IsolationResult = z.infer<typeof isolationResultSchema>;
-export const LOCK_IN = { min: 2, max: 15, step: 1, default: 6 } as const;
+export const LOCK_IN = { min: 2, max: 15, step: 1, default: 9 } as const;
 /** How far the held subject mask is eroded before TTM, in generation-canvas pixels. 16 is one H3 latent cell. */
 export const EDGE_FREEDOM = { min: 0, max: 64, step: 4, default: 16 } as const;
 const dimensionSchema = videoDimensionSchema;
