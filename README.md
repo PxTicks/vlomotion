@@ -18,6 +18,11 @@ partner nodes or closed APIs.
   regenerates the masked region and the app composites it back into the
   source, keeping, referencing or replacing the original sound.
 
+<p>
+  <img src="docs/images/select.png" alt="Select step: a gloved hand picked out with SAM 3.1" width="49%">
+  <img src="docs/images/move.png" alt="Move step: the hand dragged along a keyframed path toward a keypad" width="49%">
+</p>
+
 See [docs/usage.md](docs/usage.md) for the full walkthrough and
 [docs/how-it-works.md](docs/how-it-works.md) for the pipeline.
 
@@ -26,7 +31,7 @@ See [docs/usage.md](docs/usage.md) for the full walkthrough and
 - An NVIDIA or AMD GPU. Both H3 workflows use Comfy Kitchen INT8 attention.
 - A recent [ComfyUI](https://github.com/Comfy-Org/ComfyUI). The app was tested
   at `6607f36b` (v0.41.0-18), which the checkout command below pins.
-- [ComfyUI-vlo](https://github.com/PxTicks/ComfyUI-vlo) **0.3.0 or later**, for
+- My node pack [ComfyUI-vlo](https://github.com/PxTicks/ComfyUI-vlo) **0.3.0 or later**, for
   `vloTimeToMove`, `vloSAM3RefineMask` and `vloMaskToLatentMask`.
 - Node.js **22.12+** (or 24+) and npm.
 - [`uv`](https://docs.astral.sh/uv/), or
@@ -92,20 +97,6 @@ To use a remote GPU, run `./run_remote.sh <URL>` with the ComfyUI or Paperspace
 URL instead. Configuration in `.env` is optional; copy `.env.example` to
 override the defaults. See [docs/development.md](docs/development.md) for the
 launcher, ports, a manually run proxy, tests and spikes.
-
-## Limits
-
-- Photo clips are 3 to 15 s at 24 fps. Video sources are prepared at a 480p
-  short edge and 24 fps, using the first 362 frames (15 s).
-- Video inpainting regenerates everything inside the mask; original content
-  there is not guaranteed to survive. Shadows outside a removed subject's mask
-  can remain after isolation.
-- MiniMax only publishes 768p results, so 480p is outside its verified
-  configuration.
-- The app is single-user and binds to localhost. Sessions live in server
-  memory, so restarting the server or reloading the page starts over. Uploads
-  under `.data/` are not pruned automatically.
-- See [KNOWN_ISSUES.md](KNOWN_ISSUES.md) for open bugs.
 
 ## License
 
