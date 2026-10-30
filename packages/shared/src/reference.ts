@@ -38,9 +38,9 @@ export function objectInstruction(description: string): string {
   return `A reference photo of ${clean(description)}: the whole object, centred on a plain white background, in soft even light, with nothing else in the picture.`;
 }
 
-/** A Qwen Image edit of a video frame (`<image1>`), placed by the same frame with the mask highlighted (`<image2>`). */
+/** A Qwen Image edit of a video frame (`<image1>`), placed by the same frame with the mask outlined (`<image2>`). */
 export function frameInstruction(description: string): string {
-  return `In <image1>, make the area highlighted in yellow in <image2> show ${clean(description)}. Match the lighting, perspective, scale and style of <image1>, and leave everything outside that area unchanged. Do not draw the yellow highlight.`;
+  return `In <image1>, make the area outlined in yellow in <image2> show ${clean(description)}. Match the lighting, perspective, scale and style of <image1>, and leave everything outside that area unchanged. Do not draw the yellow outline.`;
 }
 
 /**

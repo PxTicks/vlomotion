@@ -89,7 +89,7 @@ The original UI graphs cannot be submitted to the v2 API. Each bound API node
 has a class/name contract covered by tests. SAM masks use white for the subject;
 the server derives candidate bounds directly from their pixels because v2
 returns file outputs, rather than SAM's bounding-box node data. It creates the
-yellow VLM highlight from the confirmed union mask, so the description matches
+yellow VLM outline from the confirmed union mask, so the description matches
 the exact selection. Qwen edits are composited over the original only inside a
 grown, softly blurred subject mask, preserving pixels outside that region.
 Shadows beyond that region can remain; retry or refine the selection as needed.

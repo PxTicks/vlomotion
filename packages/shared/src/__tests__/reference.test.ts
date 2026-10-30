@@ -69,7 +69,7 @@ describe("inpaint reference prompts", () => {
   });
   it("asks Qwen Image for a clean object, or for an edit placed by the highlight", () => {
     expect(objectInstruction("a red lantern.")).toMatch(/^A reference photo of a red lantern: .*plain white background/);
-    expect(frameInstruction("a red umbrella")).toMatch(/^In <image1>, make the area highlighted in yellow in <image2> show a red umbrella\. /);
+    expect(frameInstruction("a red umbrella")).toMatch(/^In <image1>, make the area outlined in yellow in <image2> show a red umbrella\. /);
   });
   it.each([
     ["no reference", undefined, "replace"], ["no sound mode", undefined, undefined], ["an object", { kind: "object" }, "replace"],

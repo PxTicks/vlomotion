@@ -148,20 +148,20 @@ describe("workflow contracts", () => {
     expect(() => assertBindings({ ...graph, [DESCRIBE_OUTPUTS.phrase.node]: graph["1"] }, outputs)).toThrow("binding changed");
     expect(graph["3"].inputs).toMatchObject({ sampling_mode: "off", thinking: false });
   });
-  it("binds description prompts and the highlighted image without mutating templates", async () => {
+  it("binds description prompts and the outlined image without mutating templates", async () => {
     assertBindings(await loadTemplate("describe"), Object.values(DESCRIBE_BINDINGS));
     const workflow = await buildDescribeWorkflow(new Comfy(), "/tmp/highlight.png", "red car");
     expect(workflow.json["3"]).toMatchObject({ inputs: { prompt: expect.stringContaining('"red car"') } });
     expect((await loadTemplate("describe"))["2"].inputs.image).toBe("highlight.png");
   });
-  it("uses the highlighted region as the subject source and omits empty search hints", async () => {
+  it("uses the outlined region as the subject source and omits empty search hints", async () => {
     for (const hint of ["", "dog"]) {
       const workflow = await buildDescribeWorkflow(new Comfy(), "/tmp/highlight.png", hint);
       for (const binding of [DESCRIBE_BINDINGS.phrase, DESCRIBE_BINDINGS.caption]) {
         const node = workflow.json[binding.node];
-        expect(node).toMatchObject({ inputs: { [binding.input]: expect.stringContaining("Identify the subject from the highlighted region.") } });
+        expect(node).toMatchObject({ inputs: { [binding.input]: expect.stringContaining("Identify the subject inside the yellow outline.") } });
         expect(node).toMatchObject({ inputs: { [binding.input]: hint
-          ? expect.stringContaining("use it only if it matches the highlighted subject")
+          ? expect.stringContaining("use it only if it matches the outlined subject")
           : expect.not.stringContaining("search hint") } });
       }
     }

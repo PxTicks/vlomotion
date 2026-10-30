@@ -186,11 +186,11 @@ export async function buildDescribeWorkflow(client: Comfy, highlightPath: string
   assertBindings(graph, [...Object.values(DESCRIBE_BINDINGS), ...Object.values(DESCRIBE_OUTPUTS)]);
   const { highlight, phrase, caption } = DESCRIBE_BINDINGS;
   const captionPrompt = graph[caption.node].inputs[caption.input];
-  const hint = userText ? ` The user's search hint is ${JSON.stringify(userText)}; use it only if it matches the highlighted subject.` : "";
+  const hint = userText ? ` The user's search hint is ${JSON.stringify(userText)}; use it only if it matches the outlined subject.` : "";
   const workflow = client.workflows.fromJson(graph);
   workflow.setInput(highlight.node, highlight.input, client.assets.fromFile(highlightPath));
-  workflow.setInput(phrase.node, phrase.input, `Identify the subject from the highlighted region. The yellow highlight marks the selected object or group.${hint} Reply only with an unambiguous noun phrase of at most 8 words identifying all highlighted subjects. Do not mention the highlight.`);
-  workflow.setInput(caption.node, caption.input, `${captionPrompt} Identify the subject from the highlighted region.${hint} Use "moves" (or "move" for several subjects) for motion_verb if no action is visible.`);
+  workflow.setInput(phrase.node, phrase.input, `Identify the subject inside the yellow outline. The outline surrounds the selected object or group and is not part of it.${hint} Reply only with an unambiguous noun phrase of at most 8 words identifying all outlined subjects. Do not mention the outline.`);
+  workflow.setInput(caption.node, caption.input, `${captionPrompt} Identify the subject inside the yellow outline.${hint} Use "moves" (or "move" for several subjects) for motion_verb if no action is visible.`);
   return workflow;
 }
 
@@ -203,7 +203,7 @@ export function isolationGeometry(size: FrameSize) {
 
 /**
  * Edits the image with Qwen and composites the edit back through the grown, feathered mask. `highlightPath` adds the
- * image with the mask highlighted as `<image2>`, for an instruction that has to say where the edit goes.
+ * image with the mask outlined as `<image2>`, for an instruction that has to say where the edit goes.
  */
 export async function buildIsolateWorkflow(client: Comfy, options: {
   imagePath: string; maskPath: string; size: FrameSize; instruction: string; seed: number; highlightPath?: string;

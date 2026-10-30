@@ -53,14 +53,14 @@ describe("inpaint reference images", () => {
       reference: { videoId: video.id, kind: "object", description: "a red paper lantern", frame: null, seed: 3, image: { width: 1024, height: 1024 } } });
     expect((await app.request(session.job!.snapshot.reference!.image.url, { headers: { cookie } })).status).toBe(200);
   });
-  it("edits a frame inside its mask, placed by the highlighted frame as the second image", async () => {
+  it("edits a frame inside its mask, placed by the outlined frame as the second image", async () => {
     const { session, submit, request } = await setup(await solid(64, 48, "blue"));
     const files = { image: await solid(64, 48, "green"), mask: await boxMask(64, 48) };
     expect((await request({ kind: "frame", description: "a red umbrella", frame: 49, seed: 5 }, files)).status).toBe(202);
     await session.job!.done;
     const graph = submit.mock.calls[0][0].json as ApiGraph;
     expect(graph["6"].inputs).toMatchObject({ "images.image_1": ["11", 0], "images.image_2": ["highlight", 0],
-      prompt: expect.stringMatching(/^In <image1>, make the area highlighted in yellow in <image2> show a red umbrella\./) });
+      prompt: expect.stringMatching(/^In <image1>, make the area outlined in yellow in <image2> show a red umbrella\./) });
     expect(graph.highlight.class_type).toBe("LoadImage");
     expect(graph["18"]).toMatchObject({ class_type: "ImageCompositeMasked", inputs: { destination: ["1", 0], source: ["12", 0], mask: ["17", 0] } });
     // Qwen edits on a canvas rounded to 32 px; the edit is scaled back to the frame before compositing.
