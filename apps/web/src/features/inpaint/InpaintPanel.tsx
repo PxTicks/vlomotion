@@ -144,7 +144,7 @@ export function InpaintPanel() {
           {s.referenceRole?.kind === "frame" ? `Edited frame at ${formatSeconds(s.referenceRole.frame)}` : "Object to add"}
         </Typography>
         {s.task === "reference" ? referenceProgress
-          : s.created && <Button size="small" disabled={busy} onClick={() => void s.recreateReference()} sx={{ alignSelf: "center" }}>Try again</Button>}
+          : s.created && <Button size="small" disabled={busy} onClick={() => void s.recreateReference()} sx={{ alignSelf: "center" }}>Regenerate reference</Button>}
         {/* The raw prompt holds the definition. */}
         {!raw && <TextField label="Reference definition" multiline minRows={2} value={s.definition} disabled={busy}
           onChange={event => s.setDefinition(event.target.value)} slotProps={{ htmlInput: { maxLength: 1000 } }}
