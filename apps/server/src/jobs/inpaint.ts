@@ -5,7 +5,7 @@ import { videoGeometry } from "@h3-motion/shared";
 import { SOL_ENABLED } from "../config.js";
 import { inspectVideo } from "../media/video.js";
 import type { Session, SessionStore } from "../sessions.js";
-import { buildInpaintWorkflow, INPAINT_OUTPUT } from "../workflows/templates.js";
+import { buildInpaintWorkflow, INPAINT_OUTPUT, INPAINT_SAMPLER } from "../workflows/templates.js";
 import { createManagedJob, failJob, runWorkflow, throwIfCancelled } from "./runtime.js";
 
 export function startInpaint(client: Comfy, store: SessionStore, session: Session, request: InpaintRequest,
@@ -20,7 +20,7 @@ export function startInpaint(client: Comfy, store: SessionStore, session: Sessio
       const modelSize = videoGeometry(video!, Math.min(request.width, request.height)).generation;
       const workflow = await buildInpaintWorkflow(client, { ...inputs, ...request, size: request, modelSize, seed,
         sol: options.sol ?? SOL_ENABLED });
-      const job = await runWorkflow(client, managed, workflow, { stage: "inpaint", message: "Inpainting with MiniMax H3…", to: 0.95 });
+      const job = await runWorkflow(client, managed, workflow, { stage: "inpaint", message: "Inpainting with MiniMax H3…", to: 0.95, sampler: INPAINT_SAMPLER.node });
       const output = job.getOutputs(INPAINT_OUTPUT)[0];
       if (!output) throw new Error("Inpainting completed without a video. Try again.");
       managed.snapshot.message = "Downloading the video…";

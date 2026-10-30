@@ -83,6 +83,8 @@ export const INPAINT_MODEL = {
   scheduler: { node: "21", input: "model", classType: "BasicScheduler" },
 } satisfies Record<string, Binding>;
 export const ANIMATE_OUTPUT = "25";
+/** The sampler, whose steps are most of a run. */
+export const ANIMATE_SAMPLER = { node: "21", input: "sigmas", classType: "SamplerCustomAdvanced" } satisfies Binding;
 
 export const INPAINT_BINDINGS = {
   source: { node: "5", input: "file", classType: "LoadVideo" },
@@ -95,6 +97,7 @@ export const INPAINT_BINDINGS = {
   seed: { node: "23", input: "noise_seed", classType: "RandomNoise" },
 } satisfies Record<string, Binding>;
 export const INPAINT_OUTPUT = "29";
+export const INPAINT_SAMPLER = { node: "24", input: "sigmas", classType: "SamplerCustomAdvanced" } satisfies Binding;
 /** The composite's mask, a hard threshold of the mask video at the delivered size, which feathering softens. */
 export const INPAINT_COMPOSITE = { node: "27", input: "mask", classType: "ImageCompositeMasked" } satisfies Binding;
 /** The source video's frames and sound. */
@@ -145,7 +148,7 @@ export async function buildInpaintWorkflow(client: Comfy, options: {
   audio: InpaintAudioMode;
 }): Promise<Workflow> {
   const graph = await loadTemplate("inpaint");
-  assertBindings(graph, [...Object.values(INPAINT_BINDINGS), ...Object.values(INPAINT_MODEL), INPAINT_COMPOSITE, INPAINT_VIDEO,
+  assertBindings(graph, [...Object.values(INPAINT_BINDINGS), ...Object.values(INPAINT_MODEL), INPAINT_SAMPLER, INPAINT_COMPOSITE, INPAINT_VIDEO,
     { node: INPAINT_SOURCE_COMPONENTS, input: "video", classType: "GetVideoComponents" }, { node: INPAINT_OUTPUT, input: "video", classType: "SaveVideo" }]);
   setVideoGeometry(graph, ["30", "31"], "34", options.modelSize, options.size);
   if (options.sol === false) bypassSol(graph, INPAINT_MODEL, [INPAINT_MODEL.guider, INPAINT_MODEL.scheduler]);
@@ -238,7 +241,7 @@ export async function buildAnimateWorkflow(client: Comfy, options: {
   prompt: string; lockIn: number; edgeFreedom: number; seed: number; spectrum?: boolean; sol?: boolean;
 }): Promise<Workflow> {
   const graph = await loadTemplate("animate");
-  assertBindings(graph, [...Object.values(ANIMATE_BINDINGS), ...Object.values(ANIMATE_MODEL)]);
+  assertBindings(graph, [...Object.values(ANIMATE_BINDINGS), ...Object.values(ANIMATE_MODEL), ANIMATE_SAMPLER]);
   setVideoGeometry(graph, ["26", "27", "28"], "29", options.modelSize, options.size);
   if (options.sol === false) bypassSol(graph, ANIMATE_MODEL, [ANIMATE_MODEL.ttm, ANIMATE_MODEL.scheduler]);
   if (options.spectrum) {

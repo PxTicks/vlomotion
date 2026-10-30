@@ -3,7 +3,7 @@ import sharp from "sharp";
 import type { Comfy, Job } from "@comfyorg/sdk";
 import { defaultDescription, parseDescription, removalInstruction } from "@h3-motion/shared";
 import type { IsolateRequest, IsolationResult } from "@h3-motion/shared";
-import { buildDescribeWorkflow, buildIsolateWorkflow, DESCRIBE_OUTPUTS, ISOLATE_OUTPUT } from "../workflows/templates.js";
+import { buildDescribeWorkflow, buildIsolateWorkflow, DESCRIBE_OUTPUTS, ISOLATE_BINDINGS, ISOLATE_OUTPUT } from "../workflows/templates.js";
 import { highlightSubject } from "../media/highlight.js";
 import type { Session, SessionStore } from "../sessions.js";
 import { createManagedJob, failJob, JobCancelled, runWorkflow, throwIfCancelled } from "./runtime.js";
@@ -48,7 +48,8 @@ export function startIsolate(client: Comfy, store: SessionStore, session: Sessio
       const seed = request.seed ?? randomInt(0, 2 ** 48 - 1);
       const workflow = await buildIsolateWorkflow(client, { imagePath: image!.path, maskPath: selection!.path,
         size: image!, instruction, seed });
-      const job = await runWorkflow(client, managed, workflow, { stage: "isolate", message: "Removing the subject and filling the background…", from: 0.2, to: 0.95 });
+      const job = await runWorkflow(client, managed, workflow, { stage: "isolate", message: "Removing the subject and filling the background…", from: 0.2, to: 0.95,
+        sampler: ISOLATE_BINDINGS.seed.node });
       const output = job.getOutputs(ISOLATE_OUTPUT)[0];
       if (!output) throw new Error("Background removal completed without an output image. Try again.");
       const bytes = await output.toBytes({ timeoutMs: 60_000 });

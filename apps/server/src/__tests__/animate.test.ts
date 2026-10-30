@@ -10,8 +10,9 @@ import type { AnimateRequest } from "@h3-motion/shared";
 import { createApp } from "../app.js";
 import { SessionStore } from "../sessions.js";
 import { encodeMask } from "../media/masks.js";
-import { ANIMATE_BINDINGS, ANIMATE_MODEL, ANIMATE_OUTPUT } from "../workflows/templates.js";
-import { stageProgress } from "../jobs/runtime.js";
+import { ANIMATE_BINDINGS, ANIMATE_MODEL, ANIMATE_OUTPUT, ANIMATE_SAMPLER } from "../workflows/templates.js";
+import { comfyLow } from "../comfy.js";
+import { createManagedJob, runWorkflow, stageProgress } from "../jobs/runtime.js";
 import type { ApiGraph } from "../workflows/templates.js";
 
 const roots: string[] = [];
@@ -148,11 +149,33 @@ describe("animate job", () => {
     expect(session.animation).toBeUndefined();
   });
   it("reports sampler steps rather than the proxy's finished-node fraction", () => {
-    // Observed on a real H3 run: 20 of 21 nodes are done (value 0.95) when sampling starts.
-    const base = { kind: "progress" as const, message: null, nodesDone: 20, nodesTotal: 21, currentNode: "21", currentNodeClass: null };
-    expect(stageProgress({ ...base, value: 0.4, step: null, steps: null }, false)).toEqual({ fraction: expect.closeTo(0.02), detail: null });
-    expect(stageProgress({ ...base, value: 0.95, step: 1, steps: 20 }, false)).toEqual({ fraction: 0.05 + 0.9 / 20, detail: "Step 1 of 20." });
-    expect(stageProgress({ ...base, value: 0.95, step: 20, steps: 20 }, true).fraction).toBeCloseTo(0.95);
-    expect(stageProgress({ ...base, value: 1, step: null, steps: null }, true)).toEqual({ fraction: 0.95, detail: "Finishing…" });
+    // The proxy only counts started nodes: 20 of 20 done reads as value 1 just before the sampler starts.
+    const run = { sampler: ANIMATE_SAMPLER.node, nodes: 30 };
+    const base = { kind: "progress" as const, message: null, nodesDone: 20, nodesTotal: 21, currentNode: ANIMATE_SAMPLER.node, currentNodeClass: null };
+    expect(stageProgress({ ...base, value: 1, nodesTotal: 20, currentNode: null, step: null, steps: null }, run, false))
+      .toEqual({ fraction: expect.closeTo(0.05 * 20 / 30), detail: null, sampling: false });
+    expect(stageProgress({ ...base, value: 0.95, step: 1, steps: 20 }, run, false)).toEqual({ fraction: 0.05 + 0.9 / 20, detail: "Step 1 of 20.", sampling: true });
+    expect(stageProgress({ ...base, value: 0.95, step: 20, steps: 20 }, run, true).fraction).toBeCloseTo(0.95);
+    // The decoder's own steps after sampling don't restart the bar.
+    expect(stageProgress({ ...base, value: 0.5, currentNode: "22", step: 1, steps: 8 }, run, true)).toEqual({ fraction: 0.95, detail: "Finishing…", sampling: false });
+  });
+  it("reconnects when the progress stream ends cleanly mid-job", async () => {
+    let finish!: () => void;
+    const finished = new Promise<void>(resolve => { finish = resolve; });
+    const step = (n: number) => ({ event: "progress", data: { value: 0.95, current_node: ANIMATE_SAMPLER.node, step: n, steps: 20 } });
+    const connections = vi.spyOn(comfyLow, "getJobEvents")
+      .mockImplementationOnce(async function* () { yield step(1); })
+      .mockImplementationOnce(async function* () { yield step(15); finish(); });
+    const client = new Comfy();
+    vi.spyOn(client, "submit").mockResolvedValue({ id: "job", urls: {}, status: "running", result: () => finished, cancel: vi.fn() } as unknown as Job);
+    const managed = createManagedJob("Preparing…");
+    const workflow = client.workflows.fromJson({ [ANIMATE_SAMPLER.node]: { class_type: ANIMATE_SAMPLER.classType, inputs: {} } });
+    await runWorkflow(client, managed, workflow, { stage: "animate", message: "Animating.", sampler: ANIMATE_SAMPLER.node });
+    expect(connections).toHaveBeenCalledTimes(2);
+    expect(managed.snapshot.message).toBe("Animating. Step 15 of 20.");
+  });
+  it("counts finished nodes against the whole graph when a workflow has no sampler", () => {
+    const frame = { kind: "progress" as const, value: 1, message: null, nodesDone: 3, nodesTotal: 3, currentNode: null, currentNodeClass: null, step: null, steps: null };
+    expect(stageProgress(frame, { nodes: 6 }, false).fraction).toBe(0.5);
   });
 });

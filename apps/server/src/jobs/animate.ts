@@ -4,7 +4,7 @@ import type { AnimateRequest, AnimationResult } from "@h3-motion/shared";
 import { videoGeometry } from "@h3-motion/shared";
 import { SOL_ENABLED, SPECTRUM_ENABLED } from "../config.js";
 import { inspectVideo } from "../media/video.js";
-import { ANIMATE_OUTPUT, buildAnimateWorkflow } from "../workflows/templates.js";
+import { ANIMATE_OUTPUT, ANIMATE_SAMPLER, buildAnimateWorkflow } from "../workflows/templates.js";
 import type { Session, SessionStore } from "../sessions.js";
 import { createManagedJob, failJob, runWorkflow, throwIfCancelled } from "./runtime.js";
 import type { ManagedJob } from "./runtime.js";
@@ -31,7 +31,8 @@ export function startAnimate(client: Comfy, store: SessionStore, session: Sessio
       const modelSize = videoGeometry(image!, Math.min(size.width, size.height)).generation;
       const workflow = await buildAnimateWorkflow(client, { ...inputs, size, modelSize, frames: request.frames, prompt: request.prompt,
         lockIn: request.lockIn, edgeFreedom: request.edgeFreedom, seed, spectrum: options.spectrum ?? SPECTRUM_ENABLED, sol: options.sol ?? SOL_ENABLED });
-      const job = await runWorkflow(client, managed, workflow, { stage: "animate", message: "Animating with MiniMax H3…", from: 0, to: 0.95 });
+      const job = await runWorkflow(client, managed, workflow, { stage: "animate", message: "Animating with MiniMax H3…", from: 0, to: 0.95,
+        sampler: ANIMATE_SAMPLER.node });
       const output = job.getOutputs(ANIMATE_OUTPUT)[0];
       if (!output) throw new Error("Generation completed without a video. Try again.");
       managed.snapshot.message = "Downloading the video…";

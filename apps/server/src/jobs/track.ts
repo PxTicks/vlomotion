@@ -2,7 +2,7 @@ import type { Comfy, Output } from "@comfyorg/sdk";
 import type { TrackFrame, TrackRequest, TrackResult } from "@h3-motion/shared";
 import { measureMask } from "../media/masks.js";
 import type { Session } from "../sessions.js";
-import { buildTrackWorkflow, TRACK_OUTPUT } from "../workflows/templates.js";
+import { buildTrackWorkflow, TRACK_BINDINGS, TRACK_OUTPUT } from "../workflows/templates.js";
 import { createManagedJob, failJob, runWorkflow, throwIfCancelled } from "./runtime.js";
 import type { ManagedJob } from "./runtime.js";
 
@@ -18,7 +18,8 @@ export function startTrack(client: Comfy, session: Session, request: TrackReques
   managed.done = (async () => {
     try {
       const workflow = await buildTrackWorkflow(client, paths);
-      const job = await runWorkflow(client, managed, workflow, { stage: "track", message: "Tracking the object…", to: 0.9 });
+      const job = await runWorkflow(client, managed, workflow, { stage: "track", message: "Tracking the object…", to: 0.9,
+        sampler: TRACK_BINDINGS.initial.node });
       const outputs = frameOrder(job.getOutputs(TRACK_OUTPUT));
       if (outputs.length !== request.frames) throw new Error(`Tracking returned ${outputs.length} frames instead of ${request.frames}. Try again.`);
       managed.snapshot.message = "Measuring the tracked object…";

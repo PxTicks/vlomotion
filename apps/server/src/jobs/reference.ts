@@ -5,7 +5,7 @@ import { frameInstruction, objectInstruction } from "@h3-motion/shared";
 import type { FrameSize, ReferenceRequest, ReferenceResult } from "@h3-motion/shared";
 import { highlightSubject } from "../media/highlight.js";
 import type { Session, SessionStore } from "../sessions.js";
-import { buildIsolateWorkflow, buildObjectWorkflow, ISOLATE_OUTPUT, OBJECT_OUTPUT } from "../workflows/templates.js";
+import { buildIsolateWorkflow, buildObjectWorkflow, ISOLATE_BINDINGS, ISOLATE_OUTPUT, OBJECT_BINDINGS, OBJECT_OUTPUT } from "../workflows/templates.js";
 import { createManagedJob, failJob, runWorkflow, throwIfCancelled } from "./runtime.js";
 import type { ManagedJob } from "./runtime.js";
 
@@ -32,7 +32,8 @@ export function startReference(client: Comfy, store: SessionStore, session: Sess
           seed, highlightPath: highlight.path });
       }
       const job = await runWorkflow(client, managed, workflow, { stage: "reference",
-        message: object ? "Creating the object…" : "Editing the frame…", to: 0.95 });
+        message: object ? "Creating the object…" : "Editing the frame…", to: 0.95,
+        sampler: (object ? OBJECT_BINDINGS : ISOLATE_BINDINGS).seed.node });
       const output = job.getOutputs(object ? OBJECT_OUTPUT : ISOLATE_OUTPUT)[0];
       if (!output) throw new Error("Qwen Image completed without an image. Try again.");
       const decoded = sharp(await output.toBytes({ timeoutMs: 60_000 }), { limitInputPixels: 16_000_000 });

@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto";
+import { setTimeout as sleep } from "node:timers/promises";
 import { InvalidWorkflow } from "@comfyorg/sdk";
 import type { Comfy, Job, Progress, Workflow } from "@comfyorg/sdk";
 import type { JobSnapshot } from "@h3-motion/shared";
 import { z } from "zod";
+import { comfyLow } from "../comfy.js";
 
 export interface ManagedJob {
   snapshot: JobSnapshot;
@@ -20,25 +22,28 @@ export function createManagedJob(message: string): ManagedJob {
 
 export async function runWorkflow(client: Comfy, managed: ManagedJob, workflow: Workflow, options: {
   stage: NonNullable<JobSnapshot["stage"]>; message: string; from?: number; to?: number;
+  /** The node whose steps are the run's real work, usually the sampler. Without one, progress counts finished nodes. */
+  sampler?: string;
 }): Promise<Job> {
   throwIfCancelled(managed);
   managed.snapshot.stage = options.stage;
   managed.snapshot.message = options.message;
   managed.snapshot.progress = options.from ?? null;
+  const run = { sampler: options.sampler, nodes: Object.keys(workflow.json).length };
   const job = await client.submit(workflow);
   managed.remote = job;
   const streamAbort = new AbortController();
   const events = (async () => {
     let sampled = false;
-    try {
-      for await (const event of job.events(streamAbort.signal)) {
-        if (event.kind !== "progress" || managed.cancelRequested) continue;
-        const stage = stageProgress(event, sampled);
-        sampled ||= event.step != null;
-        managed.snapshot.progress = stage.fraction === null ? null : (options.from ?? 0) + stage.fraction * ((options.to ?? 1) - (options.from ?? 0));
-        managed.snapshot.message = stage.detail ? `${options.message} ${stage.detail}` : options.message;
-      }
-    } catch { /* Polling remains authoritative when SSE drops. */ }
+    for await (const event of progressFrames(job, streamAbort.signal)) {
+      if (managed.cancelRequested) continue;
+      const stage = stageProgress(event, run, sampled);
+      sampled ||= stage.sampling;
+      // The proxy's frames interleave two progress sources, so the bar only moves forwards.
+      const progress = (options.from ?? 0) + stage.fraction * ((options.to ?? 1) - (options.from ?? 0));
+      managed.snapshot.progress = Math.max(managed.snapshot.progress ?? 0, progress);
+      managed.snapshot.message = stage.detail ? `${options.message} ${stage.detail}` : options.message;
+    }
   })();
   try {
     if (managed.cancelRequested) await job.cancel();
@@ -57,17 +62,52 @@ export async function runWorkflow(client: Comfy, managed: ManagedJob, workflow: 
 }
 
 /**
- * The proxy's `value` counts finished nodes, so it reaches ~95% as soon as the sampler (usually the last
- * heavy node) starts. Sampler steps are the real work: loading counts as the first 5%, steps fill the
- * middle, and anything after the sampler is finishing.
+ * The job's progress frames, read off its event stream directly. `job.events()` drops any frame whose `value` is below the
+ * last one, but the proxy's value only counts nodes that have started: it reads 1 whenever the running node finishes, so every
+ * later sampler step looked like a regression and was dropped. The proxy can also end a stream cleanly mid-job (an upstream
+ * outage), so it reconnects until a terminal status arrives or `signal` aborts; polling stays authoritative for the result.
  */
-export function stageProgress(event: Progress, sampled: boolean): { fraction: number | null; detail: string | null } {
-  if (event.step != null && event.steps) {
-    return { fraction: 0.05 + 0.9 * Math.min(1, event.step / event.steps), detail: `Step ${event.step} of ${event.steps}.` };
+async function* progressFrames(job: Job, signal: AbortSignal): AsyncGenerator<Progress> {
+  while (!signal.aborted) {
+    try {
+      for await (const raw of comfyLow.getJobEvents(job.urls.events || job.id, { signal })) {
+        if (raw.event === "progress") yield progressFrame(raw.data);
+        if (raw.event === "status" && TERMINAL_STATUSES.has(String(raw.data.status))) return;
+      }
+    } catch { /* Reconnect below. */ }
+    await sleep(1_000, undefined, { signal }).catch(() => undefined);
   }
-  if (sampled) return { fraction: 0.95, detail: "Finishing…" };
-  const value = Number.isFinite(event.value) ? Math.max(0, Math.min(1, event.value)) : null;
-  return { fraction: value === null ? null : value * 0.05, detail: event.message };
+}
+/** The SDK's terminal job states, which it doesn't export. */
+const TERMINAL_STATUSES = new Set(["succeeded", "canceled", "failed", "expired"]);
+
+const progressFrameSchema = z.object({
+  value: z.number().catch(0), message: z.string().nullish().catch(null), nodes_done: z.number().nullish().catch(null),
+  nodes_total: z.number().nullish().catch(null), current_node: z.string().nullish().catch(null),
+  step: z.number().nullish().catch(null), steps: z.number().nullish().catch(null),
+});
+
+function progressFrame(data: Record<string, unknown>): Progress {
+  const frame = progressFrameSchema.parse(data);
+  return { kind: "progress", value: frame.value, message: frame.message ?? null, nodesDone: frame.nodes_done ?? null,
+    nodesTotal: frame.nodes_total ?? null, currentNode: frame.current_node ?? null, currentNodeClass: null,
+    step: frame.step ?? null, steps: frame.steps ?? null };
+}
+
+/**
+ * Where a frame puts the stage, from 0 to 1. Sampler steps are the real work: the nodes before the sampler count as the first
+ * 5%, its steps fill the middle, and anything after it is finishing. Other nodes can report steps too (video decoders do), so
+ * only the sampler's count. The proxy's `value` and `nodes_total` only cover nodes that have started, so finished nodes are
+ * measured against the whole graph instead.
+ */
+export function stageProgress(event: Progress, run: { sampler?: string; nodes: number }, sampled: boolean):
+  { fraction: number; detail: string | null; sampling: boolean } {
+  if (run.sampler !== undefined && event.currentNode === run.sampler && event.step != null && event.steps) {
+    return { fraction: 0.05 + 0.9 * Math.min(1, event.step / event.steps), detail: `Step ${event.step} of ${event.steps}.`, sampling: true };
+  }
+  if (sampled) return { fraction: 0.95, detail: "Finishing…", sampling: false };
+  const done = run.nodes ? Math.min(1, (event.nodesDone ?? 0) / run.nodes) : 0;
+  return { fraction: run.sampler === undefined ? done : done * 0.05, detail: event.message, sampling: false };
 }
 
 const validationNodeSchema = z.object({
