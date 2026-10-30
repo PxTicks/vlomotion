@@ -18,13 +18,15 @@ partner nodes or closed APIs.
   regenerates the masked region and the app composites it back into the
   source, keeping, referencing or replacing the original sound.
 
+See [docs/usage.md](docs/usage.md) for the full walkthrough and
+[docs/how-it-works.md](docs/how-it-works.md) for the pipeline.
+
+## Screenshots
+
 <p>
   <img src="docs/images/select.png" alt="Select step: a gloved hand picked out with SAM 3.1" width="49%">
   <img src="docs/images/move.png" alt="Move step: the hand dragged along a keyframed path toward a keypad" width="49%">
 </p>
-
-See [docs/usage.md](docs/usage.md) for the full walkthrough and
-[docs/how-it-works.md](docs/how-it-works.md) for the pipeline.
 
 ## Requirements
 
@@ -93,9 +95,8 @@ isn't already running. It never launches ComfyUI or downloads models. While it
 runs, `npm run check-env` in another terminal checks the proxy and ComfyUI's
 nodes and models.
 
-To use a remote GPU, run `./run_remote.sh <URL>` with the ComfyUI or Paperspace
-URL instead. Configuration in `.env` is optional; copy `.env.example` to
-override the defaults. See [docs/development.md](docs/development.md) for the
+Configuration in `.env` is optional; copy `.env.example` to override the
+defaults. See [docs/development.md](docs/development.md) for the
 launcher, ports, a manually run proxy, tests and spikes.
 
 ## License
@@ -115,4 +116,3 @@ and model weights keep their own licences. Read each model card before use:
 The app is independent and is not an official Comfy product. SDK integration
 follows the
 [official TypeScript SDK](https://github.com/Comfy-Org/comfy-typescript-sdk).
-The original design notes are in [PLAN.md](PLAN.md).
