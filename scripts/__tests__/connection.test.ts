@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { assertMatchingUpstream, assertProxyCanStart, DEFAULT_COMFY_URL, findComfyUi, localProxyAddress, probeComfy, probeProxy, resolveComfyUi, serviceUrl, windowsGateway } from "../lib/connection.js";
+import { assertMatchingUpstream, assertProxyCanStart, DEFAULT_COMFY_URL, findComfyUi, isLocalService, localProxyAddress, probeComfy, probeProxy, resolveComfyUi, serviceUrl, windowsGateway } from "../lib/connection.js";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -29,6 +29,11 @@ describe("automatic ComfyUI connection", () => {
     expect(windowsGateway("default dev eth2 proto kernel\ndefault via 172.22.0.1 dev eth0")).toBe("172.22.0.1");
     expect(windowsGateway("default dev eth2 proto kernel")).toBeUndefined();
     expect(windowsGateway("default via not-an-address dev eth0")).toBeUndefined();
+  });
+  it("treats only loopback services as local", () => {
+    expect(isLocalService("http://127.0.0.1:8189")).toBe(true);
+    expect(isLocalService("localhost:8191")).toBe(true);
+    expect(isLocalService("https://my-deployment.run.comfy.app")).toBe(false);
   });
   it("starts proxies only on a local HTTP address and supports a custom port", () => {
     expect(localProxyAddress("http://localhost:8191")).toEqual({ host: "127.0.0.1", port: 8191 });

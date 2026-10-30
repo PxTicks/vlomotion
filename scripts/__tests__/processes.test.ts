@@ -1,11 +1,11 @@
 import { spawn } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { assertLauncherPlatform } from "../lib/processes.js";
+import { findExecutable, npmCommand } from "../lib/processes.js";
 
 interface Event { event: string; pid: number; group?: number }
 interface Fixture { child: ChildProcess; root: string; marker: string; exited: Promise<{ code: number | null; signal: NodeJS.Signals | null }> }
@@ -79,8 +79,28 @@ describe.skipIf(process.platform === "win32")("owned process group cleanup", () 
   }, 15_000);
 });
 
-it("explicitly rejects a native Windows launcher while allowing WSL/Linux/macOS", () => {
-  expect(() => assertLauncherPlatform("win32")).toThrow("Run the dev launcher in WSL");
-  expect(() => assertLauncherPlatform("linux")).not.toThrow();
-  expect(() => assertLauncherPlatform("darwin")).not.toThrow();
+describe("launcher commands", () => {
+  async function pathFixture(files: string[], test: (root: string) => Promise<void>) {
+    const root = await mkdtemp(join(tmpdir(), "h3m-path-"));
+    try {
+      for (const file of files) {
+        await mkdir(join(root, file, ".."), { recursive: true });
+        await writeFile(join(root, file), ""); await chmod(join(root, file), 0o755);
+      }
+      await test(root);
+    } finally { await rm(root, { recursive: true, force: true }); }
+  }
+  // A POSIX PATH splits on ":", which would also split a Windows drive letter.
+  it.skipIf(process.platform === "win32")("finds executables on a POSIX PATH", () => pathFixture(["bin/uv"], async root => {
+    expect(await findExecutable("uv", `${join(root, "missing")}:${join(root, "bin")}`, "linux")).toBe(join(root, "bin", "uv"));
+  }));
+  it("requires .exe on a Windows PATH", () => pathFixture(["posix/uv", "windows/uv.exe", "windows/comfy-api-proxy.cmd"], async root => {
+    const [posix, windows] = [join(root, "posix"), join(root, "windows")];
+    expect(await findExecutable("uv", `${posix};${windows}`, "win32")).toBe(join(windows, "uv.exe"));
+    expect(await findExecutable("comfy-api-proxy", windows, "win32")).toBeUndefined();
+  }));
+  it("runs npm's CLI script through Node when npm provides it", () => {
+    expect(npmCommand(["run", "dev:app"], "/usr/lib/node_modules/npm/bin/npm-cli.js")).toEqual([process.execPath, ["/usr/lib/node_modules/npm/bin/npm-cli.js", "run", "dev:app"]]);
+    expect(npmCommand(["run", "dev:app"], "")).toEqual(["npm", ["run", "dev:app"]]);
+  });
 });

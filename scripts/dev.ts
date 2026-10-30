@@ -1,25 +1,14 @@
-import { access } from "node:fs/promises";
-import { constants } from "node:fs";
-import { delimiter, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createConnection } from "node:net";
 import { setTimeout as delay } from "node:timers/promises";
-import { assertProxyCanStart, DEFAULT_PROXY_URL, localProxyAddress, probeProxy, resolveComfyUi, serviceUrl } from "./lib/connection.js";
-import { assertLauncherPlatform, installShutdownHandlers, ProcessSupervisor } from "./lib/processes.js";
+import { assertProxyCanStart, DEFAULT_PROXY_URL, isLocalService, localProxyAddress, probeProxy, resolveComfyUi, serviceUrl } from "./lib/connection.js";
+import { findExecutable, installShutdownHandlers, npmCommand, ProcessSupervisor } from "./lib/processes.js";
 import type { OwnedProcess } from "./lib/processes.js";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const abort = new AbortController();
 let supervisor: ProcessSupervisor | undefined;
 let removeSignalHandlers: (() => void) | undefined;
-
-async function executable(name: string): Promise<string | undefined> {
-  for (const directory of (process.env.PATH ?? "").split(delimiter)) {
-    const path = join(directory, name);
-    try { await access(path, constants.X_OK); return path; } catch { /* Try the next PATH entry. */ }
-  }
-  return undefined;
-}
 
 async function portOccupied(host: string, port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -47,9 +36,9 @@ async function waitForProxy(proxy: OwnedProcess, url: string) {
 }
 
 try {
-  assertLauncherPlatform();
   supervisor = new ProcessSupervisor(root);
   removeSignalHandlers = installShutdownHandlers(abort, supervisor);
+  await supervisor.ready;
   const baseUrl = serviceUrl(process.env.COMFY_BASE_URL ?? DEFAULT_PROXY_URL);
   console.info("[h3-motion] Looking for an existing API proxy…");
   const existing = await probeProxy(baseUrl, process.env.COMFY_API_KEY, abort.signal);
@@ -58,6 +47,9 @@ try {
   if (existing) {
     comfyUrl = await resolveComfyUi({ proxyUrl: baseUrl, proxyHealth: existing, explicitUrl: process.env.COMFY_UI_URL, signal: abort.signal });
     console.info(`[h3-motion] Reusing API proxy: ${baseUrl}`);
+  } else if (!isLocalService(baseUrl)) {
+    // A hosted deployment may not answer health checks until a worker starts; the app reports it as unavailable meanwhile.
+    console.warn(`[h3-motion] ${baseUrl} did not answer the API health check. Starting the app anyway, since a hosted deployment can take a while to start. Check COMFY_BASE_URL and COMFY_API_KEY if it stays unavailable.`);
   } else {
     assertProxyCanStart(process.env.COMFY_API_KEY);
     const address = localProxyAddress(baseUrl);
@@ -68,9 +60,9 @@ try {
     comfyUrl = await resolveComfyUi({ proxyUrl: baseUrl, explicitUrl: process.env.COMFY_UI_URL, signal: abort.signal });
     if (!comfyUrl) throw new Error("Set COMFY_UI_URL to a reachable ComfyUI address.");
     console.info(`[h3-motion] Found ComfyUI: ${comfyUrl}`);
-    const installed = await executable("comfy-api-proxy");
-    const uv = installed ? undefined : await executable("uv");
-    if (!installed && !uv) throw new Error("Install uv or comfy-api-proxy in WSL, then rerun npm run dev. ComfyUI itself is already reachable.");
+    const installed = await findExecutable("comfy-api-proxy");
+    const uv = installed ? undefined : await findExecutable("uv");
+    if (!installed && !uv) throw new Error("Install uv or comfy-api-proxy, then rerun npm run dev. ComfyUI itself is already reachable.");
     abort.signal.throwIfAborted();
     console.info("[h3-motion] Starting local API proxy (uv downloads it on first use)…");
     startedProxy = supervisor.launch(installed ?? uv!, [
@@ -84,7 +76,7 @@ try {
   abort.signal.throwIfAborted();
   const env = { ...process.env, COMFY_BASE_URL: baseUrl, ...(comfyUrl ? { COMFY_UI_URL: comfyUrl } : {}) };
   console.info("[h3-motion] Starting the app. Ctrl+C stops the app and any proxy started by this launcher.");
-  const app = supervisor.launch("npm", ["run", "dev:app"], env);
+  const app = supervisor.launch(...npmCommand(["run", "dev:app"]), env);
   const result = await Promise.race([
     app.exited.then(exit => ({ source: "app", ...exit })),
     ...(startedProxy ? [startedProxy.exited.then(exit => ({ source: "proxy", ...exit }))] : []),

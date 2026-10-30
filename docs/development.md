@@ -3,8 +3,12 @@
 Requires Node **22.12+** (or 24+) and npm. Start ComfyUI yourself, including on
 Windows when developing in WSL. Install `uv` in WSL, or put `comfy-api-proxy`
 on your PATH, so the launcher can manage the API proxy.
-The automatic launcher supports WSL, Linux and macOS. Run it inside WSL when
-using Windows; native Windows process supervision is not supported.
+The automatic launcher supports WSL, Linux and macOS. It also runs on native
+Windows, which is **not yet tested** end to end. There it looks for `uv.exe`
+or `comfy-api-proxy.exe`. Windows has no process groups, so a PowerShell helper
+puts the launcher in a job object, which every later descendant joins. Shutdown
+waits the same grace period, then ends everything left in the job. If the
+launcher dies, the job ends its processes when the helper closes.
 
 ```sh
 npm install
@@ -35,6 +39,10 @@ For a custom setup:
 COMFY_UI_URL=http://your-windows-host:8188
 COMFY_BASE_URL=http://127.0.0.1:8189
 ```
+
+A remote `COMFY_BASE_URL`, such as a hosted Comfy deployment, is used directly:
+the launcher starts no proxy, looks for no local ComfyUI, and only warns if
+the health check fails (not yet tested).
 
 Use `npm run dev:app` to launch just the app, including when developing with
 ComfyUI offline or managing the proxy separately.

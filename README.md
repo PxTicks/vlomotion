@@ -39,8 +39,8 @@ See [docs/usage.md](docs/usage.md) for the full walkthrough and
 - [`uv`](https://docs.astral.sh/uv/), or
   [`comfy-api-proxy`](https://github.com/Comfy-Org/comfy-api-proxy) 0.1.6 or
   later on your PATH. The launcher uses it to start the API proxy.
-- WSL, Linux or macOS for the launcher. On Windows, run ComfyUI natively and
-  the app inside WSL.
+- Linux, macOS, WSL or Windows for the launcher. Native Windows is **not yet
+  tested**; see [Windows](#windows).
 
 ## Setup
 
@@ -98,6 +98,24 @@ nodes and models.
 Configuration in `.env` is optional; copy `.env.example` to override the
 defaults. See [docs/development.md](docs/development.md) for the
 launcher, ports, a manually run proxy, tests and spikes.
+
+### Windows
+
+ComfyUI runs natively on Windows. The app can run in either of two places:
+
+- **WSL (tested).** Clone the repo into the WSL filesystem, not `/mnt/c`, and
+  install Node and `uv` inside WSL. The launcher reaches Windows ComfyUI at
+  `127.0.0.1:8188` with
+  [mirrored networking](https://learn.microsoft.com/windows/wsl/networking#mirrored-mode-networking),
+  or through the Windows gateway in NAT mode if ComfyUI is started with
+  `--listen`.
+- **Native Windows (not yet tested).** Install
+  [Node.js 22.12+](https://nodejs.org/) and
+  [`uv`](https://docs.astral.sh/uv/getting-started/installation/), then run
+  `npm install` and `npm run dev` from PowerShell in the repository. The
+  launcher looks for `uv.exe` or `comfy-api-proxy.exe` on `PATH`. Don't share
+  one checkout between WSL and Windows, because `npm install` fetches
+  platform-specific packages.
 
 ## License
 

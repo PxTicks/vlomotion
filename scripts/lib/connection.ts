@@ -77,6 +77,10 @@ export async function findComfyUi(options: {
   throw new Error(`No running ComfyUI found at ${candidates.join(" or ")}. Start ComfyUI on Windows, or set COMFY_UI_URL in .env to its reachable address. This launcher never starts ComfyUI.`);
 }
 
+export function isLocalService(value: string): boolean {
+  return ["localhost", "127.0.0.1"].includes(new URL(serviceUrl(value)).hostname);
+}
+
 export function localProxyAddress(value: string): { host: string; port: number } {
   const url = new URL(serviceUrl(value));
   if (url.protocol !== "http:" || !["localhost", "127.0.0.1"].includes(url.hostname) || url.pathname !== "/") {
@@ -111,7 +115,7 @@ export async function resolveComfyUi(options: {
   signal?: AbortSignal;
 }): Promise<string | undefined> {
   if (options.proxyHealth) assertMatchingUpstream(options.explicitUrl, options.proxyHealth);
-  const local = ["localhost", "127.0.0.1"].includes(new URL(serviceUrl(options.proxyUrl)).hostname);
+  const local = isLocalService(options.proxyUrl);
   // A remote proxy's loopback upstream belongs to its host, not this WSL instance.
   if (options.proxyHealth && !local && !options.explicitUrl) return undefined;
   return findComfyUi({
